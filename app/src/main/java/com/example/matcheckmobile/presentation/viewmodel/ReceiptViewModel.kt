@@ -18,7 +18,6 @@ data class OperationFormState(
     val quantityText: String = "",
     val unit: String = "шт",
     val vehicleNumber: String = "",
-    val driverName: String = "",
     val comment: String = "",
     val pendingPhotoPaths: List<String> = emptyList(),
     val isSubmitting: Boolean = false,
@@ -38,7 +37,6 @@ abstract class OperationFormViewModel(
     fun setQuantity(value: String) = _state.update { it.copy(quantityText = value) }
     fun setUnit(value: String) = _state.update { it.copy(unit = value) }
     fun setVehicleNumber(value: String) = _state.update { it.copy(vehicleNumber = value) }
-    fun setDriverName(value: String) = _state.update { it.copy(driverName = value) }
     fun setComment(value: String) = _state.update { it.copy(comment = value) }
     fun addPhotoPath(path: String) = _state.update { it.copy(pendingPhotoPaths = it.pendingPhotoPaths + path) }
     fun removePhotoPath(path: String) = _state.update { it.copy(pendingPhotoPaths = it.pendingPhotoPaths - path) }
@@ -72,7 +70,7 @@ abstract class OperationFormViewModel(
                 userId = userId,
                 deviceId = deviceId,
                 vehicleNumber = current.vehicleNumber.trim().ifEmpty { null },
-                driverName = current.driverName.trim().ifEmpty { null },
+                driverName = null,
                 comment = current.comment.trim().ifEmpty { null },
             )
             current.pendingPhotoPaths.forEach { path ->
