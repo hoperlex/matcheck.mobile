@@ -93,6 +93,41 @@ fun OperationFormScreen(
                 },
             )
         },
+        bottomBar = {
+            androidx.compose.material3.Surface(
+                tonalElevation = 3.dp,
+                shadowElevation = 8.dp,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .widthIn(max = FormMaxWidth)
+                            .fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        state.errorMessage?.let {
+                            Text(it, color = MaterialTheme.colorScheme.error)
+                        }
+                        Button(
+                            onClick = viewModel::submit,
+                            enabled = !state.isSubmitting,
+                            modifier = Modifier.fillMaxWidth().height(72.dp),
+                        ) {
+                            Text(
+                                if (state.isSubmitting) "Сохранение..." else "Сохранить",
+                                style = MaterialTheme.typography.titleLarge,
+                            )
+                        }
+                    }
+                }
+            }
+        },
     ) { padding ->
         BoxWithConstraints(
             modifier = Modifier
@@ -193,19 +228,6 @@ fun OperationFormScreen(
                                 }
                             }
                         }
-                    }
-                    state.errorMessage?.let {
-                        Text(it, color = MaterialTheme.colorScheme.error)
-                    }
-                    Button(
-                        onClick = viewModel::submit,
-                        enabled = !state.isSubmitting,
-                        modifier = Modifier.fillMaxWidth().height(72.dp),
-                    ) {
-                        Text(
-                            if (state.isSubmitting) "Сохранение..." else "Сохранить",
-                            style = MaterialTheme.typography.titleLarge,
-                        )
                     }
                 }
             }

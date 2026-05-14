@@ -68,7 +68,7 @@ fun MainScreen(
                             onLongClick = { showAdminSheet = true },
                         ),
                     ) {
-                        Text("MatCheck КПП")
+                        Text("matcheck")
                     }
                 },
             )
