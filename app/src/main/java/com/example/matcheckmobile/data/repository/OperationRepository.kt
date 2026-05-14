@@ -22,10 +22,10 @@ class OperationRepository(
 
     fun observeById(id: String): Flow<MaterialOperationEntity?> = operationDao.observeById(id)
 
-    fun observeUnsyncedCount(): Flow<Int> = operationDao.observeCountBySyncStatuses(UNSYNCED)
+    fun observeUnsyncedCount(): Flow<Int> = operationDao.observeCountFreeBySyncStatuses(UNSYNCED)
 
     fun observeUnsynced(): Flow<List<MaterialOperationEntity>> =
-        operationDao.observeBySyncStatuses(UNSYNCED)
+        operationDao.observeFreeBySyncStatuses(UNSYNCED)
 
     fun observeAttachments(operationId: String): Flow<List<OperationAttachmentEntity>> =
         attachmentDao.observeByOperation(operationId)
@@ -64,6 +64,7 @@ class OperationRepository(
             syncStatus = SyncStatus.PENDING,
             lastSyncError = null,
             idempotencyKey = UUID.randomUUID().toString(),
+            sessionLocalId = null,
         )
         operationDao.upsert(operation)
         syncQueueDao.upsert(

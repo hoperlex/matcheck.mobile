@@ -53,6 +53,7 @@ fun MainScreen(
     onJournal: () -> Unit,
     onSyncQueue: () -> Unit,
     onSettings: () -> Unit,
+    onDocuments: () -> Unit,
 ) {
     val vm: MainStatusViewModel = matcheckViewModel()
     val status by vm.status.collectAsStateWithLifecycle()
@@ -100,6 +101,7 @@ fun MainScreen(
                 ) {
                     StatusBanner(
                         pendingOps = status.pendingOperations,
+                        pendingSessions = status.pendingSessions,
                         pendingAttachments = status.pendingAttachments,
                     )
 
@@ -169,6 +171,13 @@ fun MainScreen(
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
                 )
                 ListItem(
+                    headlineContent = { Text("Документы") },
+                    modifier = Modifier.combinedClickable(
+                        onClick = { dismissAnd(onDocuments) },
+                        onLongClick = {},
+                    ),
+                )
+                ListItem(
                     headlineContent = { Text("Журнал операций") },
                     modifier = Modifier.combinedClickable(
                         onClick = { dismissAnd(onJournal) },
@@ -178,7 +187,7 @@ fun MainScreen(
                 ListItem(
                     headlineContent = { Text("Очередь синхронизации") },
                     supportingContent = {
-                        val total = status.pendingOperations + status.pendingAttachments
+                        val total = status.totalPending
                         if (total > 0) Text("Ожидают: $total")
                     },
                     modifier = Modifier.combinedClickable(
@@ -199,8 +208,8 @@ fun MainScreen(
 }
 
 @Composable
-private fun StatusBanner(pendingOps: Int, pendingAttachments: Int) {
-    val total = pendingOps + pendingAttachments
+private fun StatusBanner(pendingOps: Int, pendingSessions: Int, pendingAttachments: Int) {
+    val total = pendingOps + pendingSessions + pendingAttachments
     val container = if (total == 0)
         MaterialTheme.colorScheme.primaryContainer
     else
@@ -219,7 +228,7 @@ private fun StatusBanner(pendingOps: Int, pendingAttachments: Int) {
             text = if (total == 0)
                 "Все данные синхронизированы"
             else
-                "Ожидают отправки: операций $pendingOps, фото $pendingAttachments",
+                "Ожидают отправки: приёмок $pendingSessions, операций $pendingOps, фото $pendingAttachments",
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier
                 .fillMaxWidth()

@@ -22,14 +22,32 @@ interface MaterialOperationDao {
     @Query("SELECT * FROM material_operations ORDER BY createdAtLocal DESC")
     fun observeAll(): Flow<List<MaterialOperationEntity>>
 
-    @Query("SELECT * FROM material_operations WHERE syncStatus IN (:statuses) ORDER BY createdAtLocal ASC")
-    suspend fun findBySyncStatuses(statuses: List<SyncStatus>): List<MaterialOperationEntity>
+    @Query(
+        "SELECT * FROM material_operations WHERE syncStatus IN (:statuses) " +
+            "AND sessionLocalId IS NULL ORDER BY createdAtLocal ASC"
+    )
+    suspend fun findFreeBySyncStatuses(statuses: List<SyncStatus>): List<MaterialOperationEntity>
 
-    @Query("SELECT * FROM material_operations WHERE syncStatus IN (:statuses) ORDER BY createdAtLocal DESC")
-    fun observeBySyncStatuses(statuses: List<SyncStatus>): Flow<List<MaterialOperationEntity>>
+    @Query("SELECT * FROM material_operations WHERE sessionLocalId = :sessionId ORDER BY createdAtLocal")
+    suspend fun findBySession(sessionId: String): List<MaterialOperationEntity>
 
-    @Query("SELECT COUNT(*) FROM material_operations WHERE syncStatus IN (:statuses)")
-    fun observeCountBySyncStatuses(statuses: List<SyncStatus>): Flow<Int>
+    @Query("SELECT * FROM material_operations WHERE sessionLocalId = :sessionId ORDER BY createdAtLocal")
+    fun observeBySession(sessionId: String): Flow<List<MaterialOperationEntity>>
+
+    @Query("DELETE FROM material_operations WHERE localId = :id")
+    suspend fun deleteById(id: String)
+
+    @Query(
+        "SELECT * FROM material_operations WHERE syncStatus IN (:statuses) " +
+            "AND sessionLocalId IS NULL ORDER BY createdAtLocal DESC"
+    )
+    fun observeFreeBySyncStatuses(statuses: List<SyncStatus>): Flow<List<MaterialOperationEntity>>
+
+    @Query(
+        "SELECT COUNT(*) FROM material_operations WHERE syncStatus IN (:statuses) " +
+            "AND sessionLocalId IS NULL"
+    )
+    fun observeCountFreeBySyncStatuses(statuses: List<SyncStatus>): Flow<Int>
 
     @Query("UPDATE material_operations SET syncStatus = :status, lastSyncError = :error WHERE localId = :id")
     suspend fun updateSyncStatus(id: String, status: SyncStatus, error: String?)

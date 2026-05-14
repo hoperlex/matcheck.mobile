@@ -1,4 +1,4 @@
-package com.example.matcheckmobile.presentation.screens.journal
+package com.example.matcheckmobile.presentation.screens.documents
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -28,24 +28,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.matcheckmobile.data.local.entity.MaterialOperationEntity
-import com.example.matcheckmobile.domain.model.OperationType
-import com.example.matcheckmobile.domain.model.SyncStatus
-import com.example.matcheckmobile.presentation.viewmodel.JournalViewModel
+import com.example.matcheckmobile.presentation.viewmodel.DocumentRow
+import com.example.matcheckmobile.presentation.viewmodel.DocumentsViewModel
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+private val ContentMaxWidth = 800.dp
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun JournalScreen(onBack: () -> Unit, onOpen: (String) -> Unit) {
-    val vm: JournalViewModel = matcheckViewModel()
-    val items by vm.operations.collectAsStateWithLifecycle()
+fun DocumentsScreen(onBack: () -> Unit, onOpen: (String) -> Unit) {
+    val vm: DocumentsViewModel = matcheckViewModel()
+    val rows by vm.rows.collectAsStateWithLifecycle()
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Журнал операций") },
+                title = { Text("Документы") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
@@ -59,28 +59,28 @@ fun JournalScreen(onBack: () -> Unit, onOpen: (String) -> Unit) {
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            val outer = if (maxWidth >= 600.dp) 32.dp else 16.dp
+            val outerPadding = if (maxWidth >= 600.dp) 32.dp else 16.dp
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(outer),
+                    .padding(outerPadding),
                 contentAlignment = Alignment.TopCenter,
             ) {
-                if (items.isEmpty()) {
+                if (rows.isEmpty()) {
                     Text(
-                        "Журнал пуст",
+                        "Документов пока нет",
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(top = 32.dp),
                     )
                 } else {
                     LazyColumn(
                         modifier = Modifier
-                            .widthIn(max = 800.dp)
+                            .widthIn(max = ContentMaxWidth)
                             .fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        items(items, key = { it.localId }) { op ->
-                            OperationRow(op, onClick = { onOpen(op.localId) })
+                        items(rows, key = { it.document.localId }) { row ->
+                            DocumentCard(row, onClick = { onOpen(row.document.localId) })
                         }
                     }
                 }
@@ -90,52 +90,28 @@ fun JournalScreen(onBack: () -> Unit, onOpen: (String) -> Unit) {
 }
 
 @Composable
-private fun OperationRow(op: MaterialOperationEntity, onClick: () -> Unit) {
-    val df = remember { SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()) }
+private fun DocumentCard(row: DocumentRow, onClick: () -> Unit) {
+    val df = remember { SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()) }
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() },
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
+        Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                text = "${typeLabel(op.type)} · ${op.materialNameRaw}",
+                text = "УПД ${row.document.docNumber ?: "—"}",
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
-                text = "${formatQty(op.quantity)} ${op.unit}" +
-                    (op.vehicleNumber?.let { " · $it" } ?: ""),
+                text = row.supplierName ?: "Поставщик не указан",
                 style = MaterialTheme.typography.bodyMedium,
             )
+            val date = row.document.docDate?.let { df.format(Date(it)) } ?: "—"
+            val sum = row.document.totalSum?.let { "%.2f ₽".format(it) } ?: "—"
             Text(
-                text = df.format(Date(op.createdAtLocal)) + " · " + statusLabel(op.syncStatus),
+                text = "$date · $sum",
                 style = MaterialTheme.typography.bodySmall,
             )
-            if (op.sessionLocalId != null) {
-                Text(
-                    text = "в составе приёмки",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
         }
     }
 }
-
-internal fun typeLabel(t: OperationType): String = when (t) {
-    OperationType.RECEIPT -> "Приёмка"
-    OperationType.DISPATCH -> "Выезд"
-    OperationType.CORRECTION -> "Корректировка"
-}
-
-internal fun statusLabel(s: SyncStatus): String = when (s) {
-    SyncStatus.DRAFT -> "черновик"
-    SyncStatus.PENDING -> "ожидает"
-    SyncStatus.SYNCING -> "отправляется"
-    SyncStatus.SYNCED -> "синхронизировано"
-    SyncStatus.ERROR -> "ошибка"
-    SyncStatus.NEEDS_REVIEW -> "проверка"
-}
-
-internal fun formatQty(q: Double): String =
-    if (q % 1.0 == 0.0) q.toLong().toString() else q.toString()

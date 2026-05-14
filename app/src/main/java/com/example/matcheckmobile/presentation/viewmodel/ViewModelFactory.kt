@@ -1,12 +1,12 @@
 package com.example.matcheckmobile.presentation.viewmodel
 
+import androidx.compose.runtime.Composable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.createSavedStateHandle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
-import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.compose.runtime.Composable
 import com.example.matcheckmobile.MatcheckApplication
 
 object MatcheckViewModelFactories {
@@ -38,6 +38,18 @@ object MatcheckViewModelFactories {
         initializer {
             val app = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as MatcheckApplication
             OperationDetailsViewModel(app.container, createSavedStateHandle())
+        }
+        initializer {
+            val app = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as MatcheckApplication
+            DocumentsViewModel(app.container)
+        }
+        initializer {
+            val app = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as MatcheckApplication
+            DocumentDetailsViewModel(app.container, createSavedStateHandle())
+        }
+        initializer {
+            val app = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as MatcheckApplication
+            ReceiptSessionViewModel(app.container)
         }
     }
 }

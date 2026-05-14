@@ -84,6 +84,13 @@ fun OperationDetailsScreen(onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(typeLabel(current.type), style = MaterialTheme.typography.headlineSmall)
+            if (current.sessionLocalId != null) {
+                Text(
+                    "в составе приёмки",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
             Text(current.materialNameRaw, style = MaterialTheme.typography.titleMedium)
             Text("${current.quantity} ${current.unit}", style = MaterialTheme.typography.bodyLarge)
             current.vehicleNumber?.let { Text("Машина: $it") }

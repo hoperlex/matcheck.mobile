@@ -7,6 +7,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.matcheckmobile.presentation.screens.dispatch.DispatchScreen
+import com.example.matcheckmobile.presentation.screens.documents.DocumentDetailsScreen
+import com.example.matcheckmobile.presentation.screens.documents.DocumentsScreen
 import com.example.matcheckmobile.presentation.screens.details.OperationDetailsScreen
 import com.example.matcheckmobile.presentation.screens.journal.JournalScreen
 import com.example.matcheckmobile.presentation.screens.login.LoginScreen
@@ -33,6 +35,7 @@ fun MatcheckNavHost() {
                 onJournal = { navController.navigate(Routes.JOURNAL) },
                 onSyncQueue = { navController.navigate(Routes.SYNC_QUEUE) },
                 onSettings = { navController.navigate(Routes.SETTINGS) },
+                onDocuments = { navController.navigate(Routes.DOCUMENTS) },
             )
         }
         composable(Routes.RECEIPT) {
@@ -62,11 +65,23 @@ fun MatcheckNavHost() {
         composable(Routes.SETTINGS) {
             SettingsScreen(onBack = { navController.popBackStack() })
         }
+        composable(Routes.DOCUMENTS) {
+            DocumentsScreen(
+                onBack = { navController.popBackStack() },
+                onOpen = { id -> navController.navigate(Routes.documentDetails(id)) },
+            )
+        }
         composable(
             route = Routes.OPERATION_DETAILS,
             arguments = listOf(navArgument(Routes.ARG_OPERATION_ID) { type = NavType.StringType }),
         ) {
             OperationDetailsScreen(onBack = { navController.popBackStack() })
+        }
+        composable(
+            route = Routes.DOCUMENT_DETAILS,
+            arguments = listOf(navArgument(Routes.ARG_DOCUMENT_ID) { type = NavType.StringType }),
+        ) {
+            DocumentDetailsScreen(onBack = { navController.popBackStack() })
         }
     }
 }

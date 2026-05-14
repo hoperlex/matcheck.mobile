@@ -21,5 +21,6 @@ data class SyncQueueEntity(
     companion object {
         const val TARGET_OPERATION = "OPERATION"
         const val TARGET_ATTACHMENT = "ATTACHMENT"
+        const val TARGET_SESSION = "SESSION"
     }
 }

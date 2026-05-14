@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.matcheckmobile.data.local.entity.MaterialOperationEntity
 import com.example.matcheckmobile.data.local.entity.OperationAttachmentEntity
+import com.example.matcheckmobile.data.local.entity.ReceiptSessionEntity
+import com.example.matcheckmobile.data.repository.OperationRepository
 import com.example.matcheckmobile.di.AppContainer
 import com.example.matcheckmobile.sync.SyncScheduler
 import kotlinx.coroutines.flow.SharingStarted
@@ -11,6 +13,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 
 class SyncQueueViewModel(private val container: AppContainer) : ViewModel() {
+    val pendingSessions: StateFlow<List<ReceiptSessionEntity>> =
+        container.database.receiptSessionDao()
+            .observeBySyncStatuses(OperationRepository.UNSYNCED)
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5_000),
+                initialValue = emptyList(),
+            )
+
     val pendingOperations: StateFlow<List<MaterialOperationEntity>> =
         container.operationRepository.observeUnsynced().stateIn(
             scope = viewModelScope,

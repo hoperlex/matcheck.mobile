@@ -6,12 +6,16 @@ import androidx.work.WorkerParameters
 import com.example.matcheckmobile.MatcheckApplication
 import com.example.matcheckmobile.data.local.dao.MaterialOperationDao
 import com.example.matcheckmobile.data.local.dao.OperationAttachmentDao
+import com.example.matcheckmobile.data.local.dao.ReceiptSessionDao
 import com.example.matcheckmobile.data.local.dao.SyncQueueDao
 import com.example.matcheckmobile.data.local.entity.MaterialOperationEntity
+import com.example.matcheckmobile.data.local.entity.ReceiptSessionEntity
 import com.example.matcheckmobile.data.local.entity.SyncQueueEntity
 import com.example.matcheckmobile.data.remote.ApiService
 import com.example.matcheckmobile.data.remote.dto.AttachmentUploadRequest
 import com.example.matcheckmobile.data.remote.dto.OperationDto
+import com.example.matcheckmobile.data.remote.dto.SessionDto
+import com.example.matcheckmobile.data.remote.dto.SessionItemDto
 import com.example.matcheckmobile.domain.model.SyncStatus
 import com.example.matcheckmobile.domain.model.UploadStatus
 
@@ -26,25 +30,54 @@ class OperationSyncWorker(
         val operationDao = container.database.materialOperationDao()
         val attachmentDao = container.database.operationAttachmentDao()
         val syncQueueDao = container.database.syncQueueDao()
+        val sessionDao = container.database.receiptSessionDao()
 
-        val opsFailed = syncOperations(api, operationDao, syncQueueDao)
+        val sessionsFailed = syncSessions(api, sessionDao, operationDao, syncQueueDao)
+        val opsFailed = syncFreeOperations(api, operationDao, syncQueueDao)
         val attsFailed = syncAttachments(api, operationDao, attachmentDao, syncQueueDao)
 
-        return if (opsFailed || attsFailed) Result.retry() else Result.success()
+        return if (sessionsFailed || opsFailed || attsFailed) Result.retry() else Result.success()
     }
 
-    private suspend fun syncOperations(
+    private suspend fun syncSessions(
+        api: ApiService,
+        sessionDao: ReceiptSessionDao,
+        operationDao: MaterialOperationDao,
+        syncQueueDao: SyncQueueDao,
+    ): Boolean {
+        var hadFailure = false
+        val pending = sessionDao.findBySyncStatuses(listOf(SyncStatus.PENDING, SyncStatus.ERROR))
+        for (session in pending) {
+            sessionDao.updateSyncStatus(session.localId, SyncStatus.SYNCING, null)
+            try {
+                val items = operationDao.findBySession(session.localId)
+                val accepted = api.sendSession(session.toDto(items)).getOrThrow()
+                sessionDao.markSynced(session.localId, SyncStatus.SYNCED, accepted.serverId)
+                val receivedAt = accepted.receivedAt
+                for (item in items) {
+                    val itemServerId = accepted.itemServerIds[item.localId] ?: accepted.serverId
+                    operationDao.markSynced(item.localId, SyncStatus.SYNCED, itemServerId, receivedAt)
+                }
+                syncQueueDao.deleteByTarget(SyncQueueEntity.TARGET_SESSION, session.localId)
+            } catch (t: Throwable) {
+                hadFailure = true
+                sessionDao.updateSyncStatus(session.localId, SyncStatus.ERROR, t.message)
+            }
+        }
+        return hadFailure
+    }
+
+    private suspend fun syncFreeOperations(
         api: ApiService,
         operationDao: MaterialOperationDao,
         syncQueueDao: SyncQueueDao,
     ): Boolean {
         var hadFailure = false
-        val pending = operationDao.findBySyncStatuses(listOf(SyncStatus.PENDING, SyncStatus.ERROR))
+        val pending = operationDao.findFreeBySyncStatuses(listOf(SyncStatus.PENDING, SyncStatus.ERROR))
         for (op in pending) {
             operationDao.updateSyncStatus(op.localId, SyncStatus.SYNCING, null)
             try {
-                val sendResult = api.sendOperation(op.toDto())
-                val accepted = sendResult.getOrThrow()
+                val accepted = api.sendOperation(op.toDto()).getOrThrow()
                 operationDao.markSynced(
                     id = op.localId,
                     status = SyncStatus.SYNCED,
@@ -117,5 +150,28 @@ class OperationSyncWorker(
         driverName = driverName,
         comment = comment,
         createdAtLocal = createdAtLocal,
+    )
+
+    private fun ReceiptSessionEntity.toDto(items: List<MaterialOperationEntity>): SessionDto = SessionDto(
+        idempotencyKey = idempotencyKey,
+        siteId = siteId,
+        supplierLocalId = supplierLocalId,
+        vehicleNumber = vehicleNumber,
+        sourceDocumentLocalId = sourceDocumentLocalId,
+        comment = comment,
+        userId = userId,
+        deviceId = deviceId,
+        startedAt = startedAt,
+        finalizedAt = finalizedAt ?: startedAt,
+        items = items.map {
+            SessionItemDto(
+                itemLocalId = it.localId,
+                materialId = it.materialId,
+                materialNameRaw = it.materialNameRaw,
+                quantity = it.quantity,
+                unit = it.unit,
+                comment = it.comment,
+            )
+        },
     )
 }

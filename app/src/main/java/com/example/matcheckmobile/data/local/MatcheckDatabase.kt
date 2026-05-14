@@ -5,16 +5,23 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import com.example.matcheckmobile.data.local.dao.CounterpartyDao
 import com.example.matcheckmobile.data.local.dao.MaterialDao
 import com.example.matcheckmobile.data.local.dao.MaterialOperationDao
 import com.example.matcheckmobile.data.local.dao.OperationAttachmentDao
+import com.example.matcheckmobile.data.local.dao.ReceiptSessionDao
 import com.example.matcheckmobile.data.local.dao.SiteDao
+import com.example.matcheckmobile.data.local.dao.SourceDocumentDao
 import com.example.matcheckmobile.data.local.dao.SyncQueueDao
 import com.example.matcheckmobile.data.local.dao.UserDao
+import com.example.matcheckmobile.data.local.entity.CounterpartyEntity
 import com.example.matcheckmobile.data.local.entity.MaterialEntity
 import com.example.matcheckmobile.data.local.entity.MaterialOperationEntity
 import com.example.matcheckmobile.data.local.entity.OperationAttachmentEntity
+import com.example.matcheckmobile.data.local.entity.ReceiptSessionEntity
 import com.example.matcheckmobile.data.local.entity.SiteEntity
+import com.example.matcheckmobile.data.local.entity.SourceDocumentEntity
+import com.example.matcheckmobile.data.local.entity.SourceDocumentItemEntity
 import com.example.matcheckmobile.data.local.entity.SyncQueueEntity
 import com.example.matcheckmobile.data.local.entity.UserEntity
 
@@ -26,8 +33,12 @@ import com.example.matcheckmobile.data.local.entity.UserEntity
         MaterialOperationEntity::class,
         OperationAttachmentEntity::class,
         SyncQueueEntity::class,
+        CounterpartyEntity::class,
+        SourceDocumentEntity::class,
+        SourceDocumentItemEntity::class,
+        ReceiptSessionEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)
@@ -38,6 +49,9 @@ abstract class MatcheckDatabase : RoomDatabase() {
     abstract fun materialOperationDao(): MaterialOperationDao
     abstract fun operationAttachmentDao(): OperationAttachmentDao
     abstract fun syncQueueDao(): SyncQueueDao
+    abstract fun counterpartyDao(): CounterpartyDao
+    abstract fun sourceDocumentDao(): SourceDocumentDao
+    abstract fun receiptSessionDao(): ReceiptSessionDao
 
     companion object {
         private const val DB_NAME = "matcheck.db"
