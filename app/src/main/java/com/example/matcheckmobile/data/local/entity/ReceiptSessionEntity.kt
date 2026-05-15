@@ -31,6 +31,8 @@ data class ReceiptSessionEntity(
     val comment: String?,
     val startedAt: Long,
     val finalizedAt: Long?,
+    val completedAt: Long?,
+    val confirmedByMol: Boolean,
     val syncStatus: SyncStatus,
     val lastSyncError: String?,
     val idempotencyKey: String,

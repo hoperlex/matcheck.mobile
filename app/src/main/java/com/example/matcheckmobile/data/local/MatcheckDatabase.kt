@@ -38,7 +38,7 @@ import com.example.matcheckmobile.data.local.entity.UserEntity
         SourceDocumentItemEntity::class,
         ReceiptSessionEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)

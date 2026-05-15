@@ -25,6 +25,17 @@ interface SourceDocumentDao {
     @Query("SELECT * FROM source_documents ORDER BY COALESCE(docDate, updatedAt) DESC")
     fun observeAll(): Flow<List<SourceDocumentEntity>>
 
+    @Query(
+        "SELECT * FROM source_documents " +
+            "WHERE kind = 'UPD' AND localId NOT IN (" +
+            "  SELECT sourceDocumentLocalId FROM receipt_sessions " +
+            "  WHERE kind = 'RECEIPT' AND syncStatus = 'COMPLETED' " +
+            "    AND sourceDocumentLocalId IS NOT NULL" +
+            ") " +
+            "ORDER BY COALESCE(docDate, updatedAt) DESC"
+    )
+    fun observeUpdWithoutCompletedReceipt(): Flow<List<SourceDocumentEntity>>
+
     @Query("SELECT * FROM source_document_items WHERE sourceDocumentLocalId = :docId ORDER BY lineNo")
     fun observeItems(docId: String): Flow<List<SourceDocumentItemEntity>>
 

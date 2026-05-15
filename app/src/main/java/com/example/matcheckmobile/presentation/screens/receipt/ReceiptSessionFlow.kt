@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -312,17 +313,48 @@ private fun ItemsStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
                         Icon(Icons.Default.Add, contentDescription = null)
                         Text("  Добавить позицию", style = MaterialTheme.typography.titleMedium)
                     }
-                    Button(
-                        onClick = vm::finalizeSession,
-                        enabled = !state.isFinalizing && items.isNotEmpty(),
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(72.dp),
+                            .clickable { vm.setConfirmedByMol(!state.confirmedByMol) }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            if (state.isFinalizing) "Сохранение..." else "Сохранить локально",
-                            style = MaterialTheme.typography.titleLarge,
+                        Checkbox(
+                            checked = state.confirmedByMol,
+                            onCheckedChange = vm::setConfirmedByMol,
                         )
+                        Text(
+                            "Подтверждено МОЛ",
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.padding(start = 4.dp),
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        OutlinedButton(
+                            onClick = vm::saveLocally,
+                            enabled = !state.isFinalizing && items.isNotEmpty(),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(64.dp),
+                        ) {
+                            Text(
+                                if (state.isFinalizing) "..." else "Сохранить",
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                        }
+                        Button(
+                            onClick = vm::completeSession,
+                            enabled = !state.isFinalizing && items.isNotEmpty(),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(64.dp),
+                        ) {
+                            Text(
+                                if (state.isFinalizing) "..." else "Закончить",
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                        }
                     }
                 }
             }

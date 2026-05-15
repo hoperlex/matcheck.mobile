@@ -1,5 +1,6 @@
 package com.example.matcheckmobile.presentation.viewmodel
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.matcheckmobile.data.local.entity.CounterpartyEntity
@@ -12,6 +13,7 @@ import com.example.matcheckmobile.domain.model.SessionKind
 import com.example.matcheckmobile.domain.model.VEHICLE_TYPES
 import com.example.matcheckmobile.domain.model.VehicleType
 import com.example.matcheckmobile.domain.model.vehicleTypeByCode
+import com.example.matcheckmobile.presentation.navigation.Routes
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -48,6 +50,7 @@ data class ReceiptSessionUiState(
     val sourceDocumentLocalId: String? = null,
     val comment: String = "",
     val sessionPhotoPaths: List<String> = emptyList(),
+    val confirmedByMol: Boolean = false,
     val headerError: String? = null,
     val isFinalizing: Boolean = false,
     val finalized: Boolean = false,
@@ -55,7 +58,13 @@ data class ReceiptSessionUiState(
 )
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-class ReceiptSessionViewModel(private val container: AppContainer) : ViewModel() {
+class ReceiptSessionViewModel(
+    private val container: AppContainer,
+    savedStateHandle: SavedStateHandle,
+) : ViewModel() {
+
+    private val initialUpdId: String? = savedStateHandle.get<String>(Routes.ARG_UPD_ID)
+    private val initialSessionId: String? = savedStateHandle.get<String>(Routes.ARG_SESSION_ID)
 
     private val _state = MutableStateFlow(ReceiptSessionUiState())
     val state: StateFlow<ReceiptSessionUiState> = _state.asStateFlow()
@@ -113,11 +122,39 @@ class ReceiptSessionViewModel(private val container: AppContainer) : ViewModel()
         )
 
     init {
-        viewModelScope.launch {
-            val currentSite = container.deviceSettings.currentSiteIdFlow.first()
-            if (currentSite.isNotEmpty()) {
-                _state.update { it.copy(siteLocalId = currentSite) }
+        viewModelScope.launch { bootstrap() }
+    }
+
+    private suspend fun bootstrap() {
+        val currentSite = container.deviceSettings.currentSiteIdFlow.first()
+        val existingId = initialSessionId
+        if (!existingId.isNullOrEmpty()) {
+            val session = container.receiptSessionRepository.findById(existingId)
+            if (session != null) {
+                _state.update {
+                    it.copy(
+                        step = ReceiptStep.ITEMS,
+                        sessionId = session.localId,
+                        siteLocalId = session.siteId,
+                        supplierLocalId = session.supplierLocalId,
+                        contractorLocalId = session.contractorLocalId,
+                        vehicleNumber = session.vehicleNumber,
+                        vehicleTypeCode = session.vehicleTypeCode,
+                        volumeText = session.volumeM3?.let(::formatDouble).orEmpty(),
+                        massText = session.massKg?.let(::formatDouble).orEmpty(),
+                        sourceDocumentLocalId = session.sourceDocumentLocalId,
+                        comment = session.comment.orEmpty(),
+                        confirmedByMol = session.confirmedByMol,
+                    )
+                }
+                return
             }
+        }
+        _state.update {
+            it.copy(
+                siteLocalId = if (currentSite.isNotEmpty()) currentSite else null,
+                sourceDocumentLocalId = initialUpdId,
+            )
         }
     }
 
@@ -130,6 +167,7 @@ class ReceiptSessionViewModel(private val container: AppContainer) : ViewModel()
     fun setComment(value: String) = _state.update { it.copy(comment = value) }
     fun setVolumeText(value: String) = _state.update { it.copy(volumeText = value) }
     fun setMassText(value: String) = _state.update { it.copy(massText = value) }
+    fun setConfirmedByMol(value: Boolean) = _state.update { it.copy(confirmedByMol = value) }
     fun selectVehicleType(type: VehicleType) = _state.update {
         it.copy(
             vehicleTypeCode = type.code,
@@ -244,7 +282,13 @@ class ReceiptSessionViewModel(private val container: AppContainer) : ViewModel()
         }
     }
 
-    fun finalizeSession() {
+    /** «Сохранить» — приёмка остаётся не закончена (LOCAL_SAVED). */
+    fun saveLocally() = persist(complete = false)
+
+    /** «Закончить приёмку» — финал, со статусом COMPLETED. */
+    fun completeSession() = persist(complete = true)
+
+    private fun persist(complete: Boolean) {
         val sid = _state.value.sessionId ?: return
         if (_state.value.isFinalizing) return
         _state.update { it.copy(isFinalizing = true) }
@@ -268,8 +312,13 @@ class ReceiptSessionViewModel(private val container: AppContainer) : ViewModel()
                 massKg = current.massText.replace(',', '.').toDoubleOrNull(),
                 sourceDocumentLocalId = current.sourceDocumentLocalId,
                 comment = current.comment.trim().ifEmpty { null },
+                confirmedByMol = current.confirmedByMol,
             )
-            container.receiptSessionRepository.finalize(sid)
+            if (complete) {
+                container.receiptSessionRepository.complete(sid, current.confirmedByMol)
+            } else {
+                container.receiptSessionRepository.saveLocally(sid)
+            }
             _state.update { it.copy(isFinalizing = false, finalized = true) }
         }
     }
@@ -282,7 +331,7 @@ class ReceiptSessionViewModel(private val container: AppContainer) : ViewModel()
         }
     }
 
-    fun acknowledgeFinalized() = _state.update { ReceiptSessionUiState() }
+    fun acknowledgeFinalized() = _state.update { ReceiptSessionUiState(finalized = false) }
 
     // Resolve names for header display
     val resolvedSite: StateFlow<SiteEntity?> = combine(_state, sites) { ui, list ->

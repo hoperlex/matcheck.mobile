@@ -3,6 +3,7 @@ package com.example.matcheckmobile.data.local
 import androidx.room.TypeConverter
 import com.example.matcheckmobile.domain.model.AttachmentType
 import com.example.matcheckmobile.domain.model.OperationType
+import com.example.matcheckmobile.domain.model.SessionKind
 import com.example.matcheckmobile.domain.model.SourceKind
 import com.example.matcheckmobile.domain.model.SourceOrigin
 import com.example.matcheckmobile.domain.model.SourceStatus
@@ -30,4 +31,7 @@ class Converters {
 
     @TypeConverter fun sourceOriginToString(value: SourceOrigin): String = value.name
     @TypeConverter fun stringToSourceOrigin(value: String): SourceOrigin = SourceOrigin.valueOf(value)
+
+    @TypeConverter fun sessionKindToString(value: SessionKind): String = value.name
+    @TypeConverter fun stringToSessionKind(value: String): SessionKind = SessionKind.valueOf(value)
 }

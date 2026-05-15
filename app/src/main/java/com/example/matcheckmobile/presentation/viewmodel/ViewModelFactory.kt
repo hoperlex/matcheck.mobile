@@ -41,11 +41,15 @@ object MatcheckViewModelFactories {
         }
         initializer {
             val app = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as MatcheckApplication
-            ReceiptSessionViewModel(app.container)
+            ReceiptSessionViewModel(app.container, createSavedStateHandle())
         }
         initializer {
             val app = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as MatcheckApplication
             DispatchSessionViewModel(app.container)
+        }
+        initializer {
+            val app = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as MatcheckApplication
+            IntakeUpdSelectViewModel(app.container)
         }
     }
 }

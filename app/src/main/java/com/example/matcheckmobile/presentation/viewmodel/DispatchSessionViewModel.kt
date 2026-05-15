@@ -121,7 +121,7 @@ class DispatchSessionViewModel(private val container: AppContainer) : ViewModel(
             for (path in current.pendingPhotoPaths) {
                 container.receiptSessionRepository.addSessionPhoto(session.localId, path)
             }
-            container.receiptSessionRepository.finalize(session.localId)
+            container.receiptSessionRepository.saveLocally(session.localId)
             _state.update {
                 it.copy(isSubmitting = false, savedSessionId = session.localId)
             }

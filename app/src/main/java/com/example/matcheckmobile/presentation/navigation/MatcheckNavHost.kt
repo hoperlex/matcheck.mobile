@@ -13,6 +13,7 @@ import com.example.matcheckmobile.presentation.screens.details.OperationDetailsS
 import com.example.matcheckmobile.presentation.screens.journal.JournalScreen
 import com.example.matcheckmobile.presentation.screens.login.LoginScreen
 import com.example.matcheckmobile.presentation.screens.main.MainScreen
+import com.example.matcheckmobile.presentation.screens.receipt.IntakeUpdSelectScreen
 import com.example.matcheckmobile.presentation.screens.receipt.ReceiptScreen
 import com.example.matcheckmobile.presentation.screens.settings.SettingsScreen
 import com.example.matcheckmobile.presentation.screens.sync.SyncQueueScreen
@@ -30,7 +31,7 @@ fun MatcheckNavHost() {
         }
         composable(Routes.MAIN) {
             MainScreen(
-                onReceipt = { navController.navigate(Routes.RECEIPT) },
+                onReceipt = { navController.navigate(Routes.INTAKE_UPD_SELECT) },
                 onDispatch = { navController.navigate(Routes.DISPATCH) },
                 onJournal = { navController.navigate(Routes.JOURNAL) },
                 onSyncQueue = { navController.navigate(Routes.SYNC_QUEUE) },
@@ -38,7 +39,31 @@ fun MatcheckNavHost() {
                 onDocuments = { navController.navigate(Routes.DOCUMENTS) },
             )
         }
-        composable(Routes.RECEIPT) {
+        composable(Routes.INTAKE_UPD_SELECT) {
+            IntakeUpdSelectScreen(
+                onBack = { navController.popBackStack() },
+                onCreate = { updId ->
+                    navController.navigate(Routes.receiptForUpd(updId)) {
+                        popUpTo(Routes.INTAKE_UPD_SELECT) { inclusive = true }
+                    }
+                },
+            )
+        }
+        composable(
+            route = Routes.RECEIPT,
+            arguments = listOf(
+                navArgument(Routes.ARG_UPD_ID) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument(Routes.ARG_SESSION_ID) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) {
             ReceiptScreen(
                 onBack = { navController.popBackStack() },
                 onSaved = { navController.popBackStack() },
@@ -68,7 +93,8 @@ fun MatcheckNavHost() {
         composable(Routes.DOCUMENTS) {
             DocumentsScreen(
                 onBack = { navController.popBackStack() },
-                onOpen = { id -> navController.navigate(Routes.documentDetails(id)) },
+                onOpenDocument = { id -> navController.navigate(Routes.documentDetails(id)) },
+                onOpenReceipt = { id -> navController.navigate(Routes.receiptForSession(id)) },
             )
         }
         composable(

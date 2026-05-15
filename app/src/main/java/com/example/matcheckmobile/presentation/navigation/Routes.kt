@@ -3,7 +3,21 @@ package com.example.matcheckmobile.presentation.navigation
 object Routes {
     const val LOGIN = "login"
     const val MAIN = "main"
-    const val RECEIPT = "receipt"
+    const val INTAKE_UPD_SELECT = "intake_upd_select"
+    const val RECEIPT_BASE = "receipt"
+    const val ARG_UPD_ID = "updId"
+    const val ARG_SESSION_ID = "sessionId"
+
+    /**
+     * `receipt?updId=...&sessionId=...` — оба опциональны.
+     * `updId` — для новой приёмки с предвыбранным УПД;
+     * `sessionId` — для продолжения сохранённой приёмки.
+     */
+    const val RECEIPT = "$RECEIPT_BASE?$ARG_UPD_ID={$ARG_UPD_ID}&$ARG_SESSION_ID={$ARG_SESSION_ID}"
+
+    fun receiptForUpd(updId: String): String = "$RECEIPT_BASE?$ARG_UPD_ID=$updId"
+    fun receiptForSession(sessionId: String): String = "$RECEIPT_BASE?$ARG_SESSION_ID=$sessionId"
+
     const val DISPATCH = "dispatch"
     const val JOURNAL = "journal"
     const val SYNC_QUEUE = "sync_queue"

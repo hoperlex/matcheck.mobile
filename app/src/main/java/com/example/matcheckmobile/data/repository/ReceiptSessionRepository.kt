@@ -29,6 +29,9 @@ class ReceiptSessionRepository(
     fun observeSessionAttachments(sessionId: String): Flow<List<OperationAttachmentEntity>> =
         attachmentDao.observeBySession(sessionId)
 
+    fun observeLocalSavedReceipts(): Flow<List<ReceiptSessionEntity>> =
+        sessionDao.observeLocalSavedReceipts()
+
     suspend fun findById(id: String): ReceiptSessionEntity? = sessionDao.findById(id)
 
     suspend fun findItems(sessionId: String): List<MaterialOperationEntity> =
@@ -66,6 +69,8 @@ class ReceiptSessionRepository(
             comment = comment,
             startedAt = now,
             finalizedAt = null,
+            completedAt = null,
+            confirmedByMol = false,
             syncStatus = SyncStatus.DRAFT,
             lastSyncError = null,
             idempotencyKey = UUID.randomUUID().toString(),
@@ -85,9 +90,10 @@ class ReceiptSessionRepository(
         massKg: Double?,
         sourceDocumentLocalId: String?,
         comment: String?,
+        confirmedByMol: Boolean,
     ) {
         val existing = sessionDao.findById(sessionId) ?: return
-        if (existing.syncStatus != SyncStatus.DRAFT) return
+        if (!existing.isEditable()) return
         sessionDao.upsert(
             existing.copy(
                 siteId = siteId,
@@ -99,13 +105,14 @@ class ReceiptSessionRepository(
                 massKg = massKg,
                 sourceDocumentLocalId = sourceDocumentLocalId,
                 comment = comment,
+                confirmedByMol = confirmedByMol,
             )
         )
     }
 
     suspend fun addSessionPhoto(sessionId: String, localFilePath: String) {
         val session = sessionDao.findById(sessionId) ?: return
-        if (session.syncStatus != SyncStatus.DRAFT) return
+        if (!session.isEditable()) return
         attachmentDao.upsert(
             OperationAttachmentEntity(
                 localId = UUID.randomUUID().toString(),
@@ -131,7 +138,7 @@ class ReceiptSessionRepository(
         photoPaths: List<String>,
     ): MaterialOperationEntity? {
         val session = sessionDao.findById(sessionId) ?: return null
-        if (session.syncStatus != SyncStatus.DRAFT) return null
+        if (!session.isEditable()) return null
         val now = System.currentTimeMillis()
         val item = MaterialOperationEntity(
             localId = UUID.randomUUID().toString(),
@@ -179,42 +186,54 @@ class ReceiptSessionRepository(
         operationDao.deleteById(itemId)
     }
 
-    suspend fun finalize(sessionId: String): ReceiptSessionEntity? {
+    /** Сохраняет приёмку локально (можно потом доделать). */
+    suspend fun saveLocally(sessionId: String): ReceiptSessionEntity? {
         val session = sessionDao.findById(sessionId) ?: return null
-        if (session.syncStatus != SyncStatus.DRAFT) return session
+        if (!session.isEditable()) return session
         if (session.kind == SessionKind.RECEIPT) {
             val items = operationDao.findBySession(sessionId)
             if (items.isEmpty()) return session
-            val now = System.currentTimeMillis()
-            val finalized = session.copy(
-                finalizedAt = now,
-                syncStatus = SyncStatus.LOCAL_SAVED,
-                lastSyncError = null,
-            )
-            sessionDao.upsert(finalized)
-            for (item in items) {
-                operationDao.updateSyncStatus(item.localId, SyncStatus.LOCAL_SAVED, null)
-            }
-            return finalized
-        } else {
-            val now = System.currentTimeMillis()
-            val finalized = session.copy(
-                finalizedAt = now,
-                syncStatus = SyncStatus.LOCAL_SAVED,
-                lastSyncError = null,
-            )
-            sessionDao.upsert(finalized)
-            return finalized
         }
+        val now = System.currentTimeMillis()
+        val saved = session.copy(
+            finalizedAt = now,
+            syncStatus = SyncStatus.LOCAL_SAVED,
+            lastSyncError = null,
+        )
+        sessionDao.upsert(saved)
+        return saved
+    }
+
+    /** Окончательное завершение приёмки. */
+    suspend fun complete(sessionId: String, confirmedByMol: Boolean): ReceiptSessionEntity? {
+        val session = sessionDao.findById(sessionId) ?: return null
+        if (!session.isEditable()) return session
+        if (session.kind == SessionKind.RECEIPT) {
+            val items = operationDao.findBySession(sessionId)
+            if (items.isEmpty()) return session
+        }
+        val now = System.currentTimeMillis()
+        val completed = session.copy(
+            finalizedAt = session.finalizedAt ?: now,
+            completedAt = now,
+            confirmedByMol = confirmedByMol,
+            syncStatus = SyncStatus.COMPLETED,
+            lastSyncError = null,
+        )
+        sessionDao.upsert(completed)
+        return completed
     }
 
     suspend fun cancelDraft(sessionId: String) {
         val session = sessionDao.findById(sessionId) ?: return
-        if (session.syncStatus != SyncStatus.DRAFT) return
+        if (!session.isEditable()) return
         val items = operationDao.findBySession(sessionId)
         for (item in items) {
             operationDao.deleteById(item.localId)
         }
         sessionDao.deleteById(sessionId)
     }
+
+    private fun ReceiptSessionEntity.isEditable(): Boolean =
+        syncStatus == SyncStatus.DRAFT || syncStatus == SyncStatus.LOCAL_SAVED
 }

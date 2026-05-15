@@ -10,6 +10,9 @@ class SourceDocumentRepository(
 ) {
     fun observeAll(): Flow<List<SourceDocumentEntity>> = dao.observeAll()
 
+    fun observeUpdWithoutCompletedReceipt(): Flow<List<SourceDocumentEntity>> =
+        dao.observeUpdWithoutCompletedReceipt()
+
     fun observeById(id: String): Flow<SourceDocumentEntity?> = dao.observeById(id)
 
     fun observeItems(documentId: String): Flow<List<SourceDocumentItemEntity>> =

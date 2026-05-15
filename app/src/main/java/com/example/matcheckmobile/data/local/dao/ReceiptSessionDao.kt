@@ -31,6 +31,13 @@ interface ReceiptSessionDao {
     @Query("SELECT * FROM receipt_sessions WHERE syncStatus IN (:statuses) ORDER BY startedAt DESC")
     fun observeBySyncStatuses(statuses: List<SyncStatus>): Flow<List<ReceiptSessionEntity>>
 
+    @Query(
+        "SELECT * FROM receipt_sessions " +
+            "WHERE kind = 'RECEIPT' AND syncStatus = 'LOCAL_SAVED' " +
+            "ORDER BY COALESCE(finalizedAt, startedAt) DESC"
+    )
+    fun observeLocalSavedReceipts(): Flow<List<ReceiptSessionEntity>>
+
     @Query("UPDATE receipt_sessions SET syncStatus = :status, lastSyncError = :error WHERE localId = :id")
     suspend fun updateSyncStatus(id: String, status: SyncStatus, error: String?)
 

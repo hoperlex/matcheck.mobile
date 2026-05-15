@@ -131,6 +131,7 @@ internal fun typeLabel(t: OperationType): String = when (t) {
 internal fun statusLabel(s: SyncStatus): String = when (s) {
     SyncStatus.DRAFT -> "черновик"
     SyncStatus.LOCAL_SAVED -> "локально"
+    SyncStatus.COMPLETED -> "завершено"
     SyncStatus.PENDING -> "ожидает"
     SyncStatus.SYNCING -> "отправляется"
     SyncStatus.SYNCED -> "синхронизировано"
