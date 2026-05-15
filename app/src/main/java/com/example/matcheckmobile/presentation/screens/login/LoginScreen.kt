@@ -49,7 +49,7 @@ fun LoginScreen(onLoggedIn: () -> Unit) {
                     .fillMaxWidth()
                     .height(72.dp),
             ) {
-                Text("Войти как охранник", style = MaterialTheme.typography.titleLarge)
+                Text("Войти", style = MaterialTheme.typography.titleLarge)
             }
         }
     }
