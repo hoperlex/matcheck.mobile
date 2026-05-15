@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -80,20 +81,21 @@ fun ReceiptSessionFlow(onBack: () -> Unit, onSaved: () -> Unit) {
     }
 
     when (state.step) {
-        ReceiptStep.HEADER -> HeaderStep(vm = vm, onBack = onBack)
-        ReceiptStep.ITEMS -> ItemsStep(vm = vm, onBack = onBack)
+        ReceiptStep.MAIN -> MainStep(vm = vm, onBack = onBack)
         ReceiptStep.ITEM_FORM -> ItemFormStep(vm = vm)
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun HeaderStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
+private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
     val sites by vm.sites.collectAsStateWithLifecycle()
     val suppliers by vm.suppliers.collectAsStateWithLifecycle()
     val contractors by vm.contractors.collectAsStateWithLifecycle()
     val documents by vm.documents.collectAsStateWithLifecycle()
+    val items by vm.items.collectAsStateWithLifecycle()
+    val sessionPhotos by vm.sessionPhotos.collectAsStateWithLifecycle()
     val resolvedSite by vm.resolvedSite.collectAsStateWithLifecycle()
     val resolvedSupplier by vm.resolvedSupplier.collectAsStateWithLifecycle()
     val resolvedContractor by vm.resolvedContractor.collectAsStateWithLifecycle()
@@ -103,6 +105,7 @@ private fun HeaderStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
     var showSupplierPicker by remember { mutableStateOf(false) }
     var showContractorPicker by remember { mutableStateOf(false) }
     var showDocumentPicker by remember { mutableStateOf(false) }
+    var showCancelConfirm by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val photoStorage = remember {
@@ -117,6 +120,9 @@ private fun HeaderStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
         pendingPath = null
     }
 
+    val photosCount = sessionPhotos.size + state.sessionPhotoPaths.size
+    val itemsCount = items.size
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -126,17 +132,64 @@ private fun HeaderStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
                     }
                 },
+                actions = {
+                    if (state.sessionId != null) {
+                        IconButton(onClick = { showCancelConfirm = true }) {
+                            Icon(Icons.Default.Close, contentDescription = "Отменить черновик")
+                        }
+                    }
+                },
             )
         },
         bottomBar = {
             BottomActionBar {
-                Button(
-                    onClick = vm::startSession,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(72.dp),
-                ) {
-                    Text("Начать приёмку", style = MaterialTheme.typography.titleLarge)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    state.headerError?.let {
+                        Text(it, color = MaterialTheme.colorScheme.error)
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { vm.setConfirmedByMol(!state.confirmedByMol) }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(
+                            checked = state.confirmedByMol,
+                            onCheckedChange = vm::setConfirmedByMol,
+                        )
+                        Text(
+                            "Подтверждено МОЛ",
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.padding(start = 4.dp),
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        OutlinedButton(
+                            onClick = vm::saveLocally,
+                            enabled = !state.isFinalizing,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(64.dp),
+                        ) {
+                            Text(
+                                if (state.isFinalizing) "..." else "Сохранить",
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                        }
+                        Button(
+                            onClick = vm::completeSession,
+                            enabled = !state.isFinalizing,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(64.dp),
+                        ) {
+                            Text(
+                                if (state.isFinalizing) "..." else "Закончить приёмку",
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                        }
+                    }
                 }
             }
         },
@@ -212,15 +265,60 @@ private fun HeaderStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
                 Icon(Icons.Default.PhotoCamera, contentDescription = null)
                 Text("  Добавить фото", style = MaterialTheme.typography.titleMedium)
             }
-            val photosCount = state.sessionPhotoPaths.size
             if (photosCount > 0) {
                 Text(
                     "Прикреплено фото: $photosCount",
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
-            state.headerError?.let {
-                Text(it, color = MaterialTheme.colorScheme.error)
+
+            Text(
+                "Позиции ($itemsCount)",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            if (items.isEmpty()) {
+                Text(
+                    "Позиций пока нет. Нажмите «Добавить позицию» ниже.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            } else {
+                items.forEach { item ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        ),
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(item.materialNameRaw, style = MaterialTheme.typography.titleSmall)
+                                Text(
+                                    "${formatQty(item.quantity)} ${item.unit}" +
+                                        (item.comment?.let { " · $it" } ?: ""),
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                            IconButton(onClick = { vm.removeItem(item.localId) }) {
+                                Icon(Icons.Default.Close, contentDescription = "Удалить")
+                            }
+                        }
+                    }
+                }
+            }
+            OutlinedButton(
+                onClick = vm::openItemForm,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null)
+                Text("  Добавить позицию", style = MaterialTheme.typography.titleMedium)
             }
         }
     }
@@ -270,166 +368,6 @@ private fun HeaderStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
             },
             onDismiss = { showDocumentPicker = false },
         )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ItemsStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
-    val state by vm.state.collectAsStateWithLifecycle()
-    val items by vm.items.collectAsStateWithLifecycle()
-    val photos by vm.sessionPhotos.collectAsStateWithLifecycle()
-    val resolvedSite by vm.resolvedSite.collectAsStateWithLifecycle()
-    val resolvedContractor by vm.resolvedContractor.collectAsStateWithLifecycle()
-    val resolvedSupplier by vm.resolvedSupplier.collectAsStateWithLifecycle()
-    val resolvedDocument by vm.resolvedDocument.collectAsStateWithLifecycle()
-    var showCancelConfirm by remember { mutableStateOf(false) }
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Позиции приёмки") },
-                navigationIcon = {
-                    IconButton(onClick = vm::backToHeader) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "К шапке")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { showCancelConfirm = true }) {
-                        Icon(Icons.Default.Close, contentDescription = "Отменить черновик")
-                    }
-                },
-            )
-        },
-        bottomBar = {
-            BottomActionBar {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(
-                        onClick = vm::openItemForm,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp),
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = null)
-                        Text("  Добавить позицию", style = MaterialTheme.typography.titleMedium)
-                    }
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { vm.setConfirmedByMol(!state.confirmedByMol) }
-                            .padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Checkbox(
-                            checked = state.confirmedByMol,
-                            onCheckedChange = vm::setConfirmedByMol,
-                        )
-                        Text(
-                            "Подтверждено МОЛ",
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.padding(start = 4.dp),
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        OutlinedButton(
-                            onClick = vm::saveLocally,
-                            enabled = !state.isFinalizing && items.isNotEmpty(),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(64.dp),
-                        ) {
-                            Text(
-                                if (state.isFinalizing) "..." else "Сохранить",
-                                style = MaterialTheme.typography.titleMedium,
-                            )
-                        }
-                        Button(
-                            onClick = vm::completeSession,
-                            enabled = !state.isFinalizing && items.isNotEmpty(),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(64.dp),
-                        ) {
-                            Text(
-                                if (state.isFinalizing) "..." else "Закончить",
-                                style = MaterialTheme.typography.titleMedium,
-                            )
-                        }
-                    }
-                }
-            }
-        },
-    ) { padding ->
-        CenteredColumn(padding = padding) {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(
-                        "Объект: ${resolvedSite?.name ?: "—"}",
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    Text("Госномер: ${state.vehicleNumber}", style = MaterialTheme.typography.bodyMedium)
-                    Text("Подрядчик: ${resolvedContractor?.name ?: "—"}", style = MaterialTheme.typography.bodyMedium)
-                    Text("Поставщик: ${resolvedSupplier?.name ?: "—"}", style = MaterialTheme.typography.bodyMedium)
-                    Text(
-                        "Документ: " + (resolvedDocument?.let { "УПД ${it.docNumber ?: "—"}" } ?: "—"),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    val volume = state.volumeText
-                    val mass = state.massText
-                    if (volume.isNotBlank() || mass.isNotBlank()) {
-                        Text(
-                            "Объём/масса: ${volume.ifBlank { "—" }} м³ · ${mass.ifBlank { "—" }} кг",
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                    }
-                    if (photos.isNotEmpty()) {
-                        Text(
-                            "Фото: ${photos.size}",
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                    }
-                    state.comment.takeIf { it.isNotBlank() }?.let {
-                        Text("Комментарий: $it", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
-            state.headerError?.let {
-                Text(it, color = MaterialTheme.colorScheme.error)
-            }
-            Text(
-                "Позиции (${items.size})",
-                style = MaterialTheme.typography.titleMedium,
-            )
-            if (items.isEmpty()) {
-                Text(
-                    "Ещё нет позиций — нажмите «Добавить позицию» ниже",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            } else {
-                items.forEach { item ->
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(item.materialNameRaw, style = MaterialTheme.typography.titleSmall)
-                                Text(
-                                    "${formatQty(item.quantity)} ${item.unit}" +
-                                        (item.comment?.let { " · $it" } ?: ""),
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
-                            }
-                            IconButton(onClick = { vm.removeItem(item.localId) }) {
-                                Icon(Icons.Default.Close, contentDescription = "Удалить")
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 
     if (showCancelConfirm) {

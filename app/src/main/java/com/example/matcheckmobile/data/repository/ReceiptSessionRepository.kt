@@ -190,10 +190,6 @@ class ReceiptSessionRepository(
     suspend fun saveLocally(sessionId: String): ReceiptSessionEntity? {
         val session = sessionDao.findById(sessionId) ?: return null
         if (!session.isEditable()) return session
-        if (session.kind == SessionKind.RECEIPT) {
-            val items = operationDao.findBySession(sessionId)
-            if (items.isEmpty()) return session
-        }
         val now = System.currentTimeMillis()
         val saved = session.copy(
             finalizedAt = now,
@@ -208,10 +204,6 @@ class ReceiptSessionRepository(
     suspend fun complete(sessionId: String, confirmedByMol: Boolean): ReceiptSessionEntity? {
         val session = sessionDao.findById(sessionId) ?: return null
         if (!session.isEditable()) return session
-        if (session.kind == SessionKind.RECEIPT) {
-            val items = operationDao.findBySession(sessionId)
-            if (items.isEmpty()) return session
-        }
         val now = System.currentTimeMillis()
         val completed = session.copy(
             finalizedAt = session.finalizedAt ?: now,

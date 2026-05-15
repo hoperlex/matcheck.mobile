@@ -26,7 +26,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-enum class ReceiptStep { HEADER, ITEMS, ITEM_FORM }
+enum class ReceiptStep { MAIN, ITEM_FORM }
 
 data class ItemFormState(
     val materialName: String = "",
@@ -38,7 +38,7 @@ data class ItemFormState(
 )
 
 data class ReceiptSessionUiState(
-    val step: ReceiptStep = ReceiptStep.HEADER,
+    val step: ReceiptStep = ReceiptStep.MAIN,
     val sessionId: String? = null,
     val siteLocalId: String? = null,
     val supplierLocalId: String? = null,
@@ -133,7 +133,6 @@ class ReceiptSessionViewModel(
             if (session != null) {
                 _state.update {
                     it.copy(
-                        step = ReceiptStep.ITEMS,
                         sessionId = session.localId,
                         siteLocalId = session.siteId,
                         supplierLocalId = session.supplierLocalId,
@@ -158,7 +157,7 @@ class ReceiptSessionViewModel(
         }
     }
 
-    // Header step
+    // Field setters
     fun setSite(value: String?) = _state.update { it.copy(siteLocalId = value) }
     fun setSupplier(value: String?) = _state.update { it.copy(supplierLocalId = value) }
     fun setContractor(value: String?) = _state.update { it.copy(contractorLocalId = value) }
@@ -187,56 +186,21 @@ class ReceiptSessionViewModel(
         }
     }
 
-    fun startSession() {
-        val current = _state.value
-        val vehicle = current.vehicleNumber.trim()
-        val siteId = current.siteLocalId
-        if (siteId.isNullOrEmpty()) {
-            _state.update { it.copy(headerError = "Выберите объект") }
-            return
-        }
-        if (vehicle.isEmpty()) {
-            _state.update { it.copy(headerError = "Укажите госномер") }
-            return
-        }
+    // Item form
+    fun openItemForm() {
         viewModelScope.launch {
-            val userId = container.deviceSettings.currentUserIdFlow.first().ifEmpty { "user-default" }
-            val deviceId = container.deviceSettings.ensureDeviceId()
-            val volume = current.volumeText.replace(',', '.').toDoubleOrNull()
-            val mass = current.massText.replace(',', '.').toDoubleOrNull()
-            val session = container.receiptSessionRepository.createDraft(
-                kind = SessionKind.RECEIPT,
-                siteId = siteId,
-                userId = userId,
-                deviceId = deviceId,
-                supplierLocalId = current.supplierLocalId,
-                contractorLocalId = current.contractorLocalId,
-                vehicleNumber = vehicle,
-                vehicleTypeCode = current.vehicleTypeCode,
-                volumeM3 = volume,
-                massKg = mass,
-                sourceDocumentLocalId = current.sourceDocumentLocalId,
-                comment = current.comment.trim().ifEmpty { null },
-            )
-            for (path in current.sessionPhotoPaths) {
-                container.receiptSessionRepository.addSessionPhoto(session.localId, path)
-            }
+            val sid = ensureSession() ?: return@launch
             _state.update {
                 it.copy(
-                    step = ReceiptStep.ITEMS,
-                    sessionId = session.localId,
-                    sessionPhotoPaths = emptyList(),
-                    headerError = null,
+                    step = ReceiptStep.ITEM_FORM,
+                    sessionId = sid,
+                    itemForm = ItemFormState(),
                 )
             }
         }
     }
 
-    fun backToHeader() = _state.update { it.copy(step = ReceiptStep.HEADER) }
-
-    // Item form
-    fun openItemForm() = _state.update { it.copy(step = ReceiptStep.ITEM_FORM, itemForm = ItemFormState()) }
-    fun closeItemForm() = _state.update { it.copy(step = ReceiptStep.ITEMS, itemForm = ItemFormState()) }
+    fun closeItemForm() = _state.update { it.copy(step = ReceiptStep.MAIN, itemForm = ItemFormState()) }
     fun setItemMaterialName(v: String) = _state.update { it.copy(itemForm = it.itemForm.copy(materialName = v)) }
     fun setItemQuantity(v: String) = _state.update { it.copy(itemForm = it.itemForm.copy(quantityText = v)) }
     fun setItemUnit(v: String) = _state.update { it.copy(itemForm = it.itemForm.copy(unit = v)) }
@@ -272,7 +236,7 @@ class ReceiptSessionViewModel(
                 comment = current.itemForm.comment.trim().ifEmpty { null },
                 photoPaths = current.itemForm.photoPaths,
             )
-            _state.update { it.copy(step = ReceiptStep.ITEMS, itemForm = ItemFormState()) }
+            _state.update { it.copy(step = ReceiptStep.MAIN, itemForm = ItemFormState()) }
         }
     }
 
@@ -289,24 +253,30 @@ class ReceiptSessionViewModel(
     fun completeSession() = persist(complete = true)
 
     private fun persist(complete: Boolean) {
-        val sid = _state.value.sessionId ?: return
         if (_state.value.isFinalizing) return
-        _state.update { it.copy(isFinalizing = true) }
+        val current = _state.value
+        val siteId = current.siteLocalId
+        val vehicle = current.vehicleNumber.trim()
+        if (siteId.isNullOrEmpty()) {
+            _state.update { it.copy(headerError = "Выберите объект") }
+            return
+        }
+        if (vehicle.isEmpty()) {
+            _state.update { it.copy(headerError = "Укажите госномер") }
+            return
+        }
+        _state.update { it.copy(isFinalizing = true, headerError = null) }
         viewModelScope.launch {
-            val itemsList = container.receiptSessionRepository.findItems(sid)
-            if (itemsList.isEmpty()) {
-                _state.update {
-                    it.copy(isFinalizing = false, headerError = "Добавьте хотя бы одну позицию")
-                }
+            val sid = ensureSession() ?: run {
+                _state.update { it.copy(isFinalizing = false) }
                 return@launch
             }
-            val current = _state.value
             container.receiptSessionRepository.updateDraftHeader(
                 sessionId = sid,
-                siteId = current.siteLocalId ?: "site-zilart",
+                siteId = siteId,
                 supplierLocalId = current.supplierLocalId,
                 contractorLocalId = current.contractorLocalId,
-                vehicleNumber = current.vehicleNumber.trim(),
+                vehicleNumber = vehicle,
                 vehicleTypeCode = current.vehicleTypeCode,
                 volumeM3 = current.volumeText.replace(',', '.').toDoubleOrNull(),
                 massKg = current.massText.replace(',', '.').toDoubleOrNull(),
@@ -323,8 +293,49 @@ class ReceiptSessionViewModel(
         }
     }
 
+    /**
+     * Возвращает sessionId. Если черновика ещё нет — создаёт его из текущих полей.
+     * Перенесёт накопленные «до создания» фото из state на саму сессию.
+     * Если объект не выбран — вернёт null и выставит headerError.
+     */
+    private suspend fun ensureSession(): String? {
+        val current = _state.value
+        current.sessionId?.let { return it }
+        val siteId = current.siteLocalId
+        if (siteId.isNullOrEmpty()) {
+            _state.update { it.copy(headerError = "Выберите объект") }
+            return null
+        }
+        val userId = container.deviceSettings.currentUserIdFlow.first().ifEmpty { "user-default" }
+        val deviceId = container.deviceSettings.ensureDeviceId()
+        val session = container.receiptSessionRepository.createDraft(
+            kind = SessionKind.RECEIPT,
+            siteId = siteId,
+            userId = userId,
+            deviceId = deviceId,
+            supplierLocalId = current.supplierLocalId,
+            contractorLocalId = current.contractorLocalId,
+            vehicleNumber = current.vehicleNumber.trim(),
+            vehicleTypeCode = current.vehicleTypeCode,
+            volumeM3 = current.volumeText.replace(',', '.').toDoubleOrNull(),
+            massKg = current.massText.replace(',', '.').toDoubleOrNull(),
+            sourceDocumentLocalId = current.sourceDocumentLocalId,
+            comment = current.comment.trim().ifEmpty { null },
+        )
+        for (path in current.sessionPhotoPaths) {
+            container.receiptSessionRepository.addSessionPhoto(session.localId, path)
+        }
+        _state.update {
+            it.copy(sessionId = session.localId, sessionPhotoPaths = emptyList())
+        }
+        return session.localId
+    }
+
     fun cancelDraft() {
-        val sid = _state.value.sessionId ?: return
+        val sid = _state.value.sessionId ?: run {
+            _state.update { ReceiptSessionUiState(finalized = true) }
+            return
+        }
         viewModelScope.launch {
             container.receiptSessionRepository.cancelDraft(sid)
             _state.update { ReceiptSessionUiState(finalized = true) }
