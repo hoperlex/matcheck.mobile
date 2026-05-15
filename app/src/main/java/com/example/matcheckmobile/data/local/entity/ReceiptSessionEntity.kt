@@ -28,6 +28,7 @@ data class ReceiptSessionEntity(
     val volumeM3: Double?,
     val massKg: Double?,
     val sourceDocumentLocalId: String?,
+    val sourceDocumentManualText: String?,
     val comment: String?,
     val startedAt: Long,
     val finalizedAt: Long?,

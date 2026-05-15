@@ -48,6 +48,7 @@ data class ReceiptSessionUiState(
     val volumeText: String = "",
     val massText: String = "",
     val sourceDocumentLocalId: String? = null,
+    val sourceDocumentText: String = "",
     val comment: String = "",
     val sessionPhotoPaths: List<String> = emptyList(),
     val confirmedByMol: Boolean = false,
@@ -131,6 +132,11 @@ class ReceiptSessionViewModel(
         if (!existingId.isNullOrEmpty()) {
             val session = container.receiptSessionRepository.findById(existingId)
             if (session != null) {
+                val docText = session.sourceDocumentManualText
+                    ?: session.sourceDocumentLocalId?.let {
+                        container.sourceDocumentRepository.findById(it)?.docNumber?.let { n -> "УПД $n" }
+                    }
+                    ?: ""
                 _state.update {
                     it.copy(
                         sessionId = session.localId,
@@ -142,6 +148,7 @@ class ReceiptSessionViewModel(
                         volumeText = session.volumeM3?.let(::formatDouble).orEmpty(),
                         massText = session.massKg?.let(::formatDouble).orEmpty(),
                         sourceDocumentLocalId = session.sourceDocumentLocalId,
+                        sourceDocumentText = docText,
                         comment = session.comment.orEmpty(),
                         confirmedByMol = session.confirmedByMol,
                     )
@@ -149,10 +156,14 @@ class ReceiptSessionViewModel(
                 return
             }
         }
+        val initialDocText = initialUpdId?.let {
+            container.sourceDocumentRepository.findById(it)?.docNumber?.let { n -> "УПД $n" }
+        }.orEmpty()
         _state.update {
             it.copy(
                 siteLocalId = if (currentSite.isNotEmpty()) currentSite else null,
                 sourceDocumentLocalId = initialUpdId,
+                sourceDocumentText = initialDocText,
             )
         }
     }
@@ -162,7 +173,27 @@ class ReceiptSessionViewModel(
     fun setSupplier(value: String?) = _state.update { it.copy(supplierLocalId = value) }
     fun setContractor(value: String?) = _state.update { it.copy(contractorLocalId = value) }
     fun setVehicleNumber(value: String) = _state.update { it.copy(vehicleNumber = value) }
-    fun setSourceDocument(value: String?) = _state.update { it.copy(sourceDocumentLocalId = value) }
+    /** Выбор УПД из списка: запоминаем id и подставляем номер в текстовое поле. */
+    fun setSourceDocument(value: String?) {
+        if (value == null) {
+            _state.update { it.copy(sourceDocumentLocalId = null, sourceDocumentText = "") }
+            return
+        }
+        viewModelScope.launch {
+            val doc = container.sourceDocumentRepository.findById(value)
+            _state.update {
+                it.copy(
+                    sourceDocumentLocalId = value,
+                    sourceDocumentText = doc?.docNumber?.let { n -> "УПД $n" } ?: it.sourceDocumentText,
+                )
+            }
+        }
+    }
+
+    /** Ручной ввод: текст пишем как есть, привязку к существующему УПД сбрасываем. */
+    fun setSourceDocumentText(value: String) = _state.update {
+        it.copy(sourceDocumentText = value, sourceDocumentLocalId = null)
+    }
     fun setComment(value: String) = _state.update { it.copy(comment = value) }
     fun setVolumeText(value: String) = _state.update { it.copy(volumeText = value) }
     fun setMassText(value: String) = _state.update { it.copy(massText = value) }
@@ -281,6 +312,7 @@ class ReceiptSessionViewModel(
                 volumeM3 = current.volumeText.replace(',', '.').toDoubleOrNull(),
                 massKg = current.massText.replace(',', '.').toDoubleOrNull(),
                 sourceDocumentLocalId = current.sourceDocumentLocalId,
+                sourceDocumentManualText = current.manualDocText(),
                 comment = current.comment.trim().ifEmpty { null },
                 confirmedByMol = current.confirmedByMol,
             )
@@ -320,6 +352,7 @@ class ReceiptSessionViewModel(
             volumeM3 = current.volumeText.replace(',', '.').toDoubleOrNull(),
             massKg = current.massText.replace(',', '.').toDoubleOrNull(),
             sourceDocumentLocalId = current.sourceDocumentLocalId,
+            sourceDocumentManualText = current.manualDocText(),
             comment = current.comment.trim().ifEmpty { null },
         )
         for (path in current.sessionPhotoPaths) {
@@ -373,3 +406,11 @@ class ReceiptSessionViewModel(
 
 private fun formatDouble(value: Double): String =
     if (value % 1.0 == 0.0) value.toLong().toString() else value.toString()
+
+/**
+ * Если УПД выбран из списка — ручной текст не нужен (отобразим номер из БД).
+ * Иначе сохраняем то, что юзер ввёл вручную (пустоту приводим к null).
+ */
+private fun ReceiptSessionUiState.manualDocText(): String? =
+    if (sourceDocumentLocalId != null) null
+    else sourceDocumentText.trim().ifEmpty { null }

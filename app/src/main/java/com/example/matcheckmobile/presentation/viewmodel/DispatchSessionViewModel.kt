@@ -116,6 +116,7 @@ class DispatchSessionViewModel(private val container: AppContainer) : ViewModel(
                 volumeM3 = null,
                 massKg = null,
                 sourceDocumentLocalId = current.sourceDocumentLocalId,
+                sourceDocumentManualText = null,
                 comment = current.comment.trim().ifEmpty { null },
             )
             for (path in current.pendingPhotoPaths) {

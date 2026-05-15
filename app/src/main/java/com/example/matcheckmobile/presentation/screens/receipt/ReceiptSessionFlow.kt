@@ -26,6 +26,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -196,10 +197,20 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
         },
     ) { padding ->
         CenteredColumn(padding = padding) {
-            PickerRow(
-                label = "Документ (УПД)",
-                value = resolvedDocument?.let { "УПД ${it.docNumber ?: "—"}" } ?: "Не привязан",
-                onClick = { showDocumentPicker = true },
+            OutlinedTextField(
+                value = state.sourceDocumentText,
+                onValueChange = vm::setSourceDocumentText,
+                label = { Text("Документ (УПД)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                trailingIcon = {
+                    IconButton(onClick = { showDocumentPicker = true }) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.List,
+                            contentDescription = "Выбрать из списка",
+                        )
+                    }
+                },
             )
             PickerRow(
                 label = "Объект",

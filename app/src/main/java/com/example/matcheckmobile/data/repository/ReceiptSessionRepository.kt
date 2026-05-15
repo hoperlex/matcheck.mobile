@@ -49,6 +49,7 @@ class ReceiptSessionRepository(
         volumeM3: Double?,
         massKg: Double?,
         sourceDocumentLocalId: String?,
+        sourceDocumentManualText: String?,
         comment: String?,
     ): ReceiptSessionEntity {
         val now = System.currentTimeMillis()
@@ -66,6 +67,7 @@ class ReceiptSessionRepository(
             volumeM3 = volumeM3,
             massKg = massKg,
             sourceDocumentLocalId = sourceDocumentLocalId,
+            sourceDocumentManualText = sourceDocumentManualText,
             comment = comment,
             startedAt = now,
             finalizedAt = null,
@@ -89,6 +91,7 @@ class ReceiptSessionRepository(
         volumeM3: Double?,
         massKg: Double?,
         sourceDocumentLocalId: String?,
+        sourceDocumentManualText: String?,
         comment: String?,
         confirmedByMol: Boolean,
     ) {
@@ -104,6 +107,7 @@ class ReceiptSessionRepository(
                 volumeM3 = volumeM3,
                 massKg = massKg,
                 sourceDocumentLocalId = sourceDocumentLocalId,
+                sourceDocumentManualText = sourceDocumentManualText,
                 comment = comment,
                 confirmedByMol = confirmedByMol,
             )
