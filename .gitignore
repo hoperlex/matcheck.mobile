@@ -15,4 +15,4 @@
 local.properties
 
 # Reference web project extracted from ZIP
-/docs/reference/matcheck-web/
+/docs/reference/*.zip
