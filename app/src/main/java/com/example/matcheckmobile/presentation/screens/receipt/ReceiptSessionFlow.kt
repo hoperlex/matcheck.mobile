@@ -56,12 +56,14 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.matcheckmobile.MatcheckApplication
 import com.example.matcheckmobile.data.local.entity.CounterpartyEntity
+import com.example.matcheckmobile.data.local.entity.SiteEntity
 import com.example.matcheckmobile.data.local.entity.SourceDocumentEntity
+import com.example.matcheckmobile.presentation.components.VehicleTypeChips
 import com.example.matcheckmobile.presentation.viewmodel.ReceiptSessionViewModel
 import com.example.matcheckmobile.presentation.viewmodel.ReceiptStep
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
 
-private val FormMaxWidth = 600.dp
+private val FormMaxWidth = 720.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -87,18 +89,37 @@ fun ReceiptSessionFlow(onBack: () -> Unit, onSaved: () -> Unit) {
 @Composable
 private fun HeaderStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val sites by vm.sites.collectAsStateWithLifecycle()
     val suppliers by vm.suppliers.collectAsStateWithLifecycle()
+    val contractors by vm.contractors.collectAsStateWithLifecycle()
     val documents by vm.documents.collectAsStateWithLifecycle()
+    val resolvedSite by vm.resolvedSite.collectAsStateWithLifecycle()
     val resolvedSupplier by vm.resolvedSupplier.collectAsStateWithLifecycle()
+    val resolvedContractor by vm.resolvedContractor.collectAsStateWithLifecycle()
     val resolvedDocument by vm.resolvedDocument.collectAsStateWithLifecycle()
 
+    var showSitePicker by remember { mutableStateOf(false) }
     var showSupplierPicker by remember { mutableStateOf(false) }
+    var showContractorPicker by remember { mutableStateOf(false) }
     var showDocumentPicker by remember { mutableStateOf(false) }
+
+    val context = LocalContext.current
+    val photoStorage = remember {
+        (context.applicationContext as MatcheckApplication).container.photoStorage
+    }
+    var pendingPath by remember { mutableStateOf<String?>(null) }
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture(),
+    ) { success ->
+        val path = pendingPath
+        if (success && path != null) vm.addSessionPhoto(path)
+        pendingPath = null
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Приёмка") },
+                title = { Text("Новая приёмка") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
@@ -120,6 +141,21 @@ private fun HeaderStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
         },
     ) { padding ->
         CenteredColumn(padding = padding) {
+            PickerRow(
+                label = "Объект",
+                value = resolvedSite?.name ?: "Не выбран",
+                onClick = { showSitePicker = true },
+            )
+            PickerRow(
+                label = "Подрядчик",
+                value = resolvedContractor?.name ?: "Не указан",
+                onClick = { showContractorPicker = true },
+            )
+            PickerRow(
+                label = "Поставщик",
+                value = resolvedSupplier?.name ?: "Не указан",
+                onClick = { showSupplierPicker = true },
+            )
             OutlinedTextField(
                 value = state.vehicleNumber,
                 onValueChange = vm::setVehicleNumber,
@@ -128,15 +164,32 @@ private fun HeaderStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
             )
             PickerRow(
-                label = "Поставщик",
-                value = resolvedSupplier?.name ?: "Не указан",
-                onClick = { showSupplierPicker = true },
-            )
-            PickerRow(
                 label = "Документ (УПД)",
                 value = resolvedDocument?.let { "УПД ${it.docNumber ?: "—"}" } ?: "Не привязан",
                 onClick = { showDocumentPicker = true },
             )
+            VehicleTypeChips(
+                selectedCode = state.vehicleTypeCode,
+                onSelected = vm::selectVehicleType,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = state.volumeText,
+                    onValueChange = vm::setVolumeText,
+                    label = { Text("Объём, м³") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                )
+                OutlinedTextField(
+                    value = state.massText,
+                    onValueChange = vm::setMassText,
+                    label = { Text("Масса, кг") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                )
+            }
             OutlinedTextField(
                 value = state.comment,
                 onValueChange = vm::setComment,
@@ -144,21 +197,66 @@ private fun HeaderStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 2,
             )
+            OutlinedButton(
+                onClick = {
+                    val file = photoStorage.createTempFile()
+                    val uri: Uri = photoStorage.toContentUri(file)
+                    pendingPath = file.absolutePath
+                    cameraLauncher.launch(uri)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(64.dp),
+            ) {
+                Icon(Icons.Default.PhotoCamera, contentDescription = null)
+                Text("  Добавить фото", style = MaterialTheme.typography.titleMedium)
+            }
+            val photosCount = state.sessionPhotoPaths.size
+            if (photosCount > 0) {
+                Text(
+                    "Прикреплено фото: $photosCount",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
             state.headerError?.let {
                 Text(it, color = MaterialTheme.colorScheme.error)
             }
         }
     }
 
+    if (showSitePicker) {
+        SitePickerSheet(
+            sites = sites,
+            selected = state.siteLocalId,
+            onPick = {
+                vm.setSite(it)
+                showSitePicker = false
+            },
+            onDismiss = { showSitePicker = false },
+        )
+    }
     if (showSupplierPicker) {
-        SupplierPickerSheet(
-            suppliers = suppliers,
+        CounterpartyPickerSheet(
+            title = "Выберите поставщика",
+            counterparties = suppliers,
             selected = state.supplierLocalId,
             onPick = {
                 vm.setSupplier(it)
                 showSupplierPicker = false
             },
             onDismiss = { showSupplierPicker = false },
+        )
+    }
+    if (showContractorPicker) {
+        CounterpartyPickerSheet(
+            title = "Выберите подрядчика",
+            counterparties = contractors,
+            selected = state.contractorLocalId,
+            onPick = {
+                vm.setContractor(it)
+                showContractorPicker = false
+            },
+            onDismiss = { showContractorPicker = false },
         )
     }
     if (showDocumentPicker) {
@@ -179,6 +277,9 @@ private fun HeaderStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
 private fun ItemsStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
     val items by vm.items.collectAsStateWithLifecycle()
+    val photos by vm.sessionPhotos.collectAsStateWithLifecycle()
+    val resolvedSite by vm.resolvedSite.collectAsStateWithLifecycle()
+    val resolvedContractor by vm.resolvedContractor.collectAsStateWithLifecycle()
     val resolvedSupplier by vm.resolvedSupplier.collectAsStateWithLifecycle()
     val resolvedDocument by vm.resolvedDocument.collectAsStateWithLifecycle()
     var showCancelConfirm by remember { mutableStateOf(false) }
@@ -219,7 +320,7 @@ private fun ItemsStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
                             .height(72.dp),
                     ) {
                         Text(
-                            if (state.isFinalizing) "Сохранение..." else "Завершить приёмку",
+                            if (state.isFinalizing) "Сохранение..." else "Сохранить локально",
                             style = MaterialTheme.typography.titleLarge,
                         )
                     }
@@ -230,12 +331,31 @@ private fun ItemsStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
         CenteredColumn(padding = padding) {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(12.dp)) {
-                    Text("Госномер: ${state.vehicleNumber}", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Объект: ${resolvedSite?.name ?: "—"}",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text("Госномер: ${state.vehicleNumber}", style = MaterialTheme.typography.bodyMedium)
+                    Text("Подрядчик: ${resolvedContractor?.name ?: "—"}", style = MaterialTheme.typography.bodyMedium)
                     Text("Поставщик: ${resolvedSupplier?.name ?: "—"}", style = MaterialTheme.typography.bodyMedium)
                     Text(
                         "Документ: " + (resolvedDocument?.let { "УПД ${it.docNumber ?: "—"}" } ?: "—"),
                         style = MaterialTheme.typography.bodyMedium,
                     )
+                    val volume = state.volumeText
+                    val mass = state.massText
+                    if (volume.isNotBlank() || mass.isNotBlank()) {
+                        Text(
+                            "Объём/масса: ${volume.ifBlank { "—" }} м³ · ${mass.ifBlank { "—" }} кг",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                    if (photos.isNotEmpty()) {
+                        Text(
+                            "Фото: ${photos.size}",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
                     state.comment.takeIf { it.isNotBlank() }?.let {
                         Text("Комментарий: $it", style = MaterialTheme.typography.bodySmall)
                     }
@@ -398,8 +518,8 @@ private fun ItemFormStep(vm: ReceiptSessionViewModel) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SupplierPickerSheet(
-    suppliers: List<CounterpartyEntity>,
+private fun SitePickerSheet(
+    sites: List<SiteEntity>,
     selected: String?,
     onPick: (String?) -> Unit,
     onDismiss: () -> Unit,
@@ -408,22 +528,53 @@ private fun SupplierPickerSheet(
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(modifier = Modifier.padding(bottom = 16.dp)) {
             Text(
-                "Выберите поставщика",
+                "Выберите объект",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+            )
+            sites.forEach { site ->
+                ListItem(
+                    headlineContent = { Text(site.name) },
+                    supportingContent = site.address?.let { addr -> { Text(addr) } },
+                    trailingContent = if (site.localId == selected) {
+                        { Text("✓", style = MaterialTheme.typography.titleMedium) }
+                    } else null,
+                    modifier = Modifier.clickable { onPick(site.localId) },
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CounterpartyPickerSheet(
+    title: String,
+    counterparties: List<CounterpartyEntity>,
+    selected: String?,
+    onPick: (String?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(modifier = Modifier.padding(bottom = 16.dp)) {
+            Text(
+                title,
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
             )
             ListItem(
-                headlineContent = { Text("Без поставщика") },
+                headlineContent = { Text("Не указан") },
                 modifier = Modifier.clickable { onPick(null) },
             )
-            suppliers.forEach { sup ->
+            counterparties.forEach { cp ->
                 ListItem(
-                    headlineContent = { Text(sup.name) },
-                    supportingContent = { Text("ИНН ${sup.inn}") },
-                    trailingContent = if (sup.localId == selected) {
+                    headlineContent = { Text(cp.name) },
+                    supportingContent = { Text("ИНН ${cp.inn}") },
+                    trailingContent = if (cp.localId == selected) {
                         { Text("✓", style = MaterialTheme.typography.titleMedium) }
                     } else null,
-                    modifier = Modifier.clickable { onPick(sup.localId) },
+                    modifier = Modifier.clickable { onPick(cp.localId) },
                 )
             }
         }
@@ -492,7 +643,7 @@ private fun CenteredColumn(
             .fillMaxSize()
             .padding(padding),
     ) {
-        val isTablet = maxWidth >= FormMaxWidth
+        val isTablet = maxWidth >= 600.dp
         val outer = if (isTablet) 32.dp else 16.dp
         Box(
             modifier = Modifier

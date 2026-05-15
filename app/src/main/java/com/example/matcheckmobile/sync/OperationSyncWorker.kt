@@ -104,7 +104,8 @@ class OperationSyncWorker(
             listOf(UploadStatus.PENDING_UPLOAD, UploadStatus.UPLOAD_ERROR)
         )
         for (attachment in pending) {
-            val parent = operationDao.findById(attachment.operationLocalId)
+            val operationId = attachment.operationLocalId ?: continue
+            val parent = operationDao.findById(operationId)
             if (parent == null || parent.syncStatus != SyncStatus.SYNCED || parent.serverId == null) {
                 continue
             }

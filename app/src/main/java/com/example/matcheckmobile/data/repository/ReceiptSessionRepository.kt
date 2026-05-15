@@ -7,9 +7,9 @@ import com.example.matcheckmobile.data.local.dao.SyncQueueDao
 import com.example.matcheckmobile.data.local.entity.MaterialOperationEntity
 import com.example.matcheckmobile.data.local.entity.OperationAttachmentEntity
 import com.example.matcheckmobile.data.local.entity.ReceiptSessionEntity
-import com.example.matcheckmobile.data.local.entity.SyncQueueEntity
 import com.example.matcheckmobile.domain.model.AttachmentType
 import com.example.matcheckmobile.domain.model.OperationType
+import com.example.matcheckmobile.domain.model.SessionKind
 import com.example.matcheckmobile.domain.model.SyncStatus
 import com.example.matcheckmobile.domain.model.UploadStatus
 import kotlinx.coroutines.flow.Flow
@@ -19,12 +19,15 @@ class ReceiptSessionRepository(
     private val sessionDao: ReceiptSessionDao,
     private val operationDao: MaterialOperationDao,
     private val attachmentDao: OperationAttachmentDao,
-    private val syncQueueDao: SyncQueueDao,
+    @Suppress("unused") private val syncQueueDao: SyncQueueDao,
 ) {
     fun observeById(id: String): Flow<ReceiptSessionEntity?> = sessionDao.observeById(id)
 
     fun observeItems(sessionId: String): Flow<List<MaterialOperationEntity>> =
         operationDao.observeBySession(sessionId)
+
+    fun observeSessionAttachments(sessionId: String): Flow<List<OperationAttachmentEntity>> =
+        attachmentDao.observeBySession(sessionId)
 
     suspend fun findById(id: String): ReceiptSessionEntity? = sessionDao.findById(id)
 
@@ -32,11 +35,16 @@ class ReceiptSessionRepository(
         operationDao.findBySession(sessionId)
 
     suspend fun createDraft(
+        kind: SessionKind,
         siteId: String,
         userId: String,
         deviceId: String,
         supplierLocalId: String?,
+        contractorLocalId: String?,
         vehicleNumber: String,
+        vehicleTypeCode: String?,
+        volumeM3: Double?,
+        massKg: Double?,
         sourceDocumentLocalId: String?,
         comment: String?,
     ): ReceiptSessionEntity {
@@ -44,11 +52,16 @@ class ReceiptSessionRepository(
         val session = ReceiptSessionEntity(
             localId = UUID.randomUUID().toString(),
             serverId = null,
+            kind = kind,
             siteId = siteId,
             userId = userId,
             deviceId = deviceId,
             supplierLocalId = supplierLocalId,
+            contractorLocalId = contractorLocalId,
             vehicleNumber = vehicleNumber,
+            vehicleTypeCode = vehicleTypeCode,
+            volumeM3 = volumeM3,
+            massKg = massKg,
             sourceDocumentLocalId = sourceDocumentLocalId,
             comment = comment,
             startedAt = now,
@@ -63,8 +76,13 @@ class ReceiptSessionRepository(
 
     suspend fun updateDraftHeader(
         sessionId: String,
+        siteId: String,
         supplierLocalId: String?,
+        contractorLocalId: String?,
         vehicleNumber: String,
+        vehicleTypeCode: String?,
+        volumeM3: Double?,
+        massKg: Double?,
         sourceDocumentLocalId: String?,
         comment: String?,
     ) {
@@ -72,10 +90,33 @@ class ReceiptSessionRepository(
         if (existing.syncStatus != SyncStatus.DRAFT) return
         sessionDao.upsert(
             existing.copy(
+                siteId = siteId,
                 supplierLocalId = supplierLocalId,
+                contractorLocalId = contractorLocalId,
                 vehicleNumber = vehicleNumber,
+                vehicleTypeCode = vehicleTypeCode,
+                volumeM3 = volumeM3,
+                massKg = massKg,
                 sourceDocumentLocalId = sourceDocumentLocalId,
                 comment = comment,
+            )
+        )
+    }
+
+    suspend fun addSessionPhoto(sessionId: String, localFilePath: String) {
+        val session = sessionDao.findById(sessionId) ?: return
+        if (session.syncStatus != SyncStatus.DRAFT) return
+        attachmentDao.upsert(
+            OperationAttachmentEntity(
+                localId = UUID.randomUUID().toString(),
+                operationLocalId = null,
+                sessionLocalId = sessionId,
+                localFilePath = localFilePath,
+                remoteUrl = null,
+                attachmentType = AttachmentType.CARGO,
+                uploadStatus = UploadStatus.PENDING_UPLOAD,
+                createdAt = System.currentTimeMillis(),
+                lastUploadError = null,
             )
         )
     }
@@ -119,6 +160,7 @@ class ReceiptSessionRepository(
                 OperationAttachmentEntity(
                     localId = UUID.randomUUID().toString(),
                     operationLocalId = item.localId,
+                    sessionLocalId = null,
                     localFilePath = path,
                     remoteUrl = null,
                     attachmentType = AttachmentType.CARGO,
@@ -140,28 +182,30 @@ class ReceiptSessionRepository(
     suspend fun finalize(sessionId: String): ReceiptSessionEntity? {
         val session = sessionDao.findById(sessionId) ?: return null
         if (session.syncStatus != SyncStatus.DRAFT) return session
-        val items = operationDao.findBySession(sessionId)
-        if (items.isEmpty()) return session
-        val now = System.currentTimeMillis()
-        val finalized = session.copy(
-            finalizedAt = now,
-            syncStatus = SyncStatus.PENDING,
-            lastSyncError = null,
-        )
-        sessionDao.upsert(finalized)
-        syncQueueDao.upsert(
-            SyncQueueEntity(
-                localId = UUID.randomUUID().toString(),
-                targetType = SyncQueueEntity.TARGET_SESSION,
-                targetLocalId = sessionId,
-                attempts = 0,
-                lastAttemptAt = null,
-                nextAttemptAt = now,
-                lastError = null,
-                createdAt = now,
+        if (session.kind == SessionKind.RECEIPT) {
+            val items = operationDao.findBySession(sessionId)
+            if (items.isEmpty()) return session
+            val now = System.currentTimeMillis()
+            val finalized = session.copy(
+                finalizedAt = now,
+                syncStatus = SyncStatus.LOCAL_SAVED,
+                lastSyncError = null,
             )
-        )
-        return finalized
+            sessionDao.upsert(finalized)
+            for (item in items) {
+                operationDao.updateSyncStatus(item.localId, SyncStatus.LOCAL_SAVED, null)
+            }
+            return finalized
+        } else {
+            val now = System.currentTimeMillis()
+            val finalized = session.copy(
+                finalizedAt = now,
+                syncStatus = SyncStatus.LOCAL_SAVED,
+                lastSyncError = null,
+            )
+            sessionDao.upsert(finalized)
+            return finalized
+        }
     }
 
     suspend fun cancelDraft(sessionId: String) {

@@ -14,5 +14,6 @@ data class CounterpartyEntity(
     val isSupplier: Boolean,
     val isCustomer: Boolean,
     val isCarrier: Boolean,
+    val isContractor: Boolean,
     val updatedAt: Long,
 )

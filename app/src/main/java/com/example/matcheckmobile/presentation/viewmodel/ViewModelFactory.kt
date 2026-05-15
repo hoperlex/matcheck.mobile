@@ -13,14 +13,6 @@ object MatcheckViewModelFactories {
     val Factory = viewModelFactory {
         initializer {
             val app = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as MatcheckApplication
-            ReceiptViewModel(app.container)
-        }
-        initializer {
-            val app = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as MatcheckApplication
-            DispatchViewModel(app.container)
-        }
-        initializer {
-            val app = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as MatcheckApplication
             JournalViewModel(app.container)
         }
         initializer {
@@ -50,6 +42,10 @@ object MatcheckViewModelFactories {
         initializer {
             val app = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as MatcheckApplication
             ReceiptSessionViewModel(app.container)
+        }
+        initializer {
+            val app = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as MatcheckApplication
+            DispatchSessionViewModel(app.container)
         }
     }
 }

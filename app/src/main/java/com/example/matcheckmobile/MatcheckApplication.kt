@@ -15,6 +15,7 @@ import com.example.matcheckmobile.sync.SyncScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -35,19 +36,7 @@ class MatcheckApplication : Application() {
     private suspend fun seedDefaultsIfNeeded() {
         container.deviceSettings.ensureDeviceId()
 
-        val siteId = "site-default"
-        if (container.database.siteDao().findById(siteId) == null) {
-            container.database.siteDao().upsert(
-                SiteEntity(
-                    localId = siteId,
-                    serverId = null,
-                    name = "Объект по умолчанию",
-                    address = null,
-                    createdAt = System.currentTimeMillis(),
-                )
-            )
-            container.deviceSettings.setCurrentSite(siteId)
-        }
+        seedSitesIfNeeded()
 
         val userId = "user-default"
         if (container.database.userDao().findById(userId) == null) {
@@ -76,6 +65,33 @@ class MatcheckApplication : Application() {
         }
     }
 
+    private suspend fun seedSitesIfNeeded() {
+        val sites = listOf(
+            Triple("site-zilart", "ЖК Зиларт", "Москва, Симоновский Вал"),
+            Triple("site-king", "ЖК Кинг", "Москва, Кутузовский проспект"),
+            Triple("site-stories", "ЖК Сторис", "Москва, Дмитровское шоссе"),
+        )
+        val now = System.currentTimeMillis()
+        val dao = container.database.siteDao()
+        for ((id, name, address) in sites) {
+            if (dao.findById(id) == null) {
+                dao.upsert(
+                    SiteEntity(
+                        localId = id,
+                        serverId = null,
+                        name = name,
+                        address = address,
+                        createdAt = now,
+                    )
+                )
+            }
+        }
+        val current = container.deviceSettings.currentSiteIdFlow.first()
+        if (current.isEmpty() || dao.findById(current) == null) {
+            container.deviceSettings.setCurrentSite("site-zilart")
+        }
+    }
+
     private suspend fun seedCounterparties() {
         val now = System.currentTimeMillis()
         val list = listOf(
@@ -89,6 +105,7 @@ class MatcheckApplication : Application() {
                 isSupplier = true,
                 isCustomer = false,
                 isCarrier = false,
+                isContractor = false,
                 updatedAt = now,
             ),
             CounterpartyEntity(
@@ -101,6 +118,7 @@ class MatcheckApplication : Application() {
                 isSupplier = true,
                 isCustomer = false,
                 isCarrier = false,
+                isContractor = false,
                 updatedAt = now,
             ),
             CounterpartyEntity(
@@ -113,6 +131,7 @@ class MatcheckApplication : Application() {
                 isSupplier = true,
                 isCustomer = false,
                 isCarrier = false,
+                isContractor = false,
                 updatedAt = now,
             ),
             CounterpartyEntity(
@@ -125,6 +144,7 @@ class MatcheckApplication : Application() {
                 isSupplier = true,
                 isCustomer = false,
                 isCarrier = false,
+                isContractor = false,
                 updatedAt = now,
             ),
             CounterpartyEntity(
@@ -137,6 +157,46 @@ class MatcheckApplication : Application() {
                 isSupplier = true,
                 isCustomer = false,
                 isCarrier = false,
+                isContractor = false,
+                updatedAt = now,
+            ),
+            CounterpartyEntity(
+                localId = "cp-monolitstroy",
+                serverId = null,
+                inn = "7712345601",
+                kpp = "771201001",
+                name = "ООО «МонолитСтрой»",
+                address = "Москва, ул. Подрядная, 7",
+                isSupplier = false,
+                isCustomer = false,
+                isCarrier = false,
+                isContractor = true,
+                updatedAt = now,
+            ),
+            CounterpartyEntity(
+                localId = "cp-fasadprof",
+                serverId = null,
+                inn = "7728765432",
+                kpp = "772801001",
+                name = "ООО «ФасадПроф»",
+                address = "Москва, ул. Профильная, 14",
+                isSupplier = false,
+                isCustomer = false,
+                isCarrier = false,
+                isContractor = true,
+                updatedAt = now,
+            ),
+            CounterpartyEntity(
+                localId = "cp-elektrosila",
+                serverId = null,
+                inn = "7743210987",
+                kpp = "774301001",
+                name = "ООО «ЭлектроСила»",
+                address = "Москва, ул. Электриков, 5",
+                isSupplier = false,
+                isCustomer = false,
+                isCarrier = false,
+                isContractor = true,
                 updatedAt = now,
             ),
         )

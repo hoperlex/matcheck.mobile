@@ -92,6 +92,7 @@ class OperationRepository(
         val attachment = OperationAttachmentEntity(
             localId = attachmentId,
             operationLocalId = operationLocalId,
+            sessionLocalId = null,
             localFilePath = localFilePath,
             remoteUrl = null,
             attachmentType = attachmentType,

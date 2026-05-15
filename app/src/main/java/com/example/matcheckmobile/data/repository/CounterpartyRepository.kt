@@ -9,6 +9,8 @@ class CounterpartyRepository(
 ) {
     fun observeSuppliers(): Flow<List<CounterpartyEntity>> = dao.observeSuppliers()
 
+    fun observeContractors(): Flow<List<CounterpartyEntity>> = dao.observeContractors()
+
     fun observeAll(): Flow<List<CounterpartyEntity>> = dao.observeAll()
 
     suspend fun findById(id: String): CounterpartyEntity? = dao.findById(id)

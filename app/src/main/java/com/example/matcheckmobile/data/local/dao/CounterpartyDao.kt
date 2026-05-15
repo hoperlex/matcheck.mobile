@@ -24,6 +24,9 @@ interface CounterpartyDao {
     @Query("SELECT * FROM counterparties WHERE isSupplier = 1 ORDER BY name")
     fun observeSuppliers(): Flow<List<CounterpartyEntity>>
 
+    @Query("SELECT * FROM counterparties WHERE isContractor = 1 ORDER BY name")
+    fun observeContractors(): Flow<List<CounterpartyEntity>>
+
     @Query("SELECT COUNT(*) FROM counterparties")
     suspend fun count(): Int
 }

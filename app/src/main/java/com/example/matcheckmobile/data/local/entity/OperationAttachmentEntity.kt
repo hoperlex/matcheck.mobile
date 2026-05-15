@@ -16,15 +16,23 @@ import com.example.matcheckmobile.domain.model.UploadStatus
             childColumns = ["operationLocalId"],
             onDelete = ForeignKey.CASCADE,
         ),
+        ForeignKey(
+            entity = ReceiptSessionEntity::class,
+            parentColumns = ["localId"],
+            childColumns = ["sessionLocalId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
     ],
     indices = [
         Index(value = ["operationLocalId"]),
+        Index(value = ["sessionLocalId"]),
         Index(value = ["uploadStatus"]),
     ],
 )
 data class OperationAttachmentEntity(
     @PrimaryKey val localId: String,
-    val operationLocalId: String,
+    val operationLocalId: String?,
+    val sessionLocalId: String?,
     val localFilePath: String,
     val remoteUrl: String?,
     val attachmentType: AttachmentType,

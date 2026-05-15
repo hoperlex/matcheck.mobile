@@ -10,7 +10,6 @@ import com.example.matcheckmobile.data.repository.OperationRepository
 import com.example.matcheckmobile.data.repository.ReceiptSessionRepository
 import com.example.matcheckmobile.data.repository.SourceDocumentRepository
 import com.example.matcheckmobile.data.settings.DeviceSettings
-import com.example.matcheckmobile.domain.usecase.CreateOperationUseCase
 import com.example.matcheckmobile.media.PhotoStorage
 
 class AppContainer(val appContext: Context) {
@@ -46,6 +45,4 @@ class AppContainer(val appContext: Context) {
         attachmentDao = database.operationAttachmentDao(),
         syncQueueDao = database.syncQueueDao(),
     )
-
-    val createOperationUseCase: CreateOperationUseCase = CreateOperationUseCase(operationRepository)
 }
