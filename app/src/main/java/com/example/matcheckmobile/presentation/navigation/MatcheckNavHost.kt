@@ -43,14 +43,10 @@ fun MatcheckNavHost() {
             IntakeUpdSelectScreen(
                 onBack = { navController.popBackStack() },
                 onOpenWithUpd = { updId ->
-                    navController.navigate(Routes.receiptForUpd(updId)) {
-                        popUpTo(Routes.INTAKE_UPD_SELECT) { inclusive = true }
-                    }
+                    navController.navigate(Routes.receiptForUpd(updId))
                 },
                 onCreateEmpty = {
-                    navController.navigate(Routes.receiptNew()) {
-                        popUpTo(Routes.INTAKE_UPD_SELECT) { inclusive = true }
-                    }
+                    navController.navigate(Routes.receiptNew())
                 },
             )
         }
