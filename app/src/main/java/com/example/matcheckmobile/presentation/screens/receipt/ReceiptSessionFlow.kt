@@ -214,6 +214,7 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
                 label = "Документ (УПД)",
                 value = state.sourceDocumentText.ifBlank { "Не указан" },
                 onClick = { showDocumentPicker = true },
+                enabled = state.sourceDocumentLocalId == null,
             )
             PickerRow(
                 label = "Объект",
@@ -722,11 +723,16 @@ private fun formatNumber(v: Double): String =
     if (v % 1.0 == 0.0) v.toLong().toString() else "%.1f".format(v)
 
 @Composable
-private fun PickerRow(label: String, value: String, onClick: () -> Unit) {
+private fun PickerRow(
+    label: String,
+    value: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() },
+            .let { if (enabled) it.clickable { onClick() } else it },
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Text(label, style = MaterialTheme.typography.labelMedium)
