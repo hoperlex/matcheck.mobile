@@ -3,18 +3,23 @@ package com.example.matcheckmobile.presentation.screens.receipt
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -35,6 +40,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -55,6 +61,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -62,6 +69,7 @@ import com.example.matcheckmobile.MatcheckApplication
 import com.example.matcheckmobile.data.local.entity.CounterpartyEntity
 import com.example.matcheckmobile.data.local.entity.SiteEntity
 import com.example.matcheckmobile.data.local.entity.SourceDocumentEntity
+import com.example.matcheckmobile.domain.model.vehicleTypeByCode
 import com.example.matcheckmobile.presentation.components.VehicleTypeChips
 import com.example.matcheckmobile.presentation.viewmodel.ReceiptSessionViewModel
 import com.example.matcheckmobile.presentation.viewmodel.ReceiptStep
@@ -231,15 +239,12 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
                 selectedCode = state.vehicleTypeCode,
                 onSelected = vm::selectVehicleType,
             )
-            PickerRow(
-                label = "Объём, м³",
-                value = state.volumeText.ifBlank { "Не указан" },
-                onClick = { showVolumeDialog = true },
-            )
-            PickerRow(
-                label = "Масса, кг",
-                value = state.massText.ifBlank { "Не указан" },
-                onClick = { showMassDialog = true },
+            VolumeMassCard(
+                volumeText = state.volumeText,
+                massText = state.massText,
+                vehicleTypeCode = state.vehicleTypeCode,
+                onClickVolume = { showVolumeDialog = true },
+                onClickMass = { showMassDialog = true },
             )
             PickerRow(
                 label = "Комментарий",
@@ -624,6 +629,97 @@ private fun ManualEntryDialog(
         },
     )
 }
+
+@Composable
+private fun VolumeMassCard(
+    volumeText: String,
+    massText: String,
+    vehicleTypeCode: String?,
+    onClickVolume: () -> Unit,
+    onClickMass: () -> Unit,
+) {
+    val type = vehicleTypeByCode(vehicleTypeCode)
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+            MetricCell(
+                label = "Объём",
+                value = volumeText.replace(',', '.').toDoubleOrNull(),
+                rawText = volumeText,
+                unit = "м³",
+                capacity = type?.volumeM3,
+                modifier = Modifier.weight(1f).clickable(onClick = onClickVolume),
+            )
+            Box(
+                modifier = Modifier
+                    .width(1.dp)
+                    .fillMaxHeight()
+                    .background(MaterialTheme.colorScheme.outlineVariant),
+            )
+            MetricCell(
+                label = "Масса",
+                value = massText.replace(',', '.').toDoubleOrNull(),
+                rawText = massText,
+                unit = "кг",
+                capacity = type?.payloadKg,
+                modifier = Modifier.weight(1f).clickable(onClick = onClickMass),
+            )
+        }
+    }
+}
+
+@Composable
+private fun MetricCell(
+    label: String,
+    value: Double?,
+    rawText: String,
+    unit: String,
+    capacity: Double?,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(4.dp))
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(
+                text = if (value != null) formatNumber(value)
+                else rawText.ifBlank { "—" },
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = unit,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 4.dp),
+            )
+        }
+        if (capacity != null && capacity > 0.0) {
+            val fraction = ((value ?: 0.0) / capacity)
+                .coerceIn(0.0, 1.0).toFloat()
+            Spacer(Modifier.height(8.dp))
+            LinearProgressIndicator(
+                progress = { fraction },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "из ${formatNumber(capacity)} $unit",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+private fun formatNumber(v: Double): String =
+    if (v % 1.0 == 0.0) v.toLong().toString() else "%.1f".format(v)
 
 @Composable
 private fun PickerRow(label: String, value: String, onClick: () -> Unit) {
