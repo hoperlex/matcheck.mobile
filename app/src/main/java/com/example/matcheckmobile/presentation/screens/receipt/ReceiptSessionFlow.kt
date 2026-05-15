@@ -197,6 +197,11 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
     ) { padding ->
         CenteredColumn(padding = padding) {
             PickerRow(
+                label = "Документ (УПД)",
+                value = resolvedDocument?.let { "УПД ${it.docNumber ?: "—"}" } ?: "Не привязан",
+                onClick = { showDocumentPicker = true },
+            )
+            PickerRow(
                 label = "Объект",
                 value = resolvedSite?.name ?: "Не выбран",
                 onClick = { showSitePicker = true },
@@ -217,11 +222,6 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
                 label = { Text("Госномер машины") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
-            )
-            PickerRow(
-                label = "Документ (УПД)",
-                value = resolvedDocument?.let { "УПД ${it.docNumber ?: "—"}" } ?: "Не привязан",
-                onClick = { showDocumentPicker = true },
             )
             VehicleTypeChips(
                 selectedCode = state.vehicleTypeCode,
