@@ -15,7 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -117,7 +117,7 @@ fun IntakeUpdSelectScreen(
                             .fillMaxWidth()
                             .height(56.dp),
                     ) {
-                        Icon(Icons.Default.History, contentDescription = null)
+                        Icon(Icons.Default.Bookmarks, contentDescription = null)
                         Text(
                             "  Сохранённые приёмки (${savedReceipts.size})",
                             style = MaterialTheme.typography.titleMedium,
