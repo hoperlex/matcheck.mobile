@@ -108,6 +108,7 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
     var showContractorPicker by remember { mutableStateOf(false) }
     var showDocumentPicker by remember { mutableStateOf(false) }
     var showManualDocDialog by remember { mutableStateOf(false) }
+    var showVehicleDialog by remember { mutableStateOf(false) }
     var showCancelConfirm by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
@@ -218,12 +219,10 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
                 value = resolvedSupplier?.name ?: "Не указан",
                 onClick = { showSupplierPicker = true },
             )
-            OutlinedTextField(
-                value = state.vehicleNumber,
-                onValueChange = vm::setVehicleNumber,
-                label = { Text("Госномер машины") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+            PickerRow(
+                label = "Госномер машины",
+                value = state.vehicleNumber.ifBlank { "Не указан" },
+                onClick = { showVehicleDialog = true },
             )
             VehicleTypeChips(
                 selectedCode = state.vehicleTypeCode,
@@ -326,13 +325,27 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
         )
     }
     if (showManualDocDialog) {
-        ManualDocumentDialog(
+        ManualEntryDialog(
+            title = "Документ (УПД)",
+            fieldLabel = "Номер документа",
             initial = state.sourceDocumentText,
             onConfirm = {
                 vm.setSourceDocumentText(it)
                 showManualDocDialog = false
             },
             onDismiss = { showManualDocDialog = false },
+        )
+    }
+    if (showVehicleDialog) {
+        ManualEntryDialog(
+            title = "Госномер машины",
+            fieldLabel = "Госномер",
+            initial = state.vehicleNumber,
+            onConfirm = {
+                vm.setVehicleNumber(it)
+                showVehicleDialog = false
+            },
+            onDismiss = { showVehicleDialog = false },
         )
     }
 
@@ -545,7 +558,9 @@ private fun DocumentPickerSheet(
 }
 
 @Composable
-private fun ManualDocumentDialog(
+private fun ManualEntryDialog(
+    title: String,
+    fieldLabel: String,
     initial: String,
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit,
@@ -553,12 +568,12 @@ private fun ManualDocumentDialog(
     var text by remember { mutableStateOf(initial) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Документ (УПД)") },
+        title = { Text(title) },
         text = {
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
-                label = { Text("Номер документа") },
+                label = { Text(fieldLabel) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
