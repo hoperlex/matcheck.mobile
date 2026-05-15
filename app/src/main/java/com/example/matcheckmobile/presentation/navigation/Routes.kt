@@ -17,6 +17,7 @@ object Routes {
 
     fun receiptForUpd(updId: String): String = "$RECEIPT_BASE?$ARG_UPD_ID=$updId"
     fun receiptForSession(sessionId: String): String = "$RECEIPT_BASE?$ARG_SESSION_ID=$sessionId"
+    fun receiptNew(): String = RECEIPT_BASE
 
     const val DISPATCH = "dispatch"
     const val JOURNAL = "journal"

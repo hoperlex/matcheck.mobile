@@ -5,13 +5,10 @@ import androidx.lifecycle.viewModelScope
 import com.example.matcheckmobile.data.local.entity.CounterpartyEntity
 import com.example.matcheckmobile.data.local.entity.SourceDocumentEntity
 import com.example.matcheckmobile.di.AppContainer
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 
 data class IntakeUpdRow(
     val document: SourceDocumentEntity,
@@ -19,10 +16,6 @@ data class IntakeUpdRow(
 )
 
 class IntakeUpdSelectViewModel(container: AppContainer) : ViewModel() {
-
-    private val _selectedId = MutableStateFlow<String?>(null)
-    val selectedId: StateFlow<String?> = _selectedId.asStateFlow()
-
     val rows: StateFlow<List<IntakeUpdRow>> = combine(
         container.sourceDocumentRepository.observeUpdWithoutCompletedReceipt(),
         container.counterpartyRepository.observeAll(),
@@ -34,6 +27,4 @@ class IntakeUpdSelectViewModel(container: AppContainer) : ViewModel() {
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = emptyList(),
     )
-
-    fun select(id: String?) = _selectedId.update { id }
 }
