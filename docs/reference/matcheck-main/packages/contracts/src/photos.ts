@@ -1,0 +1,46 @@
+import { z } from 'zod';
+
+export const PhotoKindSchema = z.enum(['document', 'cargo', 'vehicle', 'other']);
+
+/**
+ * К чему относится фото — приёмка или отгрузка.
+ * Используется в presign-/get-/delete- эндпоинтах для диспатча по таблицам.
+ */
+export const OperationKindSchema = z.enum(['delivery', 'shipment']);
+export type OperationKind = z.infer<typeof OperationKindSchema>;
+
+export const PhotoPresignRequestSchema = z.object({
+  operationKind: OperationKindSchema.default('delivery'),
+  operationId: z.string().uuid().optional(),
+  // Старое поле для совместимости с уже задеплоенным фронтом приёмки.
+  deliveryId: z.string().uuid().optional(),
+  kind: PhotoKindSchema,
+  contentHash: z.string().regex(/^[0-9a-f]{64}$/),
+  idempotencyKey: z.string().uuid(),
+  contentType: z.string().default('image/jpeg'),
+  thumbContentHash: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .optional(),
+});
+export type PhotoPresignRequest = z.infer<typeof PhotoPresignRequestSchema>;
+
+export const PhotoPresignResponseSchema = z.object({
+  photoId: z.string().uuid(),
+  s3Key: z.string(),
+  thumbS3Key: z.string().nullable(),
+  uploadUrl: z.string(),
+  thumbUploadUrl: z.string().nullable(),
+  expiresIn: z.number(),
+  alreadyExists: z.boolean(),
+});
+export type PhotoPresignResponse = z.infer<typeof PhotoPresignResponseSchema>;
+
+export const PhotoGetUrlResponseSchema = z.object({
+  url: z.string(),
+  expiresIn: z.number(),
+});
+export type PhotoGetUrlResponse = z.infer<typeof PhotoGetUrlResponseSchema>;
+
+export const PhotoDeleteResponseSchema = z.object({ ok: z.literal(true) });
+export type PhotoDeleteResponse = z.infer<typeof PhotoDeleteResponseSchema>;

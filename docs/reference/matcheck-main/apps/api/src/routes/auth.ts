@@ -1,0 +1,331 @@
+import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { eq } from 'drizzle-orm';
+import { asZod } from '../lib/fastify.js';
+import {
+  LoginRequestSchema,
+  LoginResponseSchema,
+  RefreshResponseSchema,
+  RegisterRequestSchema,
+  RegisterResponseSchema,
+  UserDtoSchema,
+  ErrorResponseSchema,
+} from '@matcheck/contracts';
+import { users, authEvents } from '../db/schema.js';
+import { hashPassword, verifyPassword, checkPasswordStrength } from '../domain/auth/password.js';
+import { signAccessToken } from '../domain/auth/jwt.js';
+import {
+  createSessionAndRefresh,
+  refreshCookieOptions,
+  legacyRefreshCookieOptions,
+  rotateRefreshToken,
+  REFRESH_COOKIE_NAME,
+  ACCESS_COOKIE_NAME,
+  accessCookieOptions,
+  revokeByToken,
+  revokeBySessionId,
+} from '../domain/auth/refresh.js';
+import { sha256Hex } from '../domain/auth/crypto.js';
+import { loadEnv } from '../lib/env.js';
+import { createBurstyRateLimit } from '../lib/auth-rate-limit.js';
+
+const env = loadEnv();
+
+function userToDto(u: {
+  id: string;
+  email: string;
+  role: 'admin' | 'manager' | 'inspector_kpp';
+  isActive: boolean;
+  siteId: string | null;
+  createdAt: Date;
+}) {
+  return {
+    id: u.id,
+    email: u.email,
+    role: u.role,
+    isActive: u.isActive,
+    siteId: u.siteId,
+    createdAt: u.createdAt.toISOString(),
+  };
+}
+
+async function backoffSleep(failed: number) {
+  if (failed <= 0) return;
+  const ms = Math.min(30_000, 1000 * 2 ** Math.min(failed - 1, 5));
+  await new Promise((r) => setTimeout(r, ms));
+}
+
+// Mobile-клиенты (Android/iOS) не могут хранить HttpOnly-cookie между запросами,
+// поэтому при заголовке X-Client-Type: mobile отдаём refresh-token в теле ответа
+// и не ставим cookies. Веб остаётся на cookie-flow без изменений.
+function isMobileClient(req: FastifyRequest): boolean {
+  return req.headers['x-client-type'] === 'mobile';
+}
+
+function refreshExpiresInSeconds(expiresAt: Date): number {
+  return Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1000));
+}
+
+function extractBearerToken(authHeader: string | undefined): string | null {
+  if (!authHeader) return null;
+  const m = /^Bearer\s+(.+)$/i.exec(authHeader);
+  const token = m?.[1]?.trim();
+  return token && token.length > 0 ? token : null;
+}
+
+export async function authRoutes(rawApp: FastifyInstance): Promise<void> {
+  const app = asZod(rawApp);
+  app.post(
+    '/api/v1/auth/register',
+    {
+      preHandler: createBurstyRateLimit({
+        burst: 5,
+        burstWindowSec: 900,
+        slowWindowSec: 60,
+        keyPrefix: 'register',
+        noun: 'регистрации',
+      }),
+      schema: {
+        body: RegisterRequestSchema,
+        response: {
+          200: RegisterResponseSchema,
+          400: ErrorResponseSchema,
+          409: ErrorResponseSchema,
+          429: ErrorResponseSchema,
+        },
+      },
+    },
+    async (req, reply) => {
+      const { email, password } = req.body;
+      const check = await checkPasswordStrength(password, email);
+      if (!check.ok) {
+        return reply.code(400).send({
+          error: 'weak_password',
+          message: 'Password does not meet requirements',
+          details: check,
+        });
+      }
+      const [existing] = await app.db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.email, email))
+        .limit(1);
+      if (existing) {
+        return reply.code(409).send({ error: 'email_taken', message: 'Email already registered' });
+      }
+      const passwordHash = await hashPassword(password);
+      const [created] = await app.db
+        .insert(users)
+        .values({ email, passwordHash, role: 'manager', isActive: false })
+        .returning();
+      if (!created) throw new Error('Failed to create user');
+      await app.db.insert(authEvents).values({
+        userId: created.id,
+        event: 'user_registered',
+        ip: req.ip,
+        userAgent: req.headers['user-agent'] ?? null,
+      });
+      return { ok: true as const, user: userToDto(created) };
+    },
+  );
+
+  app.post(
+    '/api/v1/auth/login',
+    {
+      preHandler: createBurstyRateLimit({
+        burst: 5,
+        burstWindowSec: 900,
+        slowWindowSec: 60,
+        keyPrefix: 'login',
+        noun: 'входа',
+      }),
+      schema: {
+        body: LoginRequestSchema,
+        response: {
+          200: LoginResponseSchema,
+          401: ErrorResponseSchema,
+          423: ErrorResponseSchema,
+          429: ErrorResponseSchema,
+        },
+      },
+    },
+    async (req, reply) => {
+      const { email, password } = req.body;
+      const [user] = await app.db.select().from(users).where(eq(users.email, email)).limit(1);
+
+      if (user?.lockedUntil && user.lockedUntil > new Date()) {
+        await app.db.insert(authEvents).values({
+          userId: user.id,
+          event: 'login_blocked_locked',
+          ip: req.ip,
+        });
+        return reply
+          .code(423)
+          .send({ error: 'account_locked', message: 'Account temporarily locked' });
+      }
+
+      const ok = await verifyPassword(password, user?.passwordHash ?? null);
+      if (!user || !ok) {
+        const failed = (user?.failedLoginCount ?? 0) + 1;
+        await backoffSleep(failed);
+        if (user) {
+          const lockedUntil = failed >= 10 ? new Date(Date.now() + 30 * 60_000) : null;
+          await app.db
+            .update(users)
+            .set({ failedLoginCount: failed, lockedUntil })
+            .where(eq(users.id, user.id));
+          await app.db.insert(authEvents).values({
+            userId: user.id,
+            event: 'login_failure',
+            ip: req.ip,
+            userAgent: req.headers['user-agent'] ?? null,
+          });
+        } else {
+          await app.db.insert(authEvents).values({
+            emailHash: sha256Hex(email),
+            event: 'login_failure',
+            ip: req.ip,
+            userAgent: req.headers['user-agent'] ?? null,
+          });
+        }
+        return reply
+          .code(401)
+          .send({ error: 'invalid_credentials', message: 'Invalid email or password' });
+      }
+
+      if (!user.isActive) {
+        return reply
+          .code(401)
+          .send({ error: 'account_inactive', message: 'Account is not active' });
+      }
+
+      await app.db
+        .update(users)
+        .set({ failedLoginCount: 0, lockedUntil: null })
+        .where(eq(users.id, user.id));
+
+      const refresh = await createSessionAndRefresh(
+        user.id,
+        req.ip,
+        req.headers['user-agent'] ?? undefined,
+      );
+      const access = await signAccessToken({
+        sub: user.id,
+        role: user.role,
+        sid: refresh.sessionId,
+        aal: 'aal1',
+      });
+
+      if (isMobileClient(req)) {
+        return {
+          accessToken: access,
+          expiresIn: env.ACCESS_TOKEN_TTL_SECONDS,
+          user: userToDto(user),
+          refreshToken: refresh.token,
+          refreshExpiresIn: refreshExpiresInSeconds(refresh.expiresAt),
+        };
+      }
+
+      reply.setCookie(REFRESH_COOKIE_NAME, refresh.token, refreshCookieOptions());
+      reply.setCookie(ACCESS_COOKIE_NAME, access, accessCookieOptions());
+      return {
+        accessToken: access,
+        expiresIn: env.ACCESS_TOKEN_TTL_SECONDS,
+        user: userToDto(user),
+      };
+    },
+  );
+
+  app.post(
+    '/api/v1/auth/refresh',
+    {
+      config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+      schema: { response: { 200: RefreshResponseSchema, 401: ErrorResponseSchema } },
+    },
+    async (req, reply) => {
+      const mobile = isMobileClient(req);
+      const presented = mobile
+        ? extractBearerToken(req.headers.authorization)
+        : req.cookies[REFRESH_COOKIE_NAME];
+      if (!presented) {
+        return reply.code(401).send({ error: 'no_refresh' });
+      }
+      const result = await rotateRefreshToken(
+        presented,
+        req.ip,
+        req.headers['user-agent'] ?? undefined,
+      );
+      if (!result) {
+        if (!mobile) {
+          reply.clearCookie(REFRESH_COOKIE_NAME, refreshCookieOptions());
+          reply.clearCookie(REFRESH_COOKIE_NAME, legacyRefreshCookieOptions());
+        }
+        return reply.code(401).send({ error: 'invalid_refresh' });
+      }
+      const [user] = await app.db
+        .select({ role: users.role })
+        .from(users)
+        .where(eq(users.id, result.userId))
+        .limit(1);
+      if (!user) return reply.code(401).send({ error: 'invalid_refresh' });
+
+      const access = await signAccessToken({
+        sub: result.userId,
+        role: user.role,
+        sid: result.sessionId,
+        aal: 'aal1',
+      });
+
+      if (mobile) {
+        return {
+          accessToken: access,
+          expiresIn: env.ACCESS_TOKEN_TTL_SECONDS,
+          refreshToken: result.newToken,
+          refreshExpiresIn: refreshExpiresInSeconds(result.expiresAt),
+        };
+      }
+
+      reply.clearCookie(REFRESH_COOKIE_NAME, legacyRefreshCookieOptions());
+      reply.setCookie(REFRESH_COOKIE_NAME, result.newToken, refreshCookieOptions());
+      reply.setCookie(ACCESS_COOKIE_NAME, access, accessCookieOptions());
+      return { accessToken: access, expiresIn: env.ACCESS_TOKEN_TTL_SECONDS };
+    },
+  );
+
+  app.post(
+    '/api/v1/auth/logout',
+    {
+      preHandler: [app.authenticate],
+      schema: { response: { 200: { type: 'object', properties: { ok: { type: 'boolean' } } } } },
+    },
+    async (req, reply) => {
+      const presented = req.cookies[REFRESH_COOKIE_NAME];
+      if (presented) await revokeByToken(presented);
+      else if (req.user) await revokeBySessionId(req.user.sessionId);
+      reply.clearCookie(REFRESH_COOKIE_NAME, refreshCookieOptions());
+      reply.clearCookie(REFRESH_COOKIE_NAME, legacyRefreshCookieOptions());
+      reply.clearCookie(ACCESS_COOKIE_NAME, accessCookieOptions());
+      if (req.user) {
+        await app.db.insert(authEvents).values({
+          userId: req.user.id,
+          event: 'logout',
+          ip: req.ip,
+        });
+      }
+      return { ok: true };
+    },
+  );
+
+  app.get(
+    '/api/v1/auth/me',
+    {
+      preHandler: [app.authenticate],
+      schema: { response: { 200: UserDtoSchema, 401: ErrorResponseSchema } },
+    },
+    async (req, reply) => {
+      if (!req.user) return reply.code(401).send({ error: 'unauthorized' });
+      const [user] = await app.db.select().from(users).where(eq(users.id, req.user.id)).limit(1);
+      if (!user) return reply.code(401).send({ error: 'unauthorized' });
+      return userToDto(user);
+    },
+  );
+}
