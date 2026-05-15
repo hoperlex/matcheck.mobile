@@ -271,55 +271,6 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
-
-            Text(
-                "Позиции ($itemsCount)",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-            if (items.isEmpty()) {
-                Text(
-                    "Позиций пока нет. Нажмите «Добавить позицию» ниже.",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            } else {
-                items.forEach { item ->
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        ),
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(item.materialNameRaw, style = MaterialTheme.typography.titleSmall)
-                                Text(
-                                    "${formatQty(item.quantity)} ${item.unit}" +
-                                        (item.comment?.let { " · $it" } ?: ""),
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
-                            }
-                            IconButton(onClick = { vm.removeItem(item.localId) }) {
-                                Icon(Icons.Default.Close, contentDescription = "Удалить")
-                            }
-                        }
-                    }
-                }
-            }
-            OutlinedButton(
-                onClick = vm::openItemForm,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
-            ) {
-                Icon(Icons.Default.Add, contentDescription = null)
-                Text("  Добавить позицию", style = MaterialTheme.typography.titleMedium)
-            }
         }
     }
 
