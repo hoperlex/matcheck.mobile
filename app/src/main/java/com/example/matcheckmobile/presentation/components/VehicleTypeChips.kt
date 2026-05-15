@@ -1,17 +1,17 @@
 package com.example.matcheckmobile.presentation.components
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -20,18 +20,16 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.clickable
 import com.example.matcheckmobile.domain.model.VEHICLE_TYPES
 import com.example.matcheckmobile.domain.model.VehicleType
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun VehicleTypeChips(
     selectedCode: String?,
@@ -44,16 +42,18 @@ fun VehicleTypeChips(
             style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.padding(bottom = 6.dp, start = 4.dp),
         )
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp),
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            maxItemsInEachRow = VEHICLE_TYPES.size,
         ) {
-            items(VEHICLE_TYPES, key = { it.code }) { type ->
-                val selected = type.code == selectedCode
+            VEHICLE_TYPES.forEach { type ->
                 VehicleChip(
                     type = type,
-                    selected = selected,
+                    selected = type.code == selectedCode,
                     onClick = { onSelected(type) },
+                    modifier = Modifier.weight(1f, fill = true),
                 )
             }
         }
@@ -65,6 +65,7 @@ private fun VehicleChip(
     type: VehicleType,
     selected: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val container = if (selected)
         MaterialTheme.colorScheme.primaryContainer
@@ -84,21 +85,19 @@ private fun VehicleChip(
         colors = CardDefaults.cardColors(containerColor = container, contentColor = onContainer),
         border = border,
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        modifier = Modifier
-            .width(132.dp)
-            .clickable(onClick = onClick),
+        modifier = modifier.clickable(onClick = onClick),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 10.dp),
+                .padding(horizontal = 8.dp, vertical = 10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(40.dp),
+                    .height(36.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Image(
@@ -106,7 +105,7 @@ private fun VehicleChip(
                     contentDescription = type.name,
                     contentScale = ContentScale.Fit,
                     colorFilter = ColorFilter.tint(onContainer.copy(alpha = 0.85f)),
-                    modifier = Modifier.size(width = 100.dp, height = 36.dp),
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
             Text(
@@ -114,6 +113,7 @@ private fun VehicleChip(
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 textAlign = TextAlign.Center,
+                maxLines = 1,
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -134,6 +134,3 @@ private fun VehicleChip(
 
 private fun formatNum(v: Double): String =
     if (v % 1.0 == 0.0) v.toLong().toString() else "%.1f".format(v)
-
-@Suppress("unused")
-private val Unused: Color = Color.Unspecified
