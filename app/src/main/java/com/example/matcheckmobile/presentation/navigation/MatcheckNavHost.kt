@@ -15,6 +15,7 @@ import com.example.matcheckmobile.presentation.screens.login.LoginScreen
 import com.example.matcheckmobile.presentation.screens.main.MainScreen
 import com.example.matcheckmobile.presentation.screens.receipt.IntakeUpdSelectScreen
 import com.example.matcheckmobile.presentation.screens.receipt.ReceiptScreen
+import com.example.matcheckmobile.presentation.screens.receipt.SavedReceiptsScreen
 import com.example.matcheckmobile.presentation.screens.settings.SettingsScreen
 import com.example.matcheckmobile.presentation.screens.sync.SyncQueueScreen
 
@@ -47,6 +48,17 @@ fun MatcheckNavHost() {
                 },
                 onCreateEmpty = {
                     navController.navigate(Routes.receiptNew())
+                },
+                onOpenSavedList = {
+                    navController.navigate(Routes.SAVED_RECEIPTS)
+                },
+            )
+        }
+        composable(Routes.SAVED_RECEIPTS) {
+            SavedReceiptsScreen(
+                onBack = { navController.popBackStack() },
+                onOpenReceipt = { sessionId ->
+                    navController.navigate(Routes.receiptForSession(sessionId))
                 },
             )
         }

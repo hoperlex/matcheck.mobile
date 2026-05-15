@@ -15,12 +15,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -47,9 +49,11 @@ fun IntakeUpdSelectScreen(
     onBack: () -> Unit,
     onOpenWithUpd: (updLocalId: String) -> Unit,
     onCreateEmpty: () -> Unit,
+    onOpenSavedList: () -> Unit,
 ) {
     val vm: IntakeUpdSelectViewModel = matcheckViewModel()
     val rows by vm.rows.collectAsStateWithLifecycle()
+    val savedReceipts by vm.savedReceipts.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -101,33 +105,52 @@ fun IntakeUpdSelectScreen(
                     .padding(outerPadding),
                 contentAlignment = Alignment.TopCenter,
             ) {
-                if (rows.isEmpty()) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.padding(top = 32.dp),
+                Column(
+                    modifier = Modifier
+                        .widthIn(max = ContentMaxWidth)
+                        .fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = onOpenSavedList,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp),
                     ) {
+                        Icon(Icons.Default.History, contentDescription = null)
                         Text(
-                            "Нет входящих УПД для приёмки",
+                            "  Сохранённые приёмки (${savedReceipts.size})",
                             style = MaterialTheme.typography.titleMedium,
                         )
-                        Text(
-                            "Можно начать пустую приёмку — кнопка снизу.",
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
                     }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier
-                            .widthIn(max = ContentMaxWidth)
-                            .fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        items(rows, key = { it.document.localId }) { row ->
-                            UpdRowCard(
-                                row = row,
-                                onClick = { onOpenWithUpd(row.document.localId) },
+                    if (rows.isEmpty()) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 24.dp),
+                        ) {
+                            Text(
+                                "Нет входящих УПД для приёмки",
+                                style = MaterialTheme.typography.titleMedium,
                             )
+                            Text(
+                                "Можно начать пустую приёмку — кнопка снизу.",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            items(rows, key = { it.document.localId }) { row ->
+                                UpdRowCard(
+                                    row = row,
+                                    onClick = { onOpenWithUpd(row.document.localId) },
+                                )
+                            }
                         }
                     }
                 }
