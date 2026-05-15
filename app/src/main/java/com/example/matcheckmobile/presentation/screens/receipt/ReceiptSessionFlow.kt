@@ -109,6 +109,9 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
     var showDocumentPicker by remember { mutableStateOf(false) }
     var showManualDocDialog by remember { mutableStateOf(false) }
     var showVehicleDialog by remember { mutableStateOf(false) }
+    var showVolumeDialog by remember { mutableStateOf(false) }
+    var showMassDialog by remember { mutableStateOf(false) }
+    var showCommentDialog by remember { mutableStateOf(false) }
     var showCancelConfirm by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
@@ -228,30 +231,20 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
                 selectedCode = state.vehicleTypeCode,
                 onSelected = vm::selectVehicleType,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
-                    value = state.volumeText,
-                    onValueChange = vm::setVolumeText,
-                    label = { Text("Объём, м³") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                )
-                OutlinedTextField(
-                    value = state.massText,
-                    onValueChange = vm::setMassText,
-                    label = { Text("Масса, кг") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-            OutlinedTextField(
-                value = state.comment,
-                onValueChange = vm::setComment,
-                label = { Text("Комментарий") },
-                modifier = Modifier.fillMaxWidth(),
-                minLines = 2,
+            PickerRow(
+                label = "Объём, м³",
+                value = state.volumeText.ifBlank { "Не указан" },
+                onClick = { showVolumeDialog = true },
+            )
+            PickerRow(
+                label = "Масса, кг",
+                value = state.massText.ifBlank { "Не указан" },
+                onClick = { showMassDialog = true },
+            )
+            PickerRow(
+                label = "Комментарий",
+                value = state.comment.ifBlank { "Не указан" },
+                onClick = { showCommentDialog = true },
             )
             OutlinedButton(
                 onClick = {
@@ -346,6 +339,46 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
                 showVehicleDialog = false
             },
             onDismiss = { showVehicleDialog = false },
+        )
+    }
+    if (showVolumeDialog) {
+        ManualEntryDialog(
+            title = "Объём груза",
+            fieldLabel = "Объём, м³",
+            initial = state.volumeText,
+            onConfirm = {
+                vm.setVolumeText(it)
+                showVolumeDialog = false
+            },
+            onDismiss = { showVolumeDialog = false },
+            keyboardType = KeyboardType.Number,
+        )
+    }
+    if (showMassDialog) {
+        ManualEntryDialog(
+            title = "Масса груза",
+            fieldLabel = "Масса, кг",
+            initial = state.massText,
+            onConfirm = {
+                vm.setMassText(it)
+                showMassDialog = false
+            },
+            onDismiss = { showMassDialog = false },
+            keyboardType = KeyboardType.Number,
+        )
+    }
+    if (showCommentDialog) {
+        ManualEntryDialog(
+            title = "Комментарий",
+            fieldLabel = "Комментарий",
+            initial = state.comment,
+            onConfirm = {
+                vm.setComment(it)
+                showCommentDialog = false
+            },
+            onDismiss = { showCommentDialog = false },
+            singleLine = false,
+            minLines = 3,
         )
     }
 
@@ -564,6 +597,9 @@ private fun ManualEntryDialog(
     initial: String,
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit,
+    keyboardType: KeyboardType = KeyboardType.Text,
+    singleLine: Boolean = true,
+    minLines: Int = 1,
 ) {
     var text by remember { mutableStateOf(initial) }
     AlertDialog(
@@ -574,7 +610,9 @@ private fun ManualEntryDialog(
                 value = text,
                 onValueChange = { text = it },
                 label = { Text(fieldLabel) },
-                singleLine = true,
+                singleLine = singleLine,
+                minLines = minLines,
+                keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
                 modifier = Modifier.fillMaxWidth(),
             )
         },
