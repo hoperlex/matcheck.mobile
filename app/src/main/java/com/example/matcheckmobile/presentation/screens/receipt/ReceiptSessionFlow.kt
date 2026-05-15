@@ -70,6 +70,8 @@ import com.example.matcheckmobile.data.local.entity.CounterpartyEntity
 import com.example.matcheckmobile.data.local.entity.SiteEntity
 import com.example.matcheckmobile.data.local.entity.SourceDocumentEntity
 import com.example.matcheckmobile.domain.model.vehicleTypeByCode
+import com.example.matcheckmobile.domain.validation.normalizeVehiclePlate
+import com.example.matcheckmobile.domain.validation.vehiclePlateHint
 import com.example.matcheckmobile.presentation.components.VehicleTypeChips
 import com.example.matcheckmobile.presentation.viewmodel.ReceiptSessionViewModel
 import com.example.matcheckmobile.presentation.viewmodel.ReceiptStep
@@ -341,10 +343,12 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
             fieldLabel = "Госномер",
             initial = state.vehicleNumber,
             onConfirm = {
-                vm.setVehicleNumber(it)
+                vm.setVehicleNumber(it.trim())
                 showVehicleDialog = false
             },
             onDismiss = { showVehicleDialog = false },
+            transform = ::normalizeVehiclePlate,
+            supportingText = ::vehiclePlateHint,
         )
     }
     if (showVolumeDialog) {
@@ -606,19 +610,23 @@ private fun ManualEntryDialog(
     keyboardType: KeyboardType = KeyboardType.Text,
     singleLine: Boolean = true,
     minLines: Int = 1,
+    transform: (String) -> String = { it },
+    supportingText: (String) -> String? = { null },
 ) {
-    var text by remember { mutableStateOf(initial) }
+    var text by remember { mutableStateOf(transform(initial)) }
+    val hint = supportingText(text)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
             OutlinedTextField(
                 value = text,
-                onValueChange = { text = it },
+                onValueChange = { text = transform(it) },
                 label = { Text(fieldLabel) },
                 singleLine = singleLine,
                 minLines = minLines,
                 keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+                supportingText = hint?.let { { Text(it) } },
                 modifier = Modifier.fillMaxWidth(),
             )
         },
