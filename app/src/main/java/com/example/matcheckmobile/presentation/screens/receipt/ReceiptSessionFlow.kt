@@ -107,6 +107,7 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
     var showSupplierPicker by remember { mutableStateOf(false) }
     var showContractorPicker by remember { mutableStateOf(false) }
     var showDocumentPicker by remember { mutableStateOf(false) }
+    var showManualDocDialog by remember { mutableStateOf(false) }
     var showCancelConfirm by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
@@ -197,20 +198,10 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
         },
     ) { padding ->
         CenteredColumn(padding = padding) {
-            OutlinedTextField(
-                value = state.sourceDocumentText,
-                onValueChange = vm::setSourceDocumentText,
-                label = { Text("Документ (УПД)") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                trailingIcon = {
-                    IconButton(onClick = { showDocumentPicker = true }) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.List,
-                            contentDescription = "Выбрать из списка",
-                        )
-                    }
-                },
+            PickerRow(
+                label = "Документ (УПД)",
+                value = state.sourceDocumentText.ifBlank { "Не указан" },
+                onClick = { showDocumentPicker = true },
             )
             PickerRow(
                 label = "Объект",
@@ -323,13 +314,25 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
     }
     if (showDocumentPicker) {
         DocumentPickerSheet(
-            documents = documents,
-            selected = state.sourceDocumentLocalId,
-            onPick = {
-                vm.setSourceDocument(it)
+            onNotSpecified = {
+                vm.setSourceDocumentText("")
                 showDocumentPicker = false
             },
+            onManualEntry = {
+                showDocumentPicker = false
+                showManualDocDialog = true
+            },
             onDismiss = { showDocumentPicker = false },
+        )
+    }
+    if (showManualDocDialog) {
+        ManualDocumentDialog(
+            initial = state.sourceDocumentText,
+            onConfirm = {
+                vm.setSourceDocumentText(it)
+                showManualDocDialog = false
+            },
+            onDismiss = { showManualDocDialog = false },
         )
     }
 
@@ -517,39 +520,56 @@ private fun CounterpartyPickerSheet(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DocumentPickerSheet(
-    documents: List<SourceDocumentEntity>,
-    selected: String?,
-    onPick: (String?) -> Unit,
+    onNotSpecified: () -> Unit,
+    onManualEntry: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(modifier = Modifier.padding(bottom = 16.dp)) {
             Text(
-                "Выберите УПД",
+                "Документ (УПД)",
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
             )
             ListItem(
-                headlineContent = { Text("Без привязки") },
-                modifier = Modifier.clickable { onPick(null) },
+                headlineContent = { Text("Не указан") },
+                modifier = Modifier.clickable { onNotSpecified() },
             )
-            LazyColumn {
-                items(documents, key = { it.localId }) { doc ->
-                    ListItem(
-                        headlineContent = { Text("УПД ${doc.docNumber ?: "—"}") },
-                        supportingContent = doc.totalSum?.let { sum ->
-                            { Text("%.2f ₽".format(sum)) }
-                        },
-                        trailingContent = if (doc.localId == selected) {
-                            { Text("✓", style = MaterialTheme.typography.titleMedium) }
-                        } else null,
-                        modifier = Modifier.clickable { onPick(doc.localId) },
-                    )
-                }
-            }
+            ListItem(
+                headlineContent = { Text("Ввести вручную") },
+                modifier = Modifier.clickable { onManualEntry() },
+            )
         }
     }
+}
+
+@Composable
+private fun ManualDocumentDialog(
+    initial: String,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var text by remember { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Документ (УПД)") },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                label = { Text("Номер документа") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(text) }) { Text("ОК") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Отмена") }
+        },
+    )
 }
 
 @Composable
