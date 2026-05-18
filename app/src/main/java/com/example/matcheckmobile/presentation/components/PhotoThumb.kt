@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
@@ -45,13 +46,14 @@ fun PhotoThumb(
     onRemove: () -> Unit,
     modifier: Modifier = Modifier,
     size: androidx.compose.ui.unit.Dp = 80.dp,
+    onClick: (() -> Unit)? = null,
 ) {
     var bitmap by remember(filePath) { mutableStateOf<ImageBitmap?>(null) }
     var loaded by remember(filePath) { mutableStateOf(false) }
     val targetPx = with(androidx.compose.ui.platform.LocalDensity.current) { size.roundToPx() }
     LaunchedEffect(filePath, targetPx) {
         val decoded = withContext(Dispatchers.IO) {
-            decodeOrientedThumb(filePath, targetPx)?.asImageBitmap()
+            decodeOrientedBitmap(filePath, targetPx)?.asImageBitmap()
         }
         bitmap = decoded
         loaded = true
@@ -64,7 +66,8 @@ fun PhotoThumb(
                 .size(size)
                 .align(Alignment.BottomStart)
                 .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .let { m -> if (onClick != null) m.clickable(onClick = onClick) else m },
             contentAlignment = Alignment.Center,
         ) {
             val current = bitmap
@@ -104,7 +107,11 @@ fun PhotoThumb(
     }
 }
 
-private fun decodeOrientedThumb(path: String, targetPx: Int): Bitmap? {
+/**
+ * Декодирует JPEG в bitmap с `inSampleSize`, ограничивая длинную сторону `targetPx`,
+ * и применяет поворот по EXIF. Доступно и для миниатюр, и для превью.
+ */
+internal fun decodeOrientedBitmap(path: String, targetPx: Int): Bitmap? {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeFile(path, bounds)
     val w = bounds.outWidth

@@ -66,6 +66,7 @@ import com.example.matcheckmobile.data.local.entity.SiteEntity
 import com.example.matcheckmobile.data.local.entity.SourceDocumentEntity
 import com.example.matcheckmobile.domain.validation.normalizeVehiclePlate
 import com.example.matcheckmobile.domain.validation.vehiclePlateHint
+import com.example.matcheckmobile.presentation.components.PhotoPreviewDialog
 import com.example.matcheckmobile.presentation.components.PhotoThumb
 import com.example.matcheckmobile.presentation.components.VehicleTypeChips
 import com.example.matcheckmobile.presentation.components.rememberPhotoCapture
@@ -119,6 +120,7 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
     var showCancelConfirm by remember { mutableStateOf(false) }
     var showMolConfirmDialog by remember { mutableStateOf(false) }
     var showSaveConfirmDialog by remember { mutableStateOf(false) }
+    var previewPhotoPath by remember { mutableStateOf<String?>(null) }
 
     val context = LocalContext.current
     val photoStorage = remember {
@@ -239,12 +241,14 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
                         PhotoThumb(
                             filePath = att.localFilePath,
                             onRemove = { vm.removeSessionPhoto(att.localId) },
+                            onClick = { previewPhotoPath = att.localFilePath },
                         )
                     }
                     items(state.sessionPhotoPaths, key = { "mem-$it" }) { path ->
                         PhotoThumb(
                             filePath = path,
                             onRemove = { vm.removeInMemorySessionPhoto(path) },
+                            onClick = { previewPhotoPath = path },
                         )
                     }
                 }
@@ -408,6 +412,10 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
             },
         )
     }
+
+    previewPhotoPath?.let { path ->
+        PhotoPreviewDialog(filePath = path, onDismiss = { previewPhotoPath = null })
+    }
 }
 
 @Composable
@@ -452,6 +460,7 @@ private fun ItemFormStep(vm: ReceiptSessionViewModel) {
             android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
         },
     )
+    var previewPhotoPath by remember { mutableStateOf<String?>(null) }
 
     Scaffold(
         topBar = {
@@ -528,6 +537,7 @@ private fun ItemFormStep(vm: ReceiptSessionViewModel) {
                         PhotoThumb(
                             filePath = path,
                             onRemove = { vm.removeItemPhoto(path) },
+                            onClick = { previewPhotoPath = path },
                         )
                     }
                 }
@@ -536,6 +546,10 @@ private fun ItemFormStep(vm: ReceiptSessionViewModel) {
                 Text(it, color = MaterialTheme.colorScheme.error)
             }
         }
+    }
+
+    previewPhotoPath?.let { path ->
+        PhotoPreviewDialog(filePath = path, onDismiss = { previewPhotoPath = null })
     }
 }
 
