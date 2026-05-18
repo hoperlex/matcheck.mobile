@@ -1,18 +1,25 @@
 package com.example.matcheckmobile.presentation.screens.receipt
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -105,10 +112,16 @@ private fun SavedReceiptCard(row: SavedReceiptRow, onClick: () -> Unit) {
             .clickable { onClick() },
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = row.updNumber?.let { "УПД $it" } ?: "Без УПД",
-                style = MaterialTheme.typography.titleLarge,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = row.updNumber?.let { "УПД $it" } ?: "Без УПД",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.weight(1f),
+                )
+                if (row.session.confirmedByMol) {
+                    MolBadge()
+                }
+            }
             Text(
                 text = row.siteName ?: "Объект не указан",
                 style = MaterialTheme.typography.bodyLarge,
@@ -123,5 +136,32 @@ private fun SavedReceiptCard(row: SavedReceiptRow, onClick: () -> Unit) {
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
+    }
+}
+
+@Composable
+private fun MolBadge() {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .height(24.dp)
+            .background(
+                color = MaterialTheme.colorScheme.primaryContainer,
+                shape = RoundedCornerShape(12.dp),
+            )
+            .padding(horizontal = 8.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Default.Verified,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+            modifier = Modifier.size(14.dp),
+        )
+        Spacer(Modifier.size(4.dp))
+        Text(
+            text = "МОЛ",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onPrimaryContainer,
+        )
     }
 }

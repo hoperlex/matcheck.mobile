@@ -29,13 +29,15 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -123,6 +125,7 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
     var showMassDialog by remember { mutableStateOf(false) }
     var showCommentDialog by remember { mutableStateOf(false) }
     var showCancelConfirm by remember { mutableStateOf(false) }
+    var showMolConfirmDialog by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val photoStorage = remember {
@@ -163,23 +166,10 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
                     state.headerError?.let {
                         Text(it, color = MaterialTheme.colorScheme.error)
                     }
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { vm.setConfirmedByMol(!state.confirmedByMol) }
-                            .padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Checkbox(
-                            checked = state.confirmedByMol,
-                            onCheckedChange = vm::setConfirmedByMol,
-                        )
-                        Text(
-                            "Подтверждено МОЛ",
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.padding(start = 4.dp),
-                        )
-                    }
+                    MolConfirmButton(
+                        confirmed = state.confirmedByMol,
+                        onClick = { showMolConfirmDialog = true },
+                    )
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         OutlinedButton(
                             onClick = vm::saveLocally,
@@ -415,6 +405,65 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
                 TextButton(onClick = { showCancelConfirm = false }) { Text("Назад") }
             },
         )
+    }
+
+    if (showMolConfirmDialog) {
+        val currentlyConfirmed = state.confirmedByMol
+        AlertDialog(
+            onDismissRequest = { showMolConfirmDialog = false },
+            title = {
+                Text(if (currentlyConfirmed) "Снять подтверждение МОЛ?" else "Подтвердить МОЛ?")
+            },
+            text = {
+                Text(
+                    if (currentlyConfirmed)
+                        "Снять отметку, что приёмка одобрена материально ответственным лицом?"
+                    else
+                        "Подтверждаете, что приёмка проверена и одобрена материально ответственным лицом?",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.setConfirmedByMol(!currentlyConfirmed)
+                    showMolConfirmDialog = false
+                }) {
+                    Text(if (currentlyConfirmed) "Снять" else "Подтвердить")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showMolConfirmDialog = false }) { Text("Отмена") }
+            },
+        )
+    }
+}
+
+@Composable
+private fun MolConfirmButton(confirmed: Boolean, onClick: () -> Unit) {
+    if (confirmed) {
+        FilledTonalButton(
+            onClick = onClick,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.filledTonalButtonColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            ),
+        ) {
+            Icon(Icons.Default.Verified, contentDescription = null)
+            Text(
+                "  Подтверждено МОЛ",
+                style = MaterialTheme.typography.titleMedium,
+            )
+        }
+    } else {
+        OutlinedButton(
+            onClick = onClick,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                "Подтвердить МОЛ",
+                style = MaterialTheme.typography.titleMedium,
+            )
+        }
     }
 }
 
