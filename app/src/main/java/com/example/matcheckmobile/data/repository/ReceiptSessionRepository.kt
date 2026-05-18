@@ -126,11 +126,22 @@ class ReceiptSessionRepository(
     }
 
     suspend fun addSessionPhoto(sessionId: String, localFilePath: String) {
-        val session = sessionDao.findById(sessionId) ?: return
-        if (!session.isEditable()) return
+        val session = sessionDao.findById(sessionId)
+        if (session == null) {
+            android.util.Log.w("matcheck", "addSessionPhoto: session $sessionId not found, skip")
+            return
+        }
+        if (!session.isEditable()) {
+            android.util.Log.w(
+                "matcheck",
+                "addSessionPhoto: session $sessionId status=${session.syncStatus} not editable",
+            )
+            return
+        }
+        val id = UUID.randomUUID().toString()
         attachmentDao.upsert(
             OperationAttachmentEntity(
-                localId = UUID.randomUUID().toString(),
+                localId = id,
                 operationLocalId = null,
                 sessionLocalId = sessionId,
                 localFilePath = localFilePath,
@@ -140,6 +151,10 @@ class ReceiptSessionRepository(
                 createdAt = System.currentTimeMillis(),
                 lastUploadError = null,
             )
+        )
+        android.util.Log.d(
+            "matcheck",
+            "addSessionPhoto: inserted att=$id session=$sessionId path=$localFilePath",
         )
     }
 
