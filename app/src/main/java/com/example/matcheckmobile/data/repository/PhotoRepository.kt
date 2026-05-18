@@ -1,0 +1,77 @@
+package com.example.matcheckmobile.data.repository
+
+import android.net.Uri
+import com.example.matcheckmobile.data.local.dao.RemoteDeliveryDao
+import com.example.matcheckmobile.data.local.dao.RemoteShipmentDao
+import com.example.matcheckmobile.data.local.entity.RemoteDeliveryPhotoEntity
+import com.example.matcheckmobile.data.local.entity.RemoteShipmentPhotoEntity
+import com.example.matcheckmobile.media.RemotePhotoStorage
+import java.time.Instant
+import java.util.UUID
+
+/**
+ * Local-first capture: пишет фото в Room + локальный blob, ставит
+ * uploadStatus=PENDING_UPLOAD. Загрузку на сервер (presign/PUT/confirm)
+ * делает [PhotoUploadProcessor] асинхронно — после того, как parent
+ * (delivery/shipment) уйдёт на сервер.
+ */
+class PhotoRepository(
+    private val deliveryDao: RemoteDeliveryDao,
+    private val shipmentDao: RemoteShipmentDao,
+    private val photoStorage: RemotePhotoStorage,
+) {
+
+    /**
+     * @param kind 'cargo' | 'vehicle' | 'document' | 'other'.
+     *   Для бумажного УПД на КПП — 'document'.
+     * @return локальный photoId (UUID v4). Этот же id используется на сервере
+     *   после presign.
+     */
+    suspend fun captureForDelivery(deliveryId: String, kind: String, sourceUri: Uri): String {
+        val photoId = UUID.randomUUID().toString()
+        val prepared = photoStorage.prepareFromUri(sourceUri, photoId)
+        deliveryDao.upsertPhoto(
+            RemoteDeliveryPhotoEntity(
+                id = photoId,
+                deliveryId = deliveryId,
+                kind = kind,
+                s3Key = null,
+                thumbS3Key = null,
+                contentHash = prepared.mainSha256Hex,
+                takenAt = Instant.now().toString(),
+                uploadedAt = null,
+                idempotencyKey = UUID.randomUUID().toString(),
+                contentType = prepared.contentType,
+                localBlobPath = prepared.mainFile.absolutePath,
+                localThumbPath = prepared.thumbFile?.absolutePath,
+                uploadStatus = "PENDING_UPLOAD",
+                lastUploadError = null,
+            ),
+        )
+        return photoId
+    }
+
+    suspend fun captureForShipment(shipmentId: String, kind: String, sourceUri: Uri): String {
+        val photoId = UUID.randomUUID().toString()
+        val prepared = photoStorage.prepareFromUri(sourceUri, photoId)
+        shipmentDao.upsertPhoto(
+            RemoteShipmentPhotoEntity(
+                id = photoId,
+                shipmentId = shipmentId,
+                kind = kind,
+                s3Key = null,
+                thumbS3Key = null,
+                contentHash = prepared.mainSha256Hex,
+                takenAt = Instant.now().toString(),
+                uploadedAt = null,
+                idempotencyKey = UUID.randomUUID().toString(),
+                contentType = prepared.contentType,
+                localBlobPath = prepared.mainFile.absolutePath,
+                localThumbPath = prepared.thumbFile?.absolutePath,
+                uploadStatus = "PENDING_UPLOAD",
+                lastUploadError = null,
+            ),
+        )
+        return photoId
+    }
+}

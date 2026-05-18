@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.automirrored.filled.List
@@ -34,6 +35,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -62,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.matcheckmobile.MatcheckApplication
 import com.example.matcheckmobile.data.local.entity.CounterpartyEntity
+import com.example.matcheckmobile.data.local.entity.MaterialOperationEntity
 import com.example.matcheckmobile.data.local.entity.SiteEntity
 import com.example.matcheckmobile.data.local.entity.SourceDocumentEntity
 import com.example.matcheckmobile.domain.validation.normalizeVehiclePlate
@@ -215,29 +218,16 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
                     onClick = { showSupplierPicker = true },
                     modifier = Modifier.weight(1f),
                 )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 PickerRow(
-                    label = "Госномер машины",
+                    label = "Госномер",
                     value = state.vehicleNumber.ifBlank { "Не указан" },
                     onClick = { showVehicleDialog = true },
-                    modifier = Modifier.weight(1f),
-                )
-                PickerRow(
-                    label = "Материалы",
-                    value = if (itemsCount > 0) "$itemsCount поз." else "Не добавлены",
-                    onClick = vm::openItemForm,
                     modifier = Modifier.weight(1f),
                 )
             }
             VehicleTypeChips(
                 selectedCode = state.vehicleTypeCode,
                 onSelected = vm::selectVehicleType,
-            )
-            PickerRow(
-                label = "Комментарий",
-                value = state.comment.ifBlank { "Не указан" },
-                onClick = { showCommentDialog = true },
             )
             OutlinedButton(
                 onClick = takeSessionPhoto,
@@ -270,6 +260,16 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
                     }
                 }
             }
+            MaterialsCard(
+                items = items,
+                onAdd = vm::openItemForm,
+                onRemove = { vm.removeItem(it) },
+            )
+            PickerRow(
+                label = "Комментарий",
+                value = state.comment.ifBlank { "Не указан" },
+                onClick = { showCommentDialog = true },
+            )
         }
     }
 
@@ -434,6 +434,75 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
         PhotoPreviewDialog(filePath = path, onDismiss = { previewPhotoPath = null })
     }
 }
+
+@Composable
+private fun MaterialsCard(
+    items: List<MaterialOperationEntity>,
+    onAdd: () -> Unit,
+    onRemove: (id: String) -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "Материалы" + if (items.isNotEmpty()) " (${items.size})" else "",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onAdd) {
+                Icon(Icons.Default.Add, contentDescription = null)
+                Text("  Материал")
+            }
+        }
+        if (items.isEmpty()) {
+            Text(
+                text = "Материалы можно не добавлять — приёмка сохранится без позиций. " +
+                    "Добавьте строки вручную или выберите УПД.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+        } else {
+            Column {
+                items.forEachIndexed { index, item ->
+                    if (index > 0) HorizontalDivider()
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = item.materialNameRaw,
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                            Text(
+                                text = "${formatQty(item.quantity)} ${item.unit}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        IconButton(onClick = { onRemove(item.localId) }) {
+                            Icon(
+                                imageVector = Icons.Default.DeleteOutline,
+                                contentDescription = "Удалить позицию",
+                                tint = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun formatQty(q: Double): String =
+    if (q % 1.0 == 0.0) q.toLong().toString() else q.toString()
 
 @Composable
 private fun MolConfirmButton(

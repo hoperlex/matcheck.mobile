@@ -6,11 +6,11 @@ import com.example.matcheckmobile.data.local.entity.MaterialEntity
 import com.example.matcheckmobile.data.local.entity.SiteEntity
 import com.example.matcheckmobile.data.local.entity.SourceDocumentEntity
 import com.example.matcheckmobile.data.local.entity.SourceDocumentItemEntity
-import com.example.matcheckmobile.data.local.entity.UserEntity
 import com.example.matcheckmobile.di.AppContainer
 import com.example.matcheckmobile.domain.model.SourceKind
 import com.example.matcheckmobile.domain.model.SourceOrigin
 import com.example.matcheckmobile.domain.model.SourceStatus
+import com.example.matcheckmobile.sync.MatcheckSyncScheduler
 import com.example.matcheckmobile.sync.SyncScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -30,6 +30,14 @@ class MatcheckApplication : Application() {
         super.onCreate()
         container = AppContainer(this)
         appScope.launch { seedDefaultsIfNeeded() }
+        if (container.tokenStorage.isAuthenticated()) {
+            // Холодный старт с валидной сессией → push-then-pull через
+            // WorkManager, плюс периодика на каждые 15 мин.
+            MatcheckSyncScheduler.requestImmediateSync(this)
+            MatcheckSyncScheduler.schedulePeriodicSync(this)
+        }
+        // Legacy sync worker (старые receipt_sessions / material_operations)
+        // — оставлен до Этапа 6, пока UI на старых таблицах.
         SyncScheduler.schedulePeriodicSync(this)
     }
 
@@ -38,21 +46,8 @@ class MatcheckApplication : Application() {
 
         seedSitesIfNeeded()
 
-        val userId = "user-default"
-        if (container.database.userDao().findById(userId) == null) {
-            container.database.userDao().upsert(
-                UserEntity(
-                    localId = userId,
-                    serverId = null,
-                    fullName = "Охранник КПП",
-                    email = null,
-                    role = "inspector_kpp",
-                    isActive = true,
-                    createdAt = System.currentTimeMillis(),
-                )
-            )
-            container.deviceSettings.setCurrentUser(userId)
-        }
+        // Юзер-сущность теперь приходит из /auth/login (см. LoginViewModel).
+        // user-default seed убран намеренно: он маскировал отсутствие реального логина.
 
         if (container.database.counterpartyDao().count() == 0) {
             seedCounterparties()

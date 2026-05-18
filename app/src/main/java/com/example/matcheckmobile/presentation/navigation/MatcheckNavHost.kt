@@ -1,11 +1,16 @@
 package com.example.matcheckmobile.presentation.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.example.matcheckmobile.MatcheckApplication
+import com.example.matcheckmobile.data.repository.AuthRepository
 import com.example.matcheckmobile.presentation.screens.dispatch.DispatchScreen
 import com.example.matcheckmobile.presentation.screens.documents.DocumentDetailsScreen
 import com.example.matcheckmobile.presentation.screens.documents.DocumentsScreen
@@ -21,8 +26,24 @@ import com.example.matcheckmobile.presentation.screens.sync.SyncQueueScreen
 
 @Composable
 fun MatcheckNavHost() {
+    val context = LocalContext.current
+    val container = (context.applicationContext as MatcheckApplication).container
     val navController = rememberNavController()
-    NavHost(navController = navController, startDestination = Routes.LOGIN) {
+    val startDestination = remember {
+        if (container.tokenStorage.isAuthenticated()) Routes.MAIN else Routes.LOGIN
+    }
+
+    LaunchedEffect(Unit) {
+        container.authRepository.sessionEvents.collect { event ->
+            if (event is AuthRepository.SessionEvent.LoggedOut) {
+                navController.navigate(Routes.LOGIN) {
+                    popUpTo(0) { inclusive = true }
+                }
+            }
+        }
+    }
+
+    NavHost(navController = navController, startDestination = startDestination) {
         composable(Routes.LOGIN) {
             LoginScreen(onLoggedIn = {
                 navController.navigate(Routes.MAIN) {

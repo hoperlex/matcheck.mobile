@@ -28,6 +28,22 @@ class DeviceSettings(private val context: Context) {
         prefs[KEY_SERVER_URL] ?: ""
     }
 
+    val syncCursorFlow: Flow<String?> = context.dataStore.data.map { prefs ->
+        prefs[KEY_SYNC_CURSOR]?.takeIf { it.isNotEmpty() }
+    }
+
+    suspend fun readSyncCursor(): String? {
+        return context.dataStore.data.first()[KEY_SYNC_CURSOR]?.takeIf { it.isNotEmpty() }
+    }
+
+    suspend fun setSyncCursor(cursor: String) {
+        context.dataStore.edit { it[KEY_SYNC_CURSOR] = cursor }
+    }
+
+    suspend fun clearSyncCursor() {
+        context.dataStore.edit { it.remove(KEY_SYNC_CURSOR) }
+    }
+
     suspend fun ensureDeviceId(): String {
         val current = context.dataStore.data.first()[KEY_DEVICE_ID]
         if (!current.isNullOrEmpty()) return current
@@ -53,5 +69,6 @@ class DeviceSettings(private val context: Context) {
         private val KEY_USER_ID = stringPreferencesKey("current_user_id")
         private val KEY_SITE_ID = stringPreferencesKey("current_site_id")
         private val KEY_SERVER_URL = stringPreferencesKey("server_url")
+        private val KEY_SYNC_CURSOR = stringPreferencesKey("sync_cursor")
     }
 }
