@@ -361,15 +361,16 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
         val currentlyConfirmed = state.confirmedByMol
         AlertDialog(
             onDismissRequest = { showMolConfirmDialog = false },
-            title = {
-                Text(if (currentlyConfirmed) "Снять подтверждение МОЛ?" else "Подтвердить МОЛ?")
-            },
+            title = if (currentlyConfirmed) {
+                { Text("Снять подтверждение МОЛ?") }
+            } else null,
             text = {
                 Text(
-                    if (currentlyConfirmed)
+                    text = if (currentlyConfirmed)
                         "Снять отметку, что приёмка одобрена материально ответственным лицом?"
                     else
-                        "Подтверждаете, что приёмка проверена и одобрена материально ответственным лицом?",
+                        "Убедитесь, что документы приёмки с подписью МОЛ!",
+                    style = MaterialTheme.typography.bodyLarge,
                 )
             },
             confirmButton = {
@@ -377,7 +378,7 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
                     vm.setConfirmedByMol(!currentlyConfirmed)
                     showMolConfirmDialog = false
                 }) {
-                    Text(if (currentlyConfirmed) "Снять" else "Подтвердить")
+                    Text(if (currentlyConfirmed) "Снять" else "Подтверждаю")
                 }
             },
             dismissButton = {
