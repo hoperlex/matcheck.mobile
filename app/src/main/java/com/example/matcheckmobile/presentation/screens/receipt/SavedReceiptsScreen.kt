@@ -107,20 +107,20 @@ private fun SavedReceiptCard(row: SavedReceiptRow, onClick: () -> Unit) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
                 text = row.updNumber?.let { "УПД $it" } ?: "Без УПД",
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleLarge,
             )
             Text(
                 text = row.siteName ?: "Объект не указан",
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodyLarge,
             )
             val party = row.contractorName ?: row.supplierName
             if (!party.isNullOrEmpty()) {
-                Text(text = party, style = MaterialTheme.typography.bodySmall)
+                Text(text = party, style = MaterialTheme.typography.bodyMedium)
             }
             val ts = row.session.finalizedAt ?: row.session.startedAt
             Text(
                 text = "Сохранено: ${df.format(Date(ts))} · ГРЗ ${row.session.vehicleNumber}",
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
             )
         }
     }

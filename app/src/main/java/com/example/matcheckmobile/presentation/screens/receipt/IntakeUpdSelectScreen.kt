@@ -170,17 +170,17 @@ private fun UpdRowCard(row: IntakeUpdRow, onClick: () -> Unit) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
                 text = "УПД ${row.document.docNumber ?: "—"}",
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleLarge,
             )
             Text(
                 text = row.supplierName ?: "Поставщик не указан",
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodyLarge,
             )
             val date = row.document.docDate?.let { df.format(Date(it)) } ?: "—"
             val sum = row.document.totalSum?.let { "%.2f ₽".format(it) } ?: "—"
             Text(
                 text = "$date · $sum",
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
             )
         }
     }
