@@ -187,32 +187,49 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
         },
     ) { padding ->
         CenteredColumn(padding = padding) {
-            PickerRow(
-                label = "Документ (УПД)",
-                value = state.sourceDocumentText.ifBlank { "Не указан" },
-                onClick = { showDocumentPicker = true },
-                enabled = state.sourceDocumentLocalId == null,
-            )
-            PickerRow(
-                label = "Объект",
-                value = resolvedSite?.name ?: "Не выбран",
-                onClick = { showSitePicker = true },
-            )
-            PickerRow(
-                label = "Подрядчик",
-                value = resolvedContractor?.name ?: "Не указан",
-                onClick = { showContractorPicker = true },
-            )
-            PickerRow(
-                label = "Поставщик",
-                value = resolvedSupplier?.name ?: "Не указан",
-                onClick = { showSupplierPicker = true },
-            )
-            PickerRow(
-                label = "Госномер машины",
-                value = state.vehicleNumber.ifBlank { "Не указан" },
-                onClick = { showVehicleDialog = true },
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                PickerRow(
+                    label = "Документ (УПД)",
+                    value = state.sourceDocumentText.ifBlank { "Не указан" },
+                    onClick = { showDocumentPicker = true },
+                    enabled = state.sourceDocumentLocalId == null,
+                    modifier = Modifier.weight(1f),
+                )
+                PickerRow(
+                    label = "Объект",
+                    value = resolvedSite?.name ?: "Не выбран",
+                    onClick = { showSitePicker = true },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                PickerRow(
+                    label = "Подрядчик",
+                    value = resolvedContractor?.name ?: "Не указан",
+                    onClick = { showContractorPicker = true },
+                    modifier = Modifier.weight(1f),
+                )
+                PickerRow(
+                    label = "Поставщик",
+                    value = resolvedSupplier?.name ?: "Не указан",
+                    onClick = { showSupplierPicker = true },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                PickerRow(
+                    label = "Госномер машины",
+                    value = state.vehicleNumber.ifBlank { "Не указан" },
+                    onClick = { showVehicleDialog = true },
+                    modifier = Modifier.weight(1f),
+                )
+                PickerRow(
+                    label = "Материалы",
+                    value = if (itemsCount > 0) "$itemsCount поз." else "Не добавлены",
+                    onClick = vm::openItemForm,
+                    modifier = Modifier.weight(1f),
+                )
+            }
             VehicleTypeChips(
                 selectedCode = state.vehicleTypeCode,
                 onSelected = vm::selectVehicleType,
@@ -689,11 +706,11 @@ private fun PickerRow(
     label: String,
     value: String,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier.fillMaxWidth(),
     enabled: Boolean = true,
 ) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
+        modifier = modifier
             .let { if (enabled) it.clickable { onClick() } else it },
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
