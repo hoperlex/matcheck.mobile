@@ -6,6 +6,7 @@ import com.example.matcheckmobile.data.local.entity.MaterialEntity
 import com.example.matcheckmobile.data.local.entity.SiteEntity
 import com.example.matcheckmobile.data.local.entity.SourceDocumentEntity
 import com.example.matcheckmobile.data.local.entity.SourceDocumentItemEntity
+import com.example.matcheckmobile.data.repository.AuthRepository
 import com.example.matcheckmobile.di.AppContainer
 import com.example.matcheckmobile.domain.model.SourceKind
 import com.example.matcheckmobile.domain.model.SourceOrigin
@@ -35,6 +36,17 @@ class MatcheckApplication : Application() {
             // WorkManager, плюс периодика на каждые 15 мин.
             MatcheckSyncScheduler.requestImmediateSync(this)
             MatcheckSyncScheduler.schedulePeriodicSync(this)
+            // SSE-listener для real-time invalidation. Periodic 15 мин
+            // от WorkManager — fallback на случай отключения SSE.
+            container.sseConnectionManager.start()
+        }
+        // На logout/invalid_refresh глобально гасим SSE.
+        appScope.launch {
+            container.authRepository.sessionEvents.collect { event ->
+                if (event is AuthRepository.SessionEvent.LoggedOut) {
+                    container.sseConnectionManager.stop()
+                }
+            }
         }
         // Legacy sync worker (старые receipt_sessions / material_operations)
         // — оставлен до Этапа 6, пока UI на старых таблицах.

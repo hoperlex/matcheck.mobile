@@ -12,6 +12,7 @@ import com.example.matcheckmobile.data.remote.api.ShipmentsApi
 import com.example.matcheckmobile.data.remote.api.SourceDocumentsApi
 import com.example.matcheckmobile.data.remote.api.SyncApi
 import com.example.matcheckmobile.data.remote.net.NetworkFactory
+import com.example.matcheckmobile.data.remote.sse.SseConnectionManager
 import com.example.matcheckmobile.data.repository.AttachmentRepository
 import com.example.matcheckmobile.data.repository.AuthRepository
 import com.example.matcheckmobile.data.repository.ConflictRepository
@@ -98,6 +99,15 @@ class AppContainer(val appContext: Context) {
     )
 
     val photoFetcher: PhotoFetcher = PhotoFetcher(photosApi = photosApi)
+
+    val sseConnectionManager: SseConnectionManager = SseConnectionManager(
+        baseUrl = BuildConfig.API_BASE_URL,
+        tokenStorage = tokenStorage,
+        deliveryDao = database.remoteDeliveryDao(),
+        shipmentDao = database.remoteShipmentDao(),
+        sourceDocumentDao = database.remoteSourceDocumentDao(),
+        appContext = appContext,
+    )
 
     val deliveryRepository: DeliveryRepository = DeliveryRepository(
         deliveryDao = database.remoteDeliveryDao(),

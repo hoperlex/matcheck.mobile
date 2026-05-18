@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.matcheckmobile.data.remote.sse.SseConnectionManager
 import com.example.matcheckmobile.data.repository.AuthRepository
 import com.example.matcheckmobile.data.repository.LoginError
 import com.example.matcheckmobile.data.repository.LoginException
@@ -19,6 +20,7 @@ import kotlinx.coroutines.launch
 class LoginViewModel(
     private val authRepository: AuthRepository,
     private val deviceSettings: DeviceSettings,
+    private val sseConnectionManager: SseConnectionManager,
     private val appContext: Context,
 ) : ViewModel() {
 
@@ -53,6 +55,8 @@ class LoginViewModel(
                     // переживёт смерть LoginViewModel и работает в фоне.
                     MatcheckSyncScheduler.requestImmediateSync(appContext)
                     MatcheckSyncScheduler.schedulePeriodicSync(appContext)
+                    // Запускаем SSE — на ближайшее серверное событие триггерим sync.
+                    sseConnectionManager.start()
                     _state.update { it.copy(isSubmitting = false, error = null) }
                     onSuccess()
                 },
@@ -72,6 +76,7 @@ class LoginViewModel(
                 return LoginViewModel(
                     authRepository = container.authRepository,
                     deviceSettings = container.deviceSettings,
+                    sseConnectionManager = container.sseConnectionManager,
                     appContext = container.appContext,
                 ) as T
             }
