@@ -6,11 +6,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -40,7 +37,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -61,7 +57,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -69,7 +64,6 @@ import com.example.matcheckmobile.MatcheckApplication
 import com.example.matcheckmobile.data.local.entity.CounterpartyEntity
 import com.example.matcheckmobile.data.local.entity.SiteEntity
 import com.example.matcheckmobile.data.local.entity.SourceDocumentEntity
-import com.example.matcheckmobile.domain.model.vehicleTypeByCode
 import com.example.matcheckmobile.domain.validation.normalizeVehiclePlate
 import com.example.matcheckmobile.domain.validation.vehiclePlateHint
 import com.example.matcheckmobile.presentation.components.PhotoThumb
@@ -121,8 +115,6 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
     var showDocumentPicker by remember { mutableStateOf(false) }
     var showManualDocDialog by remember { mutableStateOf(false) }
     var showVehicleDialog by remember { mutableStateOf(false) }
-    var showVolumeDialog by remember { mutableStateOf(false) }
-    var showMassDialog by remember { mutableStateOf(false) }
     var showCommentDialog by remember { mutableStateOf(false) }
     var showCancelConfirm by remember { mutableStateOf(false) }
     var showMolConfirmDialog by remember { mutableStateOf(false) }
@@ -230,13 +222,6 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
             VehicleTypeChips(
                 selectedCode = state.vehicleTypeCode,
                 onSelected = vm::selectVehicleType,
-            )
-            VolumeMassCard(
-                volumeText = state.volumeText,
-                massText = state.massText,
-                vehicleTypeCode = state.vehicleTypeCode,
-                onClickVolume = { showVolumeDialog = true },
-                onClickMass = { showMassDialog = true },
             )
             PickerRow(
                 label = "Комментарий",
@@ -347,32 +332,6 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
             onDismiss = { showVehicleDialog = false },
             transform = ::normalizeVehiclePlate,
             supportingText = ::vehiclePlateHint,
-        )
-    }
-    if (showVolumeDialog) {
-        ManualEntryDialog(
-            title = "Объём груза",
-            fieldLabel = "Объём, м³",
-            initial = state.volumeText,
-            onConfirm = {
-                vm.setVolumeText(it)
-                showVolumeDialog = false
-            },
-            onDismiss = { showVolumeDialog = false },
-            keyboardType = KeyboardType.Number,
-        )
-    }
-    if (showMassDialog) {
-        ManualEntryDialog(
-            title = "Масса груза",
-            fieldLabel = "Масса, кг",
-            initial = state.massText,
-            onConfirm = {
-                vm.setMassText(it)
-                showMassDialog = false
-            },
-            onDismiss = { showMassDialog = false },
-            keyboardType = KeyboardType.Number,
         )
     }
     if (showCommentDialog) {
@@ -702,97 +661,6 @@ private fun ManualEntryDialog(
 }
 
 @Composable
-private fun VolumeMassCard(
-    volumeText: String,
-    massText: String,
-    vehicleTypeCode: String?,
-    onClickVolume: () -> Unit,
-    onClickMass: () -> Unit,
-) {
-    val type = vehicleTypeByCode(vehicleTypeCode)
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
-            MetricCell(
-                label = "Объём",
-                value = volumeText.replace(',', '.').toDoubleOrNull(),
-                rawText = volumeText,
-                unit = "м³",
-                capacity = type?.volumeM3,
-                modifier = Modifier.weight(1f).clickable(onClick = onClickVolume),
-            )
-            Box(
-                modifier = Modifier
-                    .width(1.dp)
-                    .fillMaxHeight()
-                    .background(MaterialTheme.colorScheme.outlineVariant),
-            )
-            MetricCell(
-                label = "Масса",
-                value = massText.replace(',', '.').toDoubleOrNull(),
-                rawText = massText,
-                unit = "кг",
-                capacity = type?.payloadKg,
-                modifier = Modifier.weight(1f).clickable(onClick = onClickMass),
-            )
-        }
-    }
-}
-
-@Composable
-private fun MetricCell(
-    label: String,
-    value: Double?,
-    rawText: String,
-    unit: String,
-    capacity: Double?,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-    ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(4.dp))
-        Row(verticalAlignment = Alignment.Bottom) {
-            Text(
-                text = if (value != null) formatNumber(value)
-                else rawText.ifBlank { "—" },
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(
-                text = unit,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 4.dp),
-            )
-        }
-        if (capacity != null && capacity > 0.0) {
-            val fraction = ((value ?: 0.0) / capacity)
-                .coerceIn(0.0, 1.0).toFloat()
-            Spacer(Modifier.height(8.dp))
-            LinearProgressIndicator(
-                progress = { fraction },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = "из ${formatNumber(capacity)} $unit",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-private fun formatNumber(v: Double): String =
-    if (v % 1.0 == 0.0) v.toLong().toString() else "%.1f".format(v)
-
-@Composable
 private fun PickerRow(
     label: String,
     value: String,
@@ -861,6 +729,3 @@ private fun BottomActionBar(content: @Composable () -> Unit) {
         }
     }
 }
-
-private fun formatQty(q: Double): String =
-    if (q % 1.0 == 0.0) q.toLong().toString() else q.toString()
