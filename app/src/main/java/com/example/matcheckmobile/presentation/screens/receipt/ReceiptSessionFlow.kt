@@ -1,8 +1,5 @@
 package com.example.matcheckmobile.presentation.screens.receipt
 
-import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -73,6 +70,7 @@ import com.example.matcheckmobile.domain.model.vehicleTypeByCode
 import com.example.matcheckmobile.domain.validation.normalizeVehiclePlate
 import com.example.matcheckmobile.domain.validation.vehiclePlateHint
 import com.example.matcheckmobile.presentation.components.VehicleTypeChips
+import com.example.matcheckmobile.presentation.components.rememberPhotoCapture
 import com.example.matcheckmobile.presentation.viewmodel.ReceiptSessionViewModel
 import com.example.matcheckmobile.presentation.viewmodel.ReceiptStep
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
@@ -128,14 +126,13 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
     val photoStorage = remember {
         (context.applicationContext as MatcheckApplication).container.photoStorage
     }
-    var pendingPath by remember { mutableStateOf<String?>(null) }
-    val cameraLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicture(),
-    ) { success ->
-        val path = pendingPath
-        if (success && path != null) vm.addSessionPhoto(path)
-        pendingPath = null
-    }
+    val takeSessionPhoto = rememberPhotoCapture(
+        photoStorage = photoStorage,
+        onPhotoTaken = vm::addSessionPhoto,
+        onError = { msg ->
+            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+        },
+    )
 
     val photosCount = sessionPhotos.size + state.sessionPhotoPaths.size
     val itemsCount = items.size
@@ -255,12 +252,7 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
                 onClick = { showCommentDialog = true },
             )
             OutlinedButton(
-                onClick = {
-                    val file = photoStorage.createTempFile()
-                    val uri: Uri = photoStorage.toContentUri(file)
-                    pendingPath = file.absolutePath
-                    cameraLauncher.launch(uri)
-                },
+                onClick = takeSessionPhoto,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(64.dp),
@@ -419,14 +411,13 @@ private fun ItemFormStep(vm: ReceiptSessionViewModel) {
     val photoStorage = remember {
         (context.applicationContext as MatcheckApplication).container.photoStorage
     }
-    var pendingPath by remember { mutableStateOf<String?>(null) }
-    val cameraLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicture(),
-    ) { success ->
-        val path = pendingPath
-        if (success && path != null) vm.addItemPhoto(path)
-        pendingPath = null
-    }
+    val takeItemPhoto = rememberPhotoCapture(
+        photoStorage = photoStorage,
+        onPhotoTaken = vm::addItemPhoto,
+        onError = { msg ->
+            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+        },
+    )
 
     Scaffold(
         topBar = {
@@ -485,12 +476,7 @@ private fun ItemFormStep(vm: ReceiptSessionViewModel) {
                 minLines = 2,
             )
             OutlinedButton(
-                onClick = {
-                    val file = photoStorage.createTempFile()
-                    val uri: Uri = photoStorage.toContentUri(file)
-                    pendingPath = file.absolutePath
-                    cameraLauncher.launch(uri)
-                },
+                onClick = takeItemPhoto,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(64.dp),

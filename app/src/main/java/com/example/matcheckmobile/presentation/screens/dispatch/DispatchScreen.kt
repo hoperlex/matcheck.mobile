@@ -1,8 +1,5 @@
 package com.example.matcheckmobile.presentation.screens.dispatch
 
-import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -52,6 +49,7 @@ import com.example.matcheckmobile.MatcheckApplication
 import com.example.matcheckmobile.data.local.entity.CounterpartyEntity
 import com.example.matcheckmobile.data.local.entity.SiteEntity
 import com.example.matcheckmobile.data.local.entity.SourceDocumentEntity
+import com.example.matcheckmobile.presentation.components.rememberPhotoCapture
 import com.example.matcheckmobile.presentation.viewmodel.DispatchSessionViewModel
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
 
@@ -77,14 +75,13 @@ fun DispatchScreen(onBack: () -> Unit, onSaved: () -> Unit) {
     val photoStorage = remember {
         (context.applicationContext as MatcheckApplication).container.photoStorage
     }
-    var pendingPath by remember { mutableStateOf<String?>(null) }
-    val cameraLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicture(),
-    ) { success ->
-        val path = pendingPath
-        if (success && path != null) vm.addPhotoPath(path)
-        pendingPath = null
-    }
+    val takePhoto = rememberPhotoCapture(
+        photoStorage = photoStorage,
+        onPhotoTaken = vm::addPhotoPath,
+        onError = { msg ->
+            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+        },
+    )
 
     LaunchedEffect(state.savedSessionId) {
         if (state.savedSessionId != null) {
@@ -176,12 +173,7 @@ fun DispatchScreen(onBack: () -> Unit, onSaved: () -> Unit) {
                         minLines = 2,
                     )
                     OutlinedButton(
-                        onClick = {
-                            val file = photoStorage.createTempFile()
-                            val uri: Uri = photoStorage.toContentUri(file)
-                            pendingPath = file.absolutePath
-                            cameraLauncher.launch(uri)
-                        },
+                        onClick = takePhoto,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(64.dp),

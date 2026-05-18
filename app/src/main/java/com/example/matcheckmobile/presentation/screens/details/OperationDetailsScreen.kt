@@ -1,8 +1,5 @@
 package com.example.matcheckmobile.presentation.screens.details
 
-import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,14 +22,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.matcheckmobile.MatcheckApplication
+import com.example.matcheckmobile.presentation.components.rememberPhotoCapture
 import com.example.matcheckmobile.presentation.screens.journal.statusLabel
 import com.example.matcheckmobile.presentation.screens.journal.typeLabel
 import com.example.matcheckmobile.presentation.viewmodel.OperationDetailsViewModel
@@ -50,14 +46,13 @@ fun OperationDetailsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val photoStorage =
         remember { (context.applicationContext as MatcheckApplication).container.photoStorage }
-    var pendingPath by remember { mutableStateOf<String?>(null) }
-    val cameraLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicture(),
-    ) { success ->
-        val path = pendingPath
-        if (success && path != null) vm.addPhoto(path)
-        pendingPath = null
-    }
+    val takePhoto = rememberPhotoCapture(
+        photoStorage = photoStorage,
+        onPhotoTaken = vm::addPhoto,
+        onError = { msg ->
+            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+        },
+    )
 
     Scaffold(
         topBar = {
@@ -103,12 +98,7 @@ fun OperationDetailsScreen(onBack: () -> Unit) {
                 Text("Ошибка: $it", color = MaterialTheme.colorScheme.error)
             }
             OutlinedButton(
-                onClick = {
-                    val file = photoStorage.createTempFile()
-                    val uri: Uri = photoStorage.toContentUri(file)
-                    pendingPath = file.absolutePath
-                    cameraLauncher.launch(uri)
-                },
+                onClick = takePhoto,
                 modifier = Modifier.fillMaxWidth().height(64.dp),
             ) {
                 Icon(Icons.Default.PhotoCamera, contentDescription = null)
