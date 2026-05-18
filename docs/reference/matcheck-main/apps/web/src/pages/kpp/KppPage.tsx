@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Alert,
@@ -8,6 +8,7 @@ import {
   Collapse,
   Input,
   InputNumber,
+  Popconfirm,
   Row,
   Segmented,
   Select,
@@ -23,12 +24,15 @@ import type { TableProps, UploadProps } from 'antd';
 import {
   ArrowLeftOutlined,
   CameraOutlined,
+  DeleteOutlined,
   PlusOutlined,
+  UndoOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   Counterparty,
   Delivery,
+  DeliveryPhoto,
   DeliveryStatusCode,
   Site,
   SourceDocument,
@@ -44,8 +48,12 @@ import {
   effectiveState,
   enqueueMutation,
   getDelivery,
+  hardDeleteDelivery,
+  markDeletion as markDeliveryDeletion,
+  unmarkDeletion as unmarkDeliveryDeletion,
   upsertServerSnapshot,
 } from '../../services/deliveries';
+import { PendingDeletionTag } from '../../shared/ui/PendingDeletionTag';
 import { runSync } from '../../services/sync';
 import { db } from '../../lib/db';
 import { ResponsiveTable } from '../../shared/ui/ResponsiveTable';
@@ -75,6 +83,19 @@ type ListTab = 'expected' | 'accepted';
 const trimQty = (s: string) =>
   s.includes('.') ? s.replace(/0+$/, '').replace(/\.$/, '') : s;
 
+function formatMolDate(iso: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(d);
+}
+
 function newKey(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -102,8 +123,12 @@ export default function KppPage() {
   const [siteId, setSiteId] = useState<string | null>(inspectorSiteId);
   const [contractorId, setContractorId] = useState<string | null>(null);
   const [selectedUpd, setSelectedUpd] = useState<SourceDocument | null>(null);
-  const [loadedDelivery, setLoadedDelivery] = useState<Delivery | null>(null);
   const [creating, setCreating] = useState(false);
+
+  // ID приёмки, для которой уже выполнили первичную гидратацию формы из server data.
+  // Защищает локальные правки (plate/comment/items) от затирания при рефетче
+  // ['deliveries', id] — рефетч происходит, например, после загрузки/удаления фото.
+  const hydratedIdRef = useRef<string | null>(null);
 
   // Сбрасываем локальное состояние при выходе из формы. Для inspector_kpp
   // siteId восстанавливается из назначенного объекта (не очищается).
@@ -115,7 +140,7 @@ export default function KppPage() {
       setSiteId(inspectorSiteId);
       setContractorId(null);
       setSelectedUpd(null);
-      setLoadedDelivery(null);
+      hydratedIdRef.current = null;
     }
   }, [deliveryId, inspectorSiteId]);
 
@@ -154,17 +179,34 @@ export default function KppPage() {
     enabled: !!deliveryId,
   });
 
-  // Черновик (server === null) не имеет photos в effectiveState — считаем локально
-  const photosCountQuery = useQuery({
-    queryKey: ['photos-count', deliveryId],
-    queryFn: async () => {
-      if (!deliveryId) return 0;
+  // Производное значение: react-query — единственный источник истины для
+  // загруженной приёмки. Использование useState + setLoadedDelivery в useEffect
+  // приводило к гонке рендера (data уже есть, isLoading=false, но state ещё null).
+  const loadedDelivery: Delivery | null = deliveryQuery.data ?? null;
+
+  // Локальные IDB-записи фото для приёмки. Параллельно с серверным delivery.photos:
+  // свежеснятое фото появляется в IDB немедленно (через capturePhoto), а в delivery.photos —
+  // только после S3-upload + следующего pullSync. Чтобы превью не «пропадало» между этими
+  // моментами, мерджим оба источника по id.
+  const localPhotosQuery = useQuery({
+    queryKey: ['photos-local', 'delivery', deliveryId],
+    queryFn: async (): Promise<DeliveryPhoto[]> => {
+      if (!deliveryId) return [];
       const dbi = await db();
       const all = await dbi
         .transaction('photos')
         .store.index('byDelivery')
         .getAll(deliveryId);
-      return all.length;
+      return all
+        .filter((p) => p.operationKind === 'delivery')
+        .map((p) => ({
+          id: p.id,
+          kind: p.kind,
+          s3Key: p.s3Key ?? '',
+          thumbS3Key: p.thumbS3Key ?? null,
+          contentHash: p.contentHash ?? null,
+          takenAt: new Date(p.takenAt).toISOString(),
+        }));
     },
     enabled: !!deliveryId,
   });
@@ -172,40 +214,45 @@ export default function KppPage() {
   useEffect(() => {
     const d = deliveryQuery.data;
     if (!d) return;
-    setLoadedDelivery(d);
-    setPlate(d.vehiclePlate ?? '');
-    setComment(d.comment ?? '');
-    // siteId/contractorId подхватываются один раз — последующее редактирование
-    // ведётся через локальный state. Для inspector_kpp siteId всегда фиксирован
-    // на назначенном объекте.
-    if (isInspector) {
-      setSiteId(inspectorSiteId);
-    } else {
-      setSiteId((prev) => prev ?? (d.siteId === SYSTEM_SITE_ID ? null : d.siteId));
+    if (hydratedIdRef.current !== d.id) {
+      hydratedIdRef.current = d.id;
+      setPlate(d.vehiclePlate ?? '');
+      setComment(d.comment ?? '');
+      // siteId/contractorId подхватываются один раз — последующее редактирование
+      // ведётся через локальный state. Для inspector_kpp siteId всегда фиксирован
+      // на назначенном объекте.
+      if (isInspector) {
+        setSiteId(inspectorSiteId);
+      } else {
+        setSiteId((prev) => prev ?? (d.siteId === SYSTEM_SITE_ID ? null : d.siteId));
+      }
+      setContractorId((prev) => prev ?? d.contractorId ?? null);
+      setItems(
+        d.items.map((it, idx) => ({
+          clientKey: newKey(),
+          lineNo: idx + 1,
+          nameRaw: it.nameRaw,
+          qtyPlanned: it.qtyPlanned,
+          qtyActual: it.qtyActual,
+          unit: it.unit,
+          materialId: it.materialId,
+          volumeM3: it.volumeM3 ?? null,
+          massKg: it.massKg ?? null,
+          volumeConfidence: it.volumeConfidence ?? null,
+          groupName: it.groupName ?? null,
+        })),
+      );
     }
-    setContractorId((prev) => prev ?? d.contractorId ?? null);
-    setItems(
-      d.items.map((it, idx) => ({
-        clientKey: newKey(),
-        lineNo: idx + 1,
-        nameRaw: it.nameRaw,
-        qtyPlanned: it.qtyPlanned,
-        qtyActual: it.qtyActual,
-        unit: it.unit,
-        materialId: it.materialId,
-        volumeM3: it.volumeM3 ?? null,
-        massKg: it.massKg ?? null,
-        volumeConfidence: it.volumeConfidence ?? null,
-        groupName: it.groupName ?? null,
-      })),
-    );
+    // Подгрузка выбранного УПД идемпотентна по флагу !selectedUpd — оставляем
+    // вне условия гидратации, чтобы она сработала и после первого получения данных,
+    // и после смены selectedUpd.
     if (d.sourceDocumentIds.length > 0 && !selectedUpd) {
       api
         .get<SourceDocument>(`/source-documents/${d.sourceDocumentIds[0]}`)
         .then(setSelectedUpd)
         .catch(() => undefined);
     }
-  }, [deliveryQuery.data, selectedUpd]);
+  }, [deliveryQuery.data, selectedUpd, isInspector, inspectorSiteId]);
 
   /**
    * Создаёт пустую приёмку. UUID генерируется на клиенте, запись сразу появляется
@@ -265,9 +312,12 @@ export default function KppPage() {
         }
       }
       const id = crypto.randomUUID();
+      // Для inspector_kpp siteId — назначенный объект инспектора (сервер всё равно
+      // перепишет). Для admin/manager — siteId из УПД, если он там есть.
       const patch: Partial<Delivery> = {
-        siteId: inspectorSiteId ?? SYSTEM_SITE_ID,
+        siteId: inspectorSiteId ?? detail.siteId ?? SYSTEM_SITE_ID,
         supplierId: detail.supplierId ?? null,
+        contractorId: detail.contractorId ?? null,
         sourceDocumentIds: [upd.id],
         items: detail.items.map((it, i) => ({
           id: crypto.randomUUID(),
@@ -310,10 +360,10 @@ export default function KppPage() {
       try {
         await capturePhoto('delivery', deliveryId, file, 'cargo');
         message.success('Фото добавлено');
-        // Локальный счётчик фото — invalidate на photos-count.
-        // Photos попадут в Delivery.photos после успешного upload + следующего pullSync.
+        // Локальный список фото перечитывается сразу из IDB, серверный delivery.photos —
+        // после S3-upload + следующего pullSync. Галерея мерджит оба источника по id.
         await Promise.all([
-          queryClient.invalidateQueries({ queryKey: ['photos-count', deliveryId] }),
+          queryClient.invalidateQueries({ queryKey: ['photos-local', 'delivery', deliveryId] }),
           queryClient.invalidateQueries({ queryKey: ['deliveries', deliveryId] }),
         ]);
         void runSync();
@@ -347,51 +397,61 @@ export default function KppPage() {
     ]);
   };
 
+  const buildPatch = (nextCode: DeliveryStatusCode): Partial<Delivery> => {
+    if (!loadedDelivery) throw new Error('Приёмка ещё не загружена');
+    const nextStatus: Status = { ...loadedDelivery.status, code: nextCode };
+    return {
+      status: nextStatus,
+      siteId: siteId ?? loadedDelivery.siteId,
+      supplierId: selectedUpd?.supplierId ?? loadedDelivery.supplierId ?? null,
+      contractorId,
+      vehiclePlate: plate || null,
+      arrivedAt: loadedDelivery.arrivedAt ?? new Date().toISOString(),
+      comment: comment || null,
+      sourceDocumentIds: selectedUpd
+        ? [selectedUpd.id]
+        : loadedDelivery.sourceDocumentIds,
+      items: items
+        .filter((i) => i.nameRaw.trim().length > 0)
+        .map((i) => ({
+          id: crypto.randomUUID(),
+          materialId: i.materialId,
+          nameRaw: i.nameRaw,
+          qtyPlanned: i.qtyPlanned,
+          qtyActual: i.qtyActual,
+          unit: i.unit,
+          comment: null,
+          lineNo: i.lineNo,
+          volumeM3: i.volumeM3,
+          massKg: i.massKg,
+          volumeConfidence: i.volumeConfidence,
+          groupName: i.groupName,
+        })),
+    };
+  };
+
+  const persistStatus = async (nextCode: DeliveryStatusCode) => {
+    if (!loadedDelivery) throw new Error('Приёмка ещё не загружена');
+    await applyLocalEdit(loadedDelivery.id, buildPatch(nextCode));
+    await enqueueMutation({
+      id: crypto.randomUUID(),
+      kind: 'delivery_upsert',
+      entityId: loadedDelivery.id,
+      baseVersion: loadedDelivery.version,
+      payload: null,
+    });
+    void runSync();
+  };
+
   const save = useMutation({
     mutationFn: async () => {
       if (!loadedDelivery) throw new Error('Приёмка ещё не загружена');
-      // Локальный patch: status.code = 'filled' (полный Status придёт с сервера в pullSync).
-      const nextStatus: Status = {
-        ...loadedDelivery.status,
-        code: 'filled' satisfies DeliveryStatusCode,
-      };
-      const patch: Partial<Delivery> = {
-        status: nextStatus,
-        siteId: siteId ?? loadedDelivery.siteId,
-        supplierId: selectedUpd?.supplierId ?? loadedDelivery.supplierId ?? null,
-        contractorId,
-        vehiclePlate: plate || null,
-        arrivedAt: loadedDelivery.arrivedAt ?? new Date().toISOString(),
-        comment: comment || null,
-        sourceDocumentIds: selectedUpd
-          ? [selectedUpd.id]
-          : loadedDelivery.sourceDocumentIds,
-        items: items
-          .filter((i) => i.nameRaw.trim().length > 0)
-          .map((i) => ({
-            id: crypto.randomUUID(),
-            materialId: i.materialId,
-            nameRaw: i.nameRaw,
-            qtyPlanned: i.qtyPlanned,
-            qtyActual: i.qtyActual,
-            unit: i.unit,
-            comment: null,
-            lineNo: i.lineNo,
-            volumeM3: i.volumeM3,
-            massKg: i.massKg,
-            volumeConfidence: i.volumeConfidence,
-            groupName: i.groupName,
-          })),
-      };
-      await applyLocalEdit(loadedDelivery.id, patch);
-      await enqueueMutation({
-        id: crypto.randomUUID(),
-        kind: 'delivery_upsert',
-        entityId: loadedDelivery.id,
-        baseVersion: loadedDelivery.version,
-        payload: null,
-      });
-      void runSync();
+      // Обычное «Сохранить» не должно «понижать» подтверждённый документ —
+      // если он уже confirmed_mol, оставляем этот статус.
+      const currentCode = loadedDelivery.status.code as DeliveryStatusCode;
+      const nextCode: DeliveryStatusCode =
+        currentCode === 'confirmed_mol' ? 'confirmed_mol' : 'filled';
+      await persistStatus(nextCode);
     },
     onSuccess: () => {
       message.success('Приёмка сохранена');
@@ -401,11 +461,72 @@ export default function KppPage() {
     onError: (err: Error) => message.error(err.message),
   });
 
-  // Берём максимум: локальные (включая черновик, ещё не на сервере) или server-snapshot.
-  const photosCount = Math.max(
-    photosCountQuery.data ?? 0,
-    loadedDelivery?.photos.length ?? 0,
-  );
+  const confirmMol = useMutation({
+    mutationFn: async () => {
+      await persistStatus('confirmed_mol');
+    },
+    onSuccess: () => {
+      message.success('Приёмка подтверждена МОЛ');
+      void queryClient.invalidateQueries({ queryKey: ['deliveries'] });
+      navigate('/kpp?tab=accepted');
+    },
+    onError: (err: Error) => message.error(err.message),
+  });
+
+  const markDel = useMutation({
+    mutationFn: async (reason: string | null) => {
+      if (!loadedDelivery) throw new Error('Приёмка ещё не загружена');
+      return markDeliveryDeletion(loadedDelivery.id, reason);
+    },
+    onSuccess: () => {
+      message.success('Помечено на удаление');
+      void queryClient.invalidateQueries({ queryKey: ['deliveries', deliveryId] });
+      void queryClient.invalidateQueries({ queryKey: ['deliveries'] });
+    },
+    onError: (err: Error) => message.error(err.message),
+  });
+
+  const unmarkDel = useMutation({
+    mutationFn: async () => {
+      if (!loadedDelivery) throw new Error('Приёмка ещё не загружена');
+      return unmarkDeliveryDeletion(loadedDelivery.id);
+    },
+    onSuccess: () => {
+      message.success('Пометка снята');
+      void queryClient.invalidateQueries({ queryKey: ['deliveries', deliveryId] });
+      void queryClient.invalidateQueries({ queryKey: ['deliveries'] });
+    },
+    onError: (err: Error) => message.error(err.message),
+  });
+
+  const hardDel = useMutation({
+    mutationFn: async () => {
+      if (!loadedDelivery) throw new Error('Приёмка ещё не загружена');
+      return hardDeleteDelivery(loadedDelivery.id);
+    },
+    onSuccess: () => {
+      message.success('Приёмка удалена');
+      void queryClient.invalidateQueries({ queryKey: ['deliveries'] });
+      void queryClient.invalidateQueries({ queryKey: ['source-documents'] });
+      navigate('/kpp?tab=accepted&trash=1');
+    },
+    onError: (err: Error) => message.error(err.message),
+  });
+
+  const [markReason, setMarkReason] = useState('');
+
+  // Мерджим серверные photos и локальные IDB-записи по id. Это покрывает оба сценария:
+  // (а) черновик ещё не на сервере — фото есть только локально;
+  // (б) фото только что снято и ещё не подтянуто очередным pullSync.
+  const mergedPhotos: DeliveryPhoto[] = useMemo(() => {
+    const server = loadedDelivery?.photos ?? [];
+    const local = localPhotosQuery.data ?? [];
+    return [
+      ...server,
+      ...local.filter((lp) => !server.some((sp) => sp.id === lp.id)),
+    ];
+  }, [loadedDelivery?.photos, localPhotosQuery.data]);
+  const photosCount = mergedPhotos.length;
   const verifyReason: string | null = (() => {
     const reasons: string[] = [];
     if (!siteId) reasons.push('Выберите объект');
@@ -519,7 +640,17 @@ export default function KppPage() {
 
   // ──────────── список / форма ────────────
 
-  if (deliveryId && deliveryQuery.isLoading && !loadedDelivery) {
+  if (deliveryId && !loadedDelivery) {
+    if (deliveryQuery.isError) {
+      return (
+        <Alert
+          type="error"
+          showIcon
+          message="Не удалось загрузить приёмку"
+          description={(deliveryQuery.error as Error)?.message ?? 'Неизвестная ошибка'}
+        />
+      );
+    }
     return (
       <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
         <Spin size="large" />
@@ -529,6 +660,11 @@ export default function KppPage() {
 
   // === Режим формы (открыта приёмка) ===
   if (deliveryId) {
+    const pendingAt = loadedDelivery?.pendingDeletionAt ?? null;
+    const isPending = pendingAt !== null;
+    const isAdmin = authUser?.role === 'admin';
+    const canUnmark =
+      isAdmin || authUser?.id === (loadedDelivery?.pendingDeletionByUserId ?? null);
     return (
       <Space direction="vertical" size="middle" style={{ width: '100%', paddingBottom: isDesktop ? 0 : 96 }}>
         <Space style={{ width: '100%' }} align="center">
@@ -542,7 +678,60 @@ export default function KppPage() {
           <Typography.Title level={3} style={{ margin: 0 }}>
             Приёмка
           </Typography.Title>
+          {isPending && loadedDelivery && (
+            <PendingDeletionTag
+              at={loadedDelivery.pendingDeletionAt}
+              byEmail={loadedDelivery.pendingDeletionByUserEmail}
+              reason={loadedDelivery.pendingDeletionReason}
+            />
+          )}
         </Space>
+
+        {isPending && loadedDelivery && (
+          <Alert
+            type="warning"
+            showIcon
+            message="Документ помечен на удаление"
+            description={
+              <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                <Typography.Text>
+                  Пометил: {loadedDelivery.pendingDeletionByUserEmail ?? '—'} ·{' '}
+                  {formatMolDate(loadedDelivery.pendingDeletionAt)}
+                </Typography.Text>
+                {loadedDelivery.pendingDeletionReason && (
+                  <Typography.Text type="secondary">
+                    Причина: {loadedDelivery.pendingDeletionReason}
+                  </Typography.Text>
+                )}
+                <Space wrap>
+                  {canUnmark && (
+                    <Button
+                      icon={<UndoOutlined />}
+                      loading={unmarkDel.isPending}
+                      onClick={() => unmarkDel.mutate()}
+                    >
+                      Восстановить
+                    </Button>
+                  )}
+                  {isAdmin && (
+                    <Popconfirm
+                      title="Удалить навсегда?"
+                      description="Запись, фото и связи с УПД будут стёрты. УПД вернётся в «Ожидаемые»."
+                      okText="Да, удалить"
+                      cancelText="Нет"
+                      okButtonProps={{ danger: true }}
+                      onConfirm={() => hardDel.mutate()}
+                    >
+                      <Button danger icon={<DeleteOutlined />} loading={hardDel.isPending}>
+                        Удалить навсегда
+                      </Button>
+                    </Popconfirm>
+                  )}
+                </Space>
+              </Space>
+            }
+          />
+        )}
 
         <Row gutter={[8, 8]}>
           <Col xs={24} sm={12} md={6}>
@@ -646,17 +835,6 @@ export default function KppPage() {
           defaultActiveKey={photosCount > 0 ? ['photos'] : []}
           items={[
             {
-              key: 'comment',
-              label: 'Комментарий',
-              children: (
-                <Input.TextArea
-                  rows={3}
-                  value={comment}
-                  onChange={(e) => setComment(e.target.value)}
-                />
-              ),
-            },
-            {
               key: 'photos',
               label: `Фото${photosCount ? ` (${photosCount})` : ''}`,
               children: (
@@ -676,7 +854,7 @@ export default function KppPage() {
                   {deliveryId && loadedDelivery && (
                     <PhotoGallery
                       deliveryId={deliveryId}
-                      photos={loadedDelivery.photos}
+                      photos={mergedPhotos}
                     />
                   )}
                 </Space>
@@ -720,74 +898,156 @@ export default function KppPage() {
           )}
         </Card>
 
-        {isDesktop ? (
-          <div
-            style={{
-              position: 'sticky',
-              bottom: 0,
-              marginTop: 8,
-              padding: '12px 0',
-              background: '#f5f5f5',
-              display: 'flex',
-              justifyContent: 'flex-end',
-              gap: 8,
-              zIndex: 5,
-            }}
-          >
-            <Button onClick={() => navigate(fromAccepted ? '/kpp?tab=accepted' : '/kpp')}>
-              Отмена
-            </Button>
-            <Tooltip title={verifyReason ?? ''} placement="top">
-              <span style={{ display: 'inline-flex' }}>
-                <Button
-                  type="primary"
-                  loading={save.isPending}
-                  disabled={!!verifyReason}
-                  onClick={() => save.mutate()}
-                >
-                  Сохранить
-                </Button>
-              </span>
-            </Tooltip>
-          </div>
-        ) : (
-          <div
-            style={{
-              position: 'fixed',
-              left: 0,
-              right: 0,
-              bottom: 0,
-              padding: 12,
-              background: '#fff',
-              borderTop: '1px solid #f0f0f0',
-              zIndex: 100,
-              display: 'flex',
-              gap: 8,
-            }}
-          >
-            <Button
-              size="large"
-              style={{ flex: 1 }}
-              onClick={() => navigate(fromAccepted ? '/kpp?tab=accepted' : '/kpp')}
+        <Collapse
+          size="small"
+          items={[
+            {
+              key: 'comment',
+              label: 'Комментарий',
+              children: (
+                <Input.TextArea
+                  rows={3}
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                />
+              ),
+            },
+          ]}
+        />
+
+        {(() => {
+          const isConfirmed = loadedDelivery.status.code === 'confirmed_mol';
+          const confirmTooltip = isConfirmed
+            ? `Подтверждено: ${loadedDelivery.confirmedByMolUserEmail ?? '—'}, ${formatMolDate(loadedDelivery.confirmedByMolAt)}`
+            : (verifyReason ?? 'Подтвердить документ как МОЛ');
+          // Помеченный документ — read-only: блокируем Save и Подтвердить МОЛ.
+          const saveDisabled = !!verifyReason || isPending;
+          const confirmDisabled = isConfirmed || !!verifyReason || isPending;
+          // Кнопка «Пометить на удаление» доступна для filled/confirmed_mol в активном режиме.
+          const canMarkDeletion =
+            !isPending &&
+            (loadedDelivery.status.code === 'filled' ||
+              loadedDelivery.status.code === 'confirmed_mol');
+          const markBlock = canMarkDeletion ? (
+            <Popconfirm
+              title="Пометить на удаление?"
+              description={
+                <Input.TextArea
+                  placeholder="Причина (необязательно)"
+                  rows={2}
+                  maxLength={500}
+                  value={markReason}
+                  onChange={(e) => setMarkReason(e.target.value)}
+                />
+              }
+              okText="Пометить"
+              cancelText="Нет"
+              onConfirm={() => {
+                const reason = markReason.trim() || null;
+                markDel.mutate(reason);
+                setMarkReason('');
+              }}
             >
-              Отмена
-            </Button>
-            <Tooltip title={verifyReason ?? ''} placement="top">
-              <span style={{ flex: 1, display: 'inline-flex' }}>
-                <Button
-                  type="primary"
-                  size="large"
-                  style={{ flex: 1 }}
-                  loading={save.isPending}
-                  disabled={!!verifyReason}
-                  onClick={() => save.mutate()}
-                >
-                  Сохранить
-                </Button>
-              </span>
-            </Tooltip>
-          </div>
-        )}
+              <Button danger icon={<DeleteOutlined />} loading={markDel.isPending}>
+                Пометить на удаление
+              </Button>
+            </Popconfirm>
+          ) : null;
+          return isDesktop ? (
+            <div
+              style={{
+                position: 'sticky',
+                bottom: 0,
+                marginTop: 8,
+                padding: '12px 0',
+                background: '#f5f5f5',
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: 8,
+                zIndex: 5,
+              }}
+            >
+              <Button onClick={() => navigate(fromAccepted ? '/kpp?tab=accepted' : '/kpp')}>
+                Отмена
+              </Button>
+              {markBlock}
+              <Tooltip title={verifyReason ?? ''} placement="top">
+                <span style={{ display: 'inline-flex' }}>
+                  <Button
+                    type="primary"
+                    loading={save.isPending}
+                    disabled={saveDisabled}
+                    onClick={() => save.mutate()}
+                  >
+                    Сохранить
+                  </Button>
+                </span>
+              </Tooltip>
+              <Tooltip title={confirmTooltip} placement="top">
+                <span style={{ display: 'inline-flex' }}>
+                  <Button
+                    loading={confirmMol.isPending}
+                    disabled={confirmDisabled}
+                    onClick={() => confirmMol.mutate()}
+                  >
+                    Подтвердить МОЛ
+                  </Button>
+                </span>
+              </Tooltip>
+            </div>
+          ) : (
+            <div
+              style={{
+                position: 'fixed',
+                left: 0,
+                right: 0,
+                bottom: 0,
+                padding: 12,
+                background: '#fff',
+                borderTop: '1px solid #f0f0f0',
+                zIndex: 100,
+                display: 'flex',
+                gap: 8,
+              }}
+            >
+              <Button
+                size="large"
+                style={{ flex: 1 }}
+                onClick={() => navigate(fromAccepted ? '/kpp?tab=accepted' : '/kpp')}
+              >
+                Отмена
+              </Button>
+              {markBlock && <span style={{ flex: 1, display: 'inline-flex' }}>{markBlock}</span>}
+              <Tooltip title={verifyReason ?? ''} placement="top">
+                <span style={{ flex: 1, display: 'inline-flex' }}>
+                  <Button
+                    type="primary"
+                    size="large"
+                    style={{ flex: 1 }}
+                    loading={save.isPending}
+                    disabled={saveDisabled}
+                    onClick={() => save.mutate()}
+                  >
+                    Сохранить
+                  </Button>
+                </span>
+              </Tooltip>
+              <Tooltip title={confirmTooltip} placement="top">
+                <span style={{ flex: 1, display: 'inline-flex' }}>
+                  <Button
+                    size="large"
+                    style={{ flex: 1 }}
+                    loading={confirmMol.isPending}
+                    disabled={confirmDisabled}
+                    onClick={() => confirmMol.mutate()}
+                  >
+                    Подтвердить МОЛ
+                  </Button>
+                </span>
+              </Tooltip>
+            </div>
+          );
+        })()}
       </Space>
     );
   }

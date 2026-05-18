@@ -34,7 +34,14 @@ export const sourceOriginEnum = pgEnum('source_origin', [
   'manual_pdf',
   'mail',
 ]);
-export const sourceStatusEnum = pgEnum('source_status', ['parsed', 'parse_failed', 'archived']);
+export const sourceStatusEnum = pgEnum('source_status', [
+  'parsed',
+  'parse_failed',
+  'archived',
+  'queued',
+  'processing',
+  'needs_resolution',
+]);
 export const sourceDirectionEnum = pgEnum('source_direction', ['inbound', 'outbound']);
 export const photoKindEnum = pgEnum('photo_kind', ['document', 'cargo', 'vehicle', 'other']);
 export const llmKindEnum = pgEnum('llm_kind', [
@@ -262,13 +269,23 @@ export const llmProviders = pgTable('llm_providers', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: text('name').notNull(),
   kind: llmKindEnum('kind').notNull(),
-  apiBaseUrl: text('api_base_url').notNull(),
+  // Legacy: до 0020 ключ и base URL хранились здесь, теперь — в llm_provider_credentials по kind.
+  // Колонки оставлены NULLABLE как страховка; следующей миграцией DROP.
+  apiBaseUrl: text('api_base_url'),
   model: text('model').notNull(),
-  apiKeyEncrypted: text('api_key_encrypted').notNull(),
+  apiKeyEncrypted: text('api_key_encrypted'),
   temperature: numeric('temperature', { precision: 4, scale: 2 }).notNull().default('0.2'),
-  maxTokens: integer('max_tokens').notNull().default(4096),
+  maxTokens: integer('max_tokens').notNull().default(16384),
   isDefault: boolean('is_default').notNull().default(false),
   isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const llmProviderCredentials = pgTable('llm_provider_credentials', {
+  kind: llmKindEnum('kind').primaryKey(),
+  apiBaseUrl: text('api_base_url').notNull(),
+  apiKeyEncrypted: text('api_key_encrypted').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -332,6 +349,14 @@ export const sourceDocuments = pgTable(
     llmConfidence: numeric('llm_confidence', { precision: 4, scale: 3 }),
     parsedAt: timestamp('parsed_at', { withTimezone: true }).notNull().defaultNow(),
     parseError: text('parse_error'),
+    parseErrorCode: text('parse_error_code'),
+    parseErrorDetails: jsonb('parse_error_details').$type<Record<string, unknown> | null>(),
+    jobId: text('job_id'),
+    jobAttempts: integer('job_attempts').notNull().default(0),
+    contentHash: varchar('content_hash', { length: 64 }),
+    originalFilename: text('original_filename'),
+    queuedAt: timestamp('queued_at', { withTimezone: true }),
+    processedAt: timestamp('processed_at', { withTimezone: true }),
     validation: jsonb('validation').$type<UpdValidation | null>(),
     version: integer('version').notNull().default(1),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -360,9 +385,15 @@ export const sourceDocuments = pgTable(
       .on(t.contractorId)
       .where(sql`${t.contractorId} is not null`),
     index('source_site_idx').on(t.siteId).where(sql`${t.siteId} is not null`),
+    index('source_documents_content_hash_idx')
+      .on(t.contractorId, t.contentHash)
+      .where(sql`${t.contentHash} is not null`),
+    index('source_documents_unfinished_idx')
+      .on(t.status, t.parsedAt)
+      .where(sql`${t.status} in ('queued', 'processing')`),
     check(
       'source_upd_required',
-      sql`(${t.kind} <> 'upd') or (${t.docNumber} is not null and ${t.docDate} is not null and ${t.totalSum} is not null)`,
+      sql`(${t.kind} <> 'upd') or (${t.status} <> 'parsed') or (${t.docNumber} is not null and ${t.docDate} is not null and ${t.totalSum} is not null)`,
     ),
   ],
 );
@@ -401,6 +432,38 @@ export const sourceDocumentAttachments = pgTable('source_document_attachments', 
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ─── LLM calls log ─────────────────────────────────────────────────────────
+// Журнал общения с LLM при распознавании документов: хранит сырой запрос и
+// ответ, чтобы диагностировать ошибки распознавания. Доступен только админам.
+
+export const llmCalls = pgTable(
+  'llm_calls',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sourceDocumentId: uuid('source_document_id').references(() => sourceDocuments.id, {
+      onDelete: 'cascade',
+    }),
+    providerId: uuid('provider_id').references(() => llmProviders.id, { onDelete: 'set null' }),
+    promptId: uuid('prompt_id').references(() => prompts.id, { onDelete: 'set null' }),
+    docKind: text('doc_kind').notNull(),
+    model: text('model'),
+    requestMessages: jsonb('request_messages').notNull(),
+    requestSchema: jsonb('request_schema'),
+    responseRaw: text('response_raw'),
+    responseParsed: jsonb('response_parsed'),
+    promptTokens: integer('prompt_tokens'),
+    completionTokens: integer('completion_tokens'),
+    latencyMs: integer('latency_ms').notNull(),
+    errorCode: text('error_code'),
+    errorMessage: text('error_message'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('llm_calls_source_doc_idx').on(t.sourceDocumentId, t.createdAt),
+    index('llm_calls_created_at_idx').on(t.createdAt),
+  ],
+);
+
 // ─── Deliveries ────────────────────────────────────────────────────────────
 
 export const deliveries = pgTable(
@@ -422,6 +485,18 @@ export const deliveries = pgTable(
     arrivedAt: timestamp('arrived_at', { withTimezone: true }),
     inspectorId: uuid('inspector_id').references(() => users.id, { onDelete: 'set null' }),
     comment: text('comment'),
+    confirmedByMolUserId: uuid('confirmed_by_mol_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    confirmedByMolAt: timestamp('confirmed_by_mol_at', { withTimezone: true }),
+    // Soft-delete: пометка на удаление. Окончательно стирает только админ.
+    // Применимо к статусам filled/confirmed_mol; CHECK гарантирует, что три
+    // поля заполнены/пусты согласованно.
+    pendingDeletionAt: timestamp('pending_deletion_at', { withTimezone: true }),
+    pendingDeletionByUserId: uuid('pending_deletion_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    pendingDeletionReason: text('pending_deletion_reason'),
     version: integer('version').notNull().default(1),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -431,6 +506,13 @@ export const deliveries = pgTable(
     index('deliveries_contractor_idx')
       .on(t.contractorId)
       .where(sql`${t.contractorId} is not null`),
+    index('deliveries_pending_deletion_idx')
+      .on(t.siteId, t.pendingDeletionAt)
+      .where(sql`${t.pendingDeletionAt} is not null`),
+    check(
+      'deliveries_pending_deletion_chk',
+      sql`(${t.pendingDeletionAt} is null and ${t.pendingDeletionByUserId} is null) or (${t.pendingDeletionAt} is not null and ${t.pendingDeletionByUserId} is not null)`,
+    ),
   ],
 );
 
@@ -444,7 +526,10 @@ export const deliverySources = pgTable(
       .notNull()
       .references(() => sourceDocuments.id, { onDelete: 'restrict' }),
   },
-  (t) => [primaryKey({ columns: [t.deliveryId, t.sourceDocumentId] })],
+  (t) => [
+    primaryKey({ columns: [t.deliveryId, t.sourceDocumentId] }),
+    uniqueIndex('delivery_sources_source_document_id_unique').on(t.sourceDocumentId),
+  ],
 );
 
 export const deliveryItems = pgTable('delivery_items', {
@@ -478,6 +563,11 @@ export const deliveryPhotos = pgTable(
     contentHash: varchar('content_hash', { length: 64 }),
     idempotencyKey: uuid('idempotency_key'),
     takenAt: timestamp('taken_at', { withTimezone: true }).notNull().defaultNow(),
+    // Подтверждение успешного PUT в S3 (POST /photos/{id}/confirm). NULL =
+    // orphan-запись, фото в S3 ещё не загружено; через час фоновая job
+    // photoOrphanCleanup проверит S3.HEAD и либо проставит uploaded_at, либо
+    // удалит запись.
+    uploadedAt: timestamp('uploaded_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -487,6 +577,9 @@ export const deliveryPhotos = pgTable(
     uniqueIndex('delivery_photo_idempotency_unique')
       .on(t.deliveryId, t.idempotencyKey)
       .where(sql`${t.idempotencyKey} is not null`),
+    index('delivery_photos_orphan_idx')
+      .on(t.takenAt)
+      .where(sql`${t.uploadedAt} is null`),
   ],
 );
 
@@ -512,6 +605,16 @@ export const shipments = pgTable(
     shippedAt: timestamp('shipped_at', { withTimezone: true }),
     inspectorId: uuid('inspector_id').references(() => users.id, { onDelete: 'set null' }),
     comment: text('comment'),
+    confirmedByMolUserId: uuid('confirmed_by_mol_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    confirmedByMolAt: timestamp('confirmed_by_mol_at', { withTimezone: true }),
+    // Soft-delete: см. одноимённые поля в deliveries.
+    pendingDeletionAt: timestamp('pending_deletion_at', { withTimezone: true }),
+    pendingDeletionByUserId: uuid('pending_deletion_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    pendingDeletionReason: text('pending_deletion_reason'),
     version: integer('version').notNull().default(1),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -526,6 +629,13 @@ export const shipments = pgTable(
     index('shipment_receiver_idx')
       .on(t.receiverCounterpartyId)
       .where(sql`${t.receiverCounterpartyId} is not null`),
+    index('shipments_pending_deletion_idx')
+      .on(t.siteId, t.pendingDeletionAt)
+      .where(sql`${t.pendingDeletionAt} is not null`),
+    check(
+      'shipments_pending_deletion_chk',
+      sql`(${t.pendingDeletionAt} is null and ${t.pendingDeletionByUserId} is null) or (${t.pendingDeletionAt} is not null and ${t.pendingDeletionByUserId} is not null)`,
+    ),
     check(
       'shipments_kind_links_chk',
       sql`(
@@ -548,7 +658,10 @@ export const shipmentSources = pgTable(
       .notNull()
       .references(() => sourceDocuments.id, { onDelete: 'restrict' }),
   },
-  (t) => [primaryKey({ columns: [t.shipmentId, t.sourceDocumentId] })],
+  (t) => [
+    primaryKey({ columns: [t.shipmentId, t.sourceDocumentId] }),
+    uniqueIndex('shipment_sources_source_document_id_unique').on(t.sourceDocumentId),
+  ],
 );
 
 export const shipmentItems = pgTable(
@@ -586,6 +699,7 @@ export const shipmentPhotos = pgTable(
     contentHash: varchar('content_hash', { length: 64 }),
     idempotencyKey: uuid('idempotency_key'),
     takenAt: timestamp('taken_at', { withTimezone: true }).notNull().defaultNow(),
+    uploadedAt: timestamp('uploaded_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -595,6 +709,36 @@ export const shipmentPhotos = pgTable(
     uniqueIndex('shipment_photo_idempotency_unique')
       .on(t.shipmentId, t.idempotencyKey)
       .where(sql`${t.idempotencyKey} is not null`),
+    index('shipment_photos_orphan_idx')
+      .on(t.takenAt)
+      .where(sql`${t.uploadedAt} is null`),
+  ],
+);
+
+// ─── Entity deletions (журнал hard-delete для офлайн-клиента) ──────────────
+
+export const entityDeletions = pgTable(
+  'entity_deletions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    // 'delivery' | 'shipment' | 'source_document' — CHECK в миграции 0025.
+    entityType: text('entity_type').notNull(),
+    entityId: uuid('entity_id').notNull(),
+    siteId: uuid('site_id').references(() => sites.id, { onDelete: 'set null' }),
+    deletedByUserId: uuid('deleted_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('entity_deletions_since_idx').on(t.entityType, t.deletedAt),
+    index('entity_deletions_site_idx')
+      .on(t.entityType, t.siteId, t.deletedAt)
+      .where(sql`${t.siteId} is not null`),
+    check(
+      'entity_deletions_type_chk',
+      sql`${t.entityType} in ('delivery', 'shipment', 'source_document')`,
+    ),
   ],
 );
 

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
-import { and, desc, eq, gte, ne, or, sql as drSql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNotNull, isNull, ne, or, sql as drSql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { z } from 'zod';
 import { asZod } from '../lib/fastify.js';
 import {
@@ -7,19 +8,25 @@ import {
   ShipmentConflictResponseSchema,
   ShipmentKindSchema,
   ShipmentListResponseSchema,
+  ShipmentMarkDeletionSchema,
   ShipmentSchema,
   ShipmentStatusCodeSchema,
   ShipmentUpsertSchema,
 } from '@matcheck/contracts';
 import {
+  entityDeletions,
   shipments,
   shipmentItems,
   shipmentPhotos,
   shipmentSources,
   statuses,
+  users,
 } from '../db/schema.js';
 import { deleteObject } from '../domain/storage/s3.signer.js';
-import { resolveStatusId as resolveStatusIdShared } from '../domain/statuses/lookup.js';
+import {
+  getStatusCodeById,
+  resolveStatusId as resolveStatusIdShared,
+} from '../domain/statuses/lookup.js';
 import { publishEvent } from './events.js';
 
 const ListQuerySchema = z.object({
@@ -28,11 +35,53 @@ const ListQuerySchema = z.object({
   siteId: z.string().uuid().optional(),
   inspectorId: z.string().uuid().optional(),
   changedSince: z.string().datetime().optional(),
+  // По умолчанию (false/unset) скрывает помеченные на удаление; trash=true показывает корзину.
+  trash: z.coerce.boolean().optional(),
   limit: z.coerce.number().int().positive().max(200).default(50),
   offset: z.coerce.number().int().nonnegative().default(0),
 });
 
+// Статусы, при которых разрешён hard-delete без предварительной пометки.
+const HARD_DELETE_STATUSES = new Set(['draft', 'not_filled']);
+// Статусы, для которых соответственно требуется soft-delete (mark → admin hard).
+const SOFT_DELETE_STATUSES = new Set(['filled', 'confirmed_mol']);
+
 type StatusRow = typeof statuses.$inferSelect;
+
+class SourceAlreadyLinkedError extends Error {
+  constructor(public readonly sourceDocumentIds: string[]) {
+    super('source_document_already_linked');
+  }
+}
+
+// УПД должна быть привязана не более чем к одной отгрузке. Проверяем, что
+// заявленные source_document_id не заняты другой отгрузкой. excludeShipmentId
+// нужен для обновления: те же УПД могут уже быть привязаны к текущей отгрузке.
+async function assertSourcesAvailableForShipment(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  app: any,
+  sourceDocumentIds: string[],
+  excludeShipmentId: string | null,
+) {
+  if (!sourceDocumentIds.length) return;
+  const conds = [inArray(shipmentSources.sourceDocumentId, sourceDocumentIds)];
+  if (excludeShipmentId) conds.push(ne(shipmentSources.shipmentId, excludeShipmentId));
+  const taken = await app.db
+    .select({ sourceDocumentId: shipmentSources.sourceDocumentId })
+    .from(shipmentSources)
+    .where(and(...conds));
+  if (taken.length) {
+    throw new SourceAlreadyLinkedError(taken.map((r: { sourceDocumentId: string }) => r.sourceDocumentId));
+  }
+}
+
+function isSourceDocumentUniqueViolation(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  const e = err as { code?: string; constraint?: string; constraint_name?: string };
+  if (e.code !== '23505') return false;
+  const name = e.constraint ?? e.constraint_name ?? '';
+  return name.endsWith('_source_document_id_unique');
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const resolveStatusId = (app: any, code: string) =>
@@ -40,13 +89,29 @@ const resolveStatusId = (app: any, code: string) =>
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function buildShipmentDto(app: any, id: string) {
+  // Два независимых join на users: один на МОЛ, другой на автора soft-delete пометки.
+  const pendingUser = alias(users, 'pending_user');
   const rows = await app.db
-    .select({ s: shipments, st: statuses })
+    .select({
+      s: shipments,
+      st: statuses,
+      molEmail: users.email,
+      pendingEmail: pendingUser.email,
+    })
     .from(shipments)
     .innerJoin(statuses, eq(shipments.statusId, statuses.id))
+    .leftJoin(users, eq(shipments.confirmedByMolUserId, users.id))
+    .leftJoin(pendingUser, eq(shipments.pendingDeletionByUserId, pendingUser.id))
     .where(eq(shipments.id, id))
     .limit(1);
-  const r = rows[0] as { s: typeof shipments.$inferSelect; st: StatusRow } | undefined;
+  const r = rows[0] as
+    | {
+        s: typeof shipments.$inferSelect;
+        st: StatusRow;
+        molEmail: string | null;
+        pendingEmail: string | null;
+      }
+    | undefined;
   if (!r) return null;
   const s = r.s;
   const st = r.st;
@@ -82,6 +147,13 @@ async function buildShipmentDto(app: any, id: string) {
     shippedAt: s.shippedAt?.toISOString() ?? null,
     inspectorId: s.inspectorId,
     comment: s.comment,
+    confirmedByMolUserId: s.confirmedByMolUserId,
+    confirmedByMolUserEmail: r.molEmail,
+    confirmedByMolAt: s.confirmedByMolAt?.toISOString() ?? null,
+    pendingDeletionAt: s.pendingDeletionAt?.toISOString() ?? null,
+    pendingDeletionByUserId: s.pendingDeletionByUserId,
+    pendingDeletionByUserEmail: r.pendingEmail,
+    pendingDeletionReason: s.pendingDeletionReason,
     version: s.version,
     sourceDocumentIds: sources.map((x) => x.sourceDocumentId),
     items: items.map((i) => ({
@@ -105,6 +177,7 @@ async function buildShipmentDto(app: any, id: string) {
       thumbS3Key: p.thumbS3Key,
       contentHash: p.contentHash,
       takenAt: p.takenAt.toISOString(),
+      uploadedAt: p.uploadedAt?.toISOString() ?? null,
     })),
     createdAt: s.createdAt.toISOString(),
     updatedAt: s.updatedAt.toISOString(),
@@ -121,8 +194,11 @@ export async function shipmentRoutes(rawApp: FastifyInstance): Promise<void> {
       schema: { querystring: ListQuerySchema, response: { 200: ShipmentListResponseSchema } },
     },
     async (req) => {
-      const { status, kind, siteId, inspectorId, changedSince, limit, offset } = req.query;
+      const { status, kind, siteId, inspectorId, changedSince, trash, limit, offset } = req.query;
       const filters = [];
+      filters.push(
+        trash ? isNotNull(shipments.pendingDeletionAt) : isNull(shipments.pendingDeletionAt),
+      );
       if (status) {
         const statusId = await resolveStatusId(app, status);
         filters.push(eq(shipments.statusId, statusId));
@@ -202,7 +278,8 @@ export async function shipmentRoutes(rawApp: FastifyInstance): Promise<void> {
           200: ShipmentSchema,
           400: ErrorResponseSchema,
           404: ErrorResponseSchema,
-          409: ShipmentConflictResponseSchema,
+          // 409 — либо OCC-конфликт (Conflict), либо pending_deletion (Error).
+          409: z.union([ShipmentConflictResponseSchema, ErrorResponseSchema]),
         },
       },
     },
@@ -231,36 +308,54 @@ export async function shipmentRoutes(rawApp: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: 'invalid_kind_links', message: linksError });
       }
 
-      if (input.id) {
-        const [existing] = await app.db
-          .select()
-          .from(shipments)
-          .where(eq(shipments.id, input.id))
-          .limit(1);
-        if (!existing) {
-          await createShipment(app, input, statusId, inspectorId);
-        } else {
-          if (input.baseVersion !== undefined && input.baseVersion !== existing.version) {
-            const server = await buildShipmentDto(app, existing.id);
-            return reply.code(409).send({
-              error: 'conflict' as const,
-              serverVersion: existing.version,
-              server: server!,
-            });
+      try {
+        if (input.id) {
+          const [existing] = await app.db
+            .select()
+            .from(shipments)
+            .where(eq(shipments.id, input.id))
+            .limit(1);
+          if (!existing) {
+            await createShipment(app, input, statusId, inspectorId);
+          } else {
+            // Помеченные документы — read-only до восстановления или окончательного удаления.
+            if (existing.pendingDeletionAt !== null) {
+              return reply.code(409).send({
+                error: 'pending_deletion',
+                message: 'Документ помечен на удаление — сначала снимите пометку',
+              });
+            }
+            if (input.baseVersion !== undefined && input.baseVersion !== existing.version) {
+              const server = await buildShipmentDto(app, existing.id);
+              return reply.code(409).send({
+                error: 'conflict' as const,
+                serverVersion: existing.version,
+                server: server!,
+              });
+            }
+            await updateShipment(app, existing, input, statusId, req.user?.id ?? null);
           }
-          await updateShipment(app, existing.id, input, statusId);
+          const dto = await buildShipmentDto(app, input.id);
+          if (!dto) return reply.code(404).send({ error: 'not_found' });
+          publishEvent(app, { type: 'shipment_updated', entityId: dto.id, ts: new Date().toISOString() });
+          return dto;
         }
-        const dto = await buildShipmentDto(app, input.id);
-        if (!dto) return reply.code(404).send({ error: 'not_found' });
-        publishEvent(app, { type: 'shipment_updated', id: dto.id, ts: new Date().toISOString() });
-        return dto;
-      }
 
-      const created = await createShipment(app, input, statusId, inspectorId);
-      const dto = await buildShipmentDto(app, created.id);
-      if (!dto) throw new Error('Shipment missing after create');
-      publishEvent(app, { type: 'shipment_updated', id: dto.id, ts: new Date().toISOString() });
-      return dto;
+        const created = await createShipment(app, input, statusId, inspectorId);
+        const dto = await buildShipmentDto(app, created.id);
+        if (!dto) throw new Error('Shipment missing after create');
+        publishEvent(app, { type: 'shipment_updated', entityId: dto.id, ts: new Date().toISOString() });
+        return dto;
+      } catch (err) {
+        if (err instanceof SourceAlreadyLinkedError) {
+          return reply.code(400).send({
+            error: 'source_document_already_linked',
+            message: 'УПД уже привязана к другой отгрузке',
+            details: { sourceDocumentIds: err.sourceDocumentIds },
+          });
+        }
+        throw err;
+      }
     },
   );
 
@@ -268,7 +363,15 @@ export async function shipmentRoutes(rawApp: FastifyInstance): Promise<void> {
     '/api/v1/shipments/:id',
     {
       preHandler: [app.authenticate],
-      schema: { params: z.object({ id: z.string().uuid() }) },
+      schema: {
+        params: z.object({ id: z.string().uuid() }),
+        response: {
+          200: z.object({ ok: z.literal(true) }),
+          404: ErrorResponseSchema,
+          403: ErrorResponseSchema,
+          409: ErrorResponseSchema,
+        },
+      },
     },
     async (req, reply) => {
       const [existing] = await app.db
@@ -278,15 +381,42 @@ export async function shipmentRoutes(rawApp: FastifyInstance): Promise<void> {
         .limit(1);
       if (!existing) return reply.code(404).send({ error: 'not_found' });
 
-      // inspector_kpp может удалять отгрузки своего объекта (включая чужие);
-      // admin/manager — любые.
       const role = req.user?.role;
-      if (role === 'inspector_kpp') {
-        if (!req.user?.siteId || existing.siteId !== req.user.siteId) {
+      const isPending = existing.pendingDeletionAt !== null;
+
+      if (isPending) {
+        // Окончательное удаление помеченного документа — только админ.
+        if (role !== 'admin') {
           return reply.code(403).send({ error: 'forbidden' });
         }
-      } else if (role !== 'admin' && role !== 'manager') {
-        return reply.code(403).send({ error: 'forbidden' });
+      } else {
+        const code = (await getStatusCodeById(app, existing.statusId)) ?? '';
+        if (!HARD_DELETE_STATUSES.has(code)) {
+          return reply.code(409).send({
+            error: 'must_mark_first',
+            message: 'Сначала пометьте документ на удаление',
+          });
+        }
+        if (role === 'inspector_kpp') {
+          if (!req.user?.siteId || existing.siteId !== req.user.siteId) {
+            return reply.code(403).send({ error: 'forbidden' });
+          }
+        } else if (role !== 'admin' && role !== 'manager') {
+          return reply.code(403).send({ error: 'forbidden' });
+        }
+      }
+
+      if (isPending) {
+        req.log.info(
+          {
+            event: 'shipment_hard_deleted',
+            shipmentId: existing.id,
+            deletedByUserId: req.user?.id ?? null,
+            originallyMarkedBy: existing.pendingDeletionByUserId,
+            markedAt: existing.pendingDeletionAt?.toISOString() ?? null,
+          },
+          'shipment hard delete after soft-delete mark',
+        );
       }
 
       const photos = await app.db
@@ -302,13 +432,149 @@ export async function shipmentRoutes(rawApp: FastifyInstance): Promise<void> {
         }
       }
 
-      await app.db.delete(shipments).where(eq(shipments.id, req.params.id));
+      // Журнал hard-delete + физическое удаление одной транзакцией:
+      // офлайн-клиент узнаёт об удалении через /sync.deletedIds.
+      await app.db.transaction(async (tx) => {
+        await tx.insert(entityDeletions).values({
+          entityType: 'shipment',
+          entityId: existing.id,
+          siteId: existing.siteId,
+          deletedByUserId: req.user?.id ?? null,
+        });
+        await tx.delete(shipments).where(eq(shipments.id, req.params.id));
+      });
       publishEvent(app, {
         type: 'shipment_deleted',
-        id: req.params.id,
+        entityId: req.params.id,
         ts: new Date().toISOString(),
       });
-      return { ok: true };
+      return { ok: true as const };
+    },
+  );
+
+  // Soft-delete: пометить отгрузку на удаление.
+  app.post(
+    '/api/v1/shipments/:id/mark-deletion',
+    {
+      preHandler: [app.authenticate],
+      schema: {
+        params: z.object({ id: z.string().uuid() }),
+        body: ShipmentMarkDeletionSchema,
+        response: {
+          200: ShipmentSchema,
+          400: ErrorResponseSchema,
+          403: ErrorResponseSchema,
+          404: ErrorResponseSchema,
+          409: ErrorResponseSchema,
+        },
+      },
+    },
+    async (req, reply) => {
+      const [existing] = await app.db
+        .select()
+        .from(shipments)
+        .where(eq(shipments.id, req.params.id))
+        .limit(1);
+      if (!existing) return reply.code(404).send({ error: 'not_found' });
+
+      const role = req.user?.role;
+      if (role === 'inspector_kpp') {
+        if (!req.user?.siteId || existing.siteId !== req.user.siteId) {
+          return reply.code(404).send({ error: 'not_found' });
+        }
+      } else if (role !== 'admin' && role !== 'manager') {
+        return reply.code(403).send({ error: 'forbidden' });
+      }
+
+      if (existing.pendingDeletionAt !== null) {
+        return reply.code(409).send({
+          error: 'already_pending',
+          message: 'Документ уже помечен на удаление',
+        });
+      }
+
+      const code = (await getStatusCodeById(app, existing.statusId)) ?? '';
+      if (!SOFT_DELETE_STATUSES.has(code)) {
+        return reply.code(400).send({
+          error: 'cannot_mark_status',
+          message: 'Пометка на удаление возможна только для статусов «Оформлена» и «Подтверждено МОЛ»',
+        });
+      }
+
+      await app.db
+        .update(shipments)
+        .set({
+          pendingDeletionAt: new Date(),
+          pendingDeletionByUserId: req.user?.id ?? null,
+          pendingDeletionReason: req.body.reason ?? null,
+          version: drSql`${shipments.version} + 1`,
+          updatedAt: new Date(),
+        })
+        .where(eq(shipments.id, existing.id));
+      const dto = await buildShipmentDto(app, existing.id);
+      if (!dto) return reply.code(404).send({ error: 'not_found' });
+      publishEvent(app, { type: 'shipment_updated', entityId: dto.id, ts: new Date().toISOString() });
+      return dto;
+    },
+  );
+
+  // Soft-delete: снять пометку об удалении (восстановить).
+  app.post(
+    '/api/v1/shipments/:id/unmark-deletion',
+    {
+      preHandler: [app.authenticate],
+      schema: {
+        params: z.object({ id: z.string().uuid() }),
+        response: {
+          200: ShipmentSchema,
+          403: ErrorResponseSchema,
+          404: ErrorResponseSchema,
+          409: ErrorResponseSchema,
+        },
+      },
+    },
+    async (req, reply) => {
+      const [existing] = await app.db
+        .select()
+        .from(shipments)
+        .where(eq(shipments.id, req.params.id))
+        .limit(1);
+      if (!existing) return reply.code(404).send({ error: 'not_found' });
+
+      const role = req.user?.role;
+      const isAuthor =
+        existing.pendingDeletionByUserId !== null &&
+        existing.pendingDeletionByUserId === req.user?.id;
+      if (!isAuthor && role !== 'admin') {
+        return reply.code(403).send({ error: 'forbidden' });
+      }
+      if (role === 'inspector_kpp') {
+        if (!req.user?.siteId || existing.siteId !== req.user.siteId) {
+          return reply.code(404).send({ error: 'not_found' });
+        }
+      }
+
+      if (existing.pendingDeletionAt === null) {
+        return reply.code(409).send({
+          error: 'not_pending',
+          message: 'Документ не помечен на удаление',
+        });
+      }
+
+      await app.db
+        .update(shipments)
+        .set({
+          pendingDeletionAt: null,
+          pendingDeletionByUserId: null,
+          pendingDeletionReason: null,
+          version: drSql`${shipments.version} + 1`,
+          updatedAt: new Date(),
+        })
+        .where(eq(shipments.id, existing.id));
+      const dto = await buildShipmentDto(app, existing.id);
+      if (!dto) return reply.code(404).send({ error: 'not_found' });
+      publishEvent(app, { type: 'shipment_updated', entityId: dto.id, ts: new Date().toISOString() });
+      return dto;
     },
   );
 }
@@ -375,11 +641,19 @@ async function createShipment(
     );
   }
   if (input.sourceDocumentIds.length) {
-    await app.db
-      .insert(shipmentSources)
-      .values(
-        input.sourceDocumentIds.map((sid) => ({ shipmentId: created.id, sourceDocumentId: sid })),
-      );
+    await assertSourcesAvailableForShipment(app, input.sourceDocumentIds, created.id);
+    try {
+      await app.db
+        .insert(shipmentSources)
+        .values(
+          input.sourceDocumentIds.map((sid) => ({ shipmentId: created.id, sourceDocumentId: sid })),
+        );
+    } catch (err) {
+      if (isSourceDocumentUniqueViolation(err)) {
+        throw new SourceAlreadyLinkedError(input.sourceDocumentIds);
+      }
+      throw err;
+    }
   }
   return created;
 }
@@ -387,14 +661,23 @@ async function createShipment(
 async function updateShipment(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   app: any,
-  id: string,
+  existing: typeof shipments.$inferSelect,
   input: z.infer<typeof ShipmentUpsertSchema>,
   statusId: string,
+  userId: string | null,
 ) {
+  const id = existing.id;
+  const existingCode = await getStatusCodeById(app, existing.statusId);
+  const effectiveStatusId =
+    existingCode === 'confirmed_mol' && input.statusCode !== 'confirmed_mol'
+      ? existing.statusId
+      : statusId;
+  const isFirstConfirm =
+    input.statusCode === 'confirmed_mol' && existing.confirmedByMolUserId === null;
   await app.db
     .update(shipments)
     .set({
-      statusId,
+      statusId: effectiveStatusId,
       kind: input.kind,
       siteId: input.siteId,
       receiverCounterpartyId: input.receiverCounterpartyId ?? null,
@@ -403,6 +686,10 @@ async function updateShipment(
       driverName: input.driverName ?? null,
       shippedAt: input.shippedAt ? new Date(input.shippedAt) : null,
       comment: input.comment ?? null,
+      ...(isFirstConfirm && {
+        confirmedByMolUserId: userId,
+        confirmedByMolAt: new Date(),
+      }),
       version: drSql`${shipments.version} + 1`,
       updatedAt: new Date(),
     })
@@ -426,10 +713,20 @@ async function updateShipment(
       })),
     );
   }
+  if (input.sourceDocumentIds.length) {
+    await assertSourcesAvailableForShipment(app, input.sourceDocumentIds, id);
+  }
   await app.db.delete(shipmentSources).where(eq(shipmentSources.shipmentId, id));
   if (input.sourceDocumentIds.length) {
-    await app.db
-      .insert(shipmentSources)
-      .values(input.sourceDocumentIds.map((sid) => ({ shipmentId: id, sourceDocumentId: sid })));
+    try {
+      await app.db
+        .insert(shipmentSources)
+        .values(input.sourceDocumentIds.map((sid) => ({ shipmentId: id, sourceDocumentId: sid })));
+    } catch (err) {
+      if (isSourceDocumentUniqueViolation(err)) {
+        throw new SourceAlreadyLinkedError(input.sourceDocumentIds);
+      }
+      throw err;
+    }
   }
 }

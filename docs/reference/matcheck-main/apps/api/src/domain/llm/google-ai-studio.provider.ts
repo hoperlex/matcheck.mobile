@@ -8,7 +8,12 @@ import type {
 
 export class GoogleAiStudioProvider implements LlmProvider {
   readonly kind = 'google_ai_studio' as const;
-  constructor(private readonly cfg: LlmProviderConfig) {}
+  readonly id: string;
+  readonly model: string;
+  constructor(private readonly cfg: LlmProviderConfig) {
+    this.id = cfg.id;
+    this.model = cfg.model;
+  }
 
   private url(path: string): string {
     const base = this.cfg.apiBaseUrl.replace(/\/$/, '');
@@ -51,7 +56,20 @@ export class GoogleAiStudioProvider implements LlmProvider {
     };
     const raw = json.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
     if (!raw) throw new Error('Google AI Studio: empty content');
-    const data = schema.parse(JSON.parse(raw));
+    const maxOutputTokens = (body.generationConfig as { maxOutputTokens?: number })
+      .maxOutputTokens;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (err) {
+      // См. комментарий в openrouter.provider.ts: raw нужен в журнале,
+      // чтобы видно было, на каком месте модель оборвала ответ.
+      const e = err instanceof Error ? err : new Error(String(err));
+      (e as Error & { rawResponse?: string }).rawResponse = raw;
+      e.message = `Google AI Studio: JSON.parse failed (likely truncated by maxOutputTokens=${maxOutputTokens}): ${e.message}`;
+      throw e;
+    }
+    const data = schema.parse(parsed);
     return {
       data,
       raw,

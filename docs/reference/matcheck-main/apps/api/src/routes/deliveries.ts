@@ -1,10 +1,12 @@
 import type { FastifyInstance } from 'fastify';
-import { and, desc, eq, gte, ne, or, sql as drSql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNotNull, isNull, ne, or, sql as drSql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { z } from 'zod';
 import { asZod } from '../lib/fastify.js';
 import {
   ConflictResponseSchema,
   DeliveryListResponseSchema,
+  DeliveryMarkDeletionSchema,
   DeliverySchema,
   DeliveryStatusCodeSchema,
   DeliveryUpsertSchema,
@@ -15,21 +17,60 @@ import {
   deliveryItems,
   deliveryPhotos,
   deliverySources,
+  entityDeletions,
   statuses,
+  users,
 } from '../db/schema.js';
 import { deleteObject } from '../domain/storage/s3.signer.js';
-import { resolveStatusId as resolveStatusIdShared } from '../domain/statuses/lookup.js';
+import {
+  getStatusCodeById,
+  resolveStatusId as resolveStatusIdShared,
+} from '../domain/statuses/lookup.js';
 import { publishEvent } from './events.js';
 
 const ListQuerySchema = z.object({
   status: DeliveryStatusCodeSchema.optional(),
   inspectorId: z.string().uuid().optional(),
   changedSince: z.string().datetime().optional(),
+  // По умолчанию (false/unset) скрывает помеченные на удаление; trash=true показывает корзину.
+  trash: z.coerce.boolean().optional(),
   limit: z.coerce.number().int().positive().max(200).default(50),
   offset: z.coerce.number().int().nonnegative().default(0),
 });
 
+// Статусы, при которых разрешён hard-delete без предварительной пометки.
+const HARD_DELETE_STATUSES = new Set(['draft', 'not_filled']);
+// Статусы, для которых соответственно требуется soft-delete (mark → admin hard).
+const SOFT_DELETE_STATUSES = new Set(['filled', 'confirmed_mol']);
+
 type StatusRow = typeof statuses.$inferSelect;
+
+class SourceAlreadyLinkedError extends Error {
+  constructor(public readonly sourceDocumentIds: string[]) {
+    super('source_document_already_linked');
+  }
+}
+
+// УПД должна быть привязана не более чем к одной приёмке. Проверяем, что
+// заявленные source_document_id не заняты другой приёмкой. excludeDeliveryId
+// нужен для обновления: те же УПД могут уже быть привязаны к текущей приёмке.
+async function assertSourcesAvailableForDelivery(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  app: any,
+  sourceDocumentIds: string[],
+  excludeDeliveryId: string | null,
+) {
+  if (!sourceDocumentIds.length) return;
+  const conds = [inArray(deliverySources.sourceDocumentId, sourceDocumentIds)];
+  if (excludeDeliveryId) conds.push(ne(deliverySources.deliveryId, excludeDeliveryId));
+  const taken = await app.db
+    .select({ sourceDocumentId: deliverySources.sourceDocumentId })
+    .from(deliverySources)
+    .where(and(...conds));
+  if (taken.length) {
+    throw new SourceAlreadyLinkedError(taken.map((r: { sourceDocumentId: string }) => r.sourceDocumentId));
+  }
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const resolveStatusId = (app: any, code: string) =>
@@ -37,13 +78,29 @@ const resolveStatusId = (app: any, code: string) =>
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function buildDeliveryDto(app: any, id: string) {
+  // Два независимых join на users: один на МОЛ, другой на автора soft-delete пометки.
+  const pendingUser = alias(users, 'pending_user');
   const rows = await app.db
-    .select({ d: deliveries, s: statuses })
+    .select({
+      d: deliveries,
+      s: statuses,
+      molEmail: users.email,
+      pendingEmail: pendingUser.email,
+    })
     .from(deliveries)
     .innerJoin(statuses, eq(deliveries.statusId, statuses.id))
+    .leftJoin(users, eq(deliveries.confirmedByMolUserId, users.id))
+    .leftJoin(pendingUser, eq(deliveries.pendingDeletionByUserId, pendingUser.id))
     .where(eq(deliveries.id, id))
     .limit(1);
-  const r = rows[0] as { d: typeof deliveries.$inferSelect; s: StatusRow } | undefined;
+  const r = rows[0] as
+    | {
+        d: typeof deliveries.$inferSelect;
+        s: StatusRow;
+        molEmail: string | null;
+        pendingEmail: string | null;
+      }
+    | undefined;
   if (!r) return null;
   const d = r.d;
   const s = r.s;
@@ -78,6 +135,13 @@ async function buildDeliveryDto(app: any, id: string) {
     arrivedAt: d.arrivedAt?.toISOString() ?? null,
     inspectorId: d.inspectorId,
     comment: d.comment,
+    confirmedByMolUserId: d.confirmedByMolUserId,
+    confirmedByMolUserEmail: r.molEmail,
+    confirmedByMolAt: d.confirmedByMolAt?.toISOString() ?? null,
+    pendingDeletionAt: d.pendingDeletionAt?.toISOString() ?? null,
+    pendingDeletionByUserId: d.pendingDeletionByUserId,
+    pendingDeletionByUserEmail: r.pendingEmail,
+    pendingDeletionReason: d.pendingDeletionReason,
     version: d.version,
     sourceDocumentIds: sources.map((x) => x.sourceDocumentId),
     items: items.map((i) => ({
@@ -101,6 +165,7 @@ async function buildDeliveryDto(app: any, id: string) {
       thumbS3Key: p.thumbS3Key,
       contentHash: p.contentHash,
       takenAt: p.takenAt.toISOString(),
+      uploadedAt: p.uploadedAt?.toISOString() ?? null,
     })),
     createdAt: d.createdAt.toISOString(),
     updatedAt: d.updatedAt.toISOString(),
@@ -116,8 +181,12 @@ export async function deliveryRoutes(rawApp: FastifyInstance): Promise<void> {
       schema: { querystring: ListQuerySchema, response: { 200: DeliveryListResponseSchema } },
     },
     async (req) => {
-      const { status, inspectorId, changedSince, limit, offset } = req.query;
+      const { status, inspectorId, changedSince, trash, limit, offset } = req.query;
       const filters = [];
+      // По умолчанию показываем только активные документы; trash=true даёт корзину.
+      filters.push(
+        trash ? isNotNull(deliveries.pendingDeletionAt) : isNull(deliveries.pendingDeletionAt),
+      );
       if (status) {
         const statusId = await resolveStatusId(app, status);
         filters.push(eq(deliveries.statusId, statusId));
@@ -194,7 +263,8 @@ export async function deliveryRoutes(rawApp: FastifyInstance): Promise<void> {
         response: {
           200: DeliverySchema,
           404: ErrorResponseSchema,
-          409: ConflictResponseSchema,
+          // 409 — либо OCC-конфликт (Conflict), либо pending_deletion (Error).
+          409: z.union([ConflictResponseSchema, ErrorResponseSchema]),
           400: ErrorResponseSchema,
         },
       },
@@ -217,38 +287,56 @@ export async function deliveryRoutes(rawApp: FastifyInstance): Promise<void> {
 
       const statusId = await resolveStatusId(app, input.statusCode);
 
-      // OCC update
-      if (input.id) {
-        const [existing] = await app.db
-          .select()
-          .from(deliveries)
-          .where(eq(deliveries.id, input.id))
-          .limit(1);
-        if (!existing) {
-          // Create as upsert with explicit id (для офлайн-черновиков с локально сгенерированным id)
-          await createDelivery(app, input, statusId, inspectorId);
-        } else {
-          if (input.baseVersion !== undefined && input.baseVersion !== existing.version) {
-            const server = await buildDeliveryDto(app, existing.id);
-            return reply.code(409).send({
-              error: 'conflict' as const,
-              serverVersion: existing.version,
-              server: server!,
-            });
+      try {
+        // OCC update
+        if (input.id) {
+          const [existing] = await app.db
+            .select()
+            .from(deliveries)
+            .where(eq(deliveries.id, input.id))
+            .limit(1);
+          if (!existing) {
+            // Create as upsert with explicit id (для офлайн-черновиков с локально сгенерированным id)
+            await createDelivery(app, input, statusId, inspectorId);
+          } else {
+            // Помеченные документы — read-only до восстановления или окончательного удаления.
+            if (existing.pendingDeletionAt !== null) {
+              return reply.code(409).send({
+                error: 'pending_deletion',
+                message: 'Документ помечен на удаление — сначала снимите пометку',
+              });
+            }
+            if (input.baseVersion !== undefined && input.baseVersion !== existing.version) {
+              const server = await buildDeliveryDto(app, existing.id);
+              return reply.code(409).send({
+                error: 'conflict' as const,
+                serverVersion: existing.version,
+                server: server!,
+              });
+            }
+            await updateDelivery(app, existing, input, statusId, req.user?.id ?? null);
           }
-          await updateDelivery(app, existing.id, input, statusId);
+          const dto = await buildDeliveryDto(app, input.id);
+          if (!dto) return reply.code(404).send({ error: 'not_found' });
+          publishEvent(app, { type: 'delivery_updated', entityId: dto.id, ts: new Date().toISOString() });
+          return dto;
         }
-        const dto = await buildDeliveryDto(app, input.id);
-        if (!dto) return reply.code(404).send({ error: 'not_found' });
-        publishEvent(app, { type: 'delivery_updated', id: dto.id, ts: new Date().toISOString() });
-        return dto;
-      }
 
-      const created = await createDelivery(app, input, statusId, inspectorId);
-      const dto = await buildDeliveryDto(app, created.id);
-      if (!dto) throw new Error('Delivery missing after create');
-      publishEvent(app, { type: 'delivery_updated', id: dto.id, ts: new Date().toISOString() });
-      return dto;
+        const created = await createDelivery(app, input, statusId, inspectorId);
+        const dto = await buildDeliveryDto(app, created.id);
+        if (!dto) throw new Error('Delivery missing after create');
+        publishEvent(app, { type: 'delivery_updated', entityId: dto.id, ts: new Date().toISOString() });
+        return dto;
+      } catch (err) {
+        if (err instanceof SourceAlreadyLinkedError) {
+          return reply.code(400).send({
+            error: 'source_document_already_linked',
+            message: 'УПД уже привязана к другой приёмке',
+            details: { sourceDocumentIds: err.sourceDocumentIds },
+          });
+        }
+        throw err;
+      }
     },
   );
 
@@ -256,7 +344,15 @@ export async function deliveryRoutes(rawApp: FastifyInstance): Promise<void> {
     '/api/v1/deliveries/:id',
     {
       preHandler: [app.authenticate],
-      schema: { params: z.object({ id: z.string().uuid() }) },
+      schema: {
+        params: z.object({ id: z.string().uuid() }),
+        response: {
+          200: z.object({ ok: z.literal(true) }),
+          404: ErrorResponseSchema,
+          403: ErrorResponseSchema,
+          409: ErrorResponseSchema,
+        },
+      },
     },
     async (req, reply) => {
       const [existing] = await app.db
@@ -266,15 +362,46 @@ export async function deliveryRoutes(rawApp: FastifyInstance): Promise<void> {
         .limit(1);
       if (!existing) return reply.code(404).send({ error: 'not_found' });
 
-      // inspector_kpp может удалять приёмки своего объекта (включая чужие);
-      // admin/manager — любые.
       const role = req.user?.role;
-      if (role === 'inspector_kpp') {
-        if (!req.user?.siteId || existing.siteId !== req.user.siteId) {
+      const isPending = existing.pendingDeletionAt !== null;
+
+      if (isPending) {
+        // Окончательное удаление помеченного документа — только админ.
+        if (role !== 'admin') {
           return reply.code(403).send({ error: 'forbidden' });
         }
-      } else if (role !== 'admin' && role !== 'manager') {
-        return reply.code(403).send({ error: 'forbidden' });
+      } else {
+        // Hard-delete без пометки разрешён только для draft/not_filled
+        // (черновики и не оформленные приёмки удаляются как раньше).
+        const code = (await getStatusCodeById(app, existing.statusId)) ?? '';
+        if (!HARD_DELETE_STATUSES.has(code)) {
+          return reply.code(409).send({
+            error: 'must_mark_first',
+            message: 'Сначала пометьте документ на удаление',
+          });
+        }
+        // Для draft/not_filled — прежняя ролевая модель.
+        if (role === 'inspector_kpp') {
+          if (!req.user?.siteId || existing.siteId !== req.user.siteId) {
+            return reply.code(403).send({ error: 'forbidden' });
+          }
+        } else if (role !== 'admin' && role !== 'manager') {
+          return reply.code(403).send({ error: 'forbidden' });
+        }
+      }
+
+      // Аудит для трассировки: pending_deletion_* теряются вместе с записью.
+      if (isPending) {
+        req.log.info(
+          {
+            event: 'delivery_hard_deleted',
+            deliveryId: existing.id,
+            deletedByUserId: req.user?.id ?? null,
+            originallyMarkedBy: existing.pendingDeletionByUserId,
+            markedAt: existing.pendingDeletionAt?.toISOString() ?? null,
+          },
+          'delivery hard delete after soft-delete mark',
+        );
       }
 
       // Удаляем S3-объекты фото перед каскадным удалением записей.
@@ -291,13 +418,151 @@ export async function deliveryRoutes(rawApp: FastifyInstance): Promise<void> {
         }
       }
 
-      await app.db.delete(deliveries).where(eq(deliveries.id, req.params.id));
+      // Журнал hard-delete + физическое удаление одной транзакцией:
+      // офлайн-клиент узнаёт об удалении через /sync.deletedIds.
+      await app.db.transaction(async (tx) => {
+        await tx.insert(entityDeletions).values({
+          entityType: 'delivery',
+          entityId: existing.id,
+          siteId: existing.siteId,
+          deletedByUserId: req.user?.id ?? null,
+        });
+        await tx.delete(deliveries).where(eq(deliveries.id, req.params.id));
+      });
       publishEvent(app, {
         type: 'delivery_deleted',
-        id: req.params.id,
+        entityId: req.params.id,
         ts: new Date().toISOString(),
       });
-      return { ok: true };
+      return { ok: true as const };
+    },
+  );
+
+  // Soft-delete: пометить документ на удаление.
+  app.post(
+    '/api/v1/deliveries/:id/mark-deletion',
+    {
+      preHandler: [app.authenticate],
+      schema: {
+        params: z.object({ id: z.string().uuid() }),
+        body: DeliveryMarkDeletionSchema,
+        response: {
+          200: DeliverySchema,
+          400: ErrorResponseSchema,
+          403: ErrorResponseSchema,
+          404: ErrorResponseSchema,
+          409: ErrorResponseSchema,
+        },
+      },
+    },
+    async (req, reply) => {
+      const [existing] = await app.db
+        .select()
+        .from(deliveries)
+        .where(eq(deliveries.id, req.params.id))
+        .limit(1);
+      if (!existing) return reply.code(404).send({ error: 'not_found' });
+
+      const role = req.user?.role;
+      // Видимость как при обычном чтении: inspector_kpp — только свой site.
+      if (role === 'inspector_kpp') {
+        if (!req.user?.siteId || existing.siteId !== req.user.siteId) {
+          return reply.code(404).send({ error: 'not_found' });
+        }
+      } else if (role !== 'admin' && role !== 'manager') {
+        return reply.code(403).send({ error: 'forbidden' });
+      }
+
+      if (existing.pendingDeletionAt !== null) {
+        return reply.code(409).send({
+          error: 'already_pending',
+          message: 'Документ уже помечен на удаление',
+        });
+      }
+
+      const code = (await getStatusCodeById(app, existing.statusId)) ?? '';
+      if (!SOFT_DELETE_STATUSES.has(code)) {
+        return reply.code(400).send({
+          error: 'cannot_mark_status',
+          message: 'Пометка на удаление возможна только для статусов «Оформлена» и «Подтверждено МОЛ»',
+        });
+      }
+
+      await app.db
+        .update(deliveries)
+        .set({
+          pendingDeletionAt: new Date(),
+          pendingDeletionByUserId: req.user?.id ?? null,
+          pendingDeletionReason: req.body.reason ?? null,
+          version: drSql`${deliveries.version} + 1`,
+          updatedAt: new Date(),
+        })
+        .where(eq(deliveries.id, existing.id));
+      const dto = await buildDeliveryDto(app, existing.id);
+      if (!dto) return reply.code(404).send({ error: 'not_found' });
+      publishEvent(app, { type: 'delivery_updated', entityId: dto.id, ts: new Date().toISOString() });
+      return dto;
+    },
+  );
+
+  // Soft-delete: снять пометку об удалении (восстановить).
+  app.post(
+    '/api/v1/deliveries/:id/unmark-deletion',
+    {
+      preHandler: [app.authenticate],
+      schema: {
+        params: z.object({ id: z.string().uuid() }),
+        response: {
+          200: DeliverySchema,
+          403: ErrorResponseSchema,
+          404: ErrorResponseSchema,
+          409: ErrorResponseSchema,
+        },
+      },
+    },
+    async (req, reply) => {
+      const [existing] = await app.db
+        .select()
+        .from(deliveries)
+        .where(eq(deliveries.id, req.params.id))
+        .limit(1);
+      if (!existing) return reply.code(404).send({ error: 'not_found' });
+
+      const role = req.user?.role;
+      // Восстановить может админ или тот, кто пометил (с учётом видимости для inspector_kpp).
+      const isAuthor =
+        existing.pendingDeletionByUserId !== null &&
+        existing.pendingDeletionByUserId === req.user?.id;
+      if (!isAuthor && role !== 'admin') {
+        return reply.code(403).send({ error: 'forbidden' });
+      }
+      if (role === 'inspector_kpp') {
+        if (!req.user?.siteId || existing.siteId !== req.user.siteId) {
+          return reply.code(404).send({ error: 'not_found' });
+        }
+      }
+
+      if (existing.pendingDeletionAt === null) {
+        return reply.code(409).send({
+          error: 'not_pending',
+          message: 'Документ не помечен на удаление',
+        });
+      }
+
+      await app.db
+        .update(deliveries)
+        .set({
+          pendingDeletionAt: null,
+          pendingDeletionByUserId: null,
+          pendingDeletionReason: null,
+          version: drSql`${deliveries.version} + 1`,
+          updatedAt: new Date(),
+        })
+        .where(eq(deliveries.id, existing.id));
+      const dto = await buildDeliveryDto(app, existing.id);
+      if (!dto) return reply.code(404).send({ error: 'not_found' });
+      publishEvent(app, { type: 'delivery_updated', entityId: dto.id, ts: new Date().toISOString() });
+      return dto;
     },
   );
 }
@@ -345,11 +610,19 @@ async function createDelivery(
     );
   }
   if (input.sourceDocumentIds.length) {
-    await app.db
-      .insert(deliverySources)
-      .values(
-        input.sourceDocumentIds.map((sid) => ({ deliveryId: created.id, sourceDocumentId: sid })),
-      );
+    await assertSourcesAvailableForDelivery(app, input.sourceDocumentIds, created.id);
+    try {
+      await app.db
+        .insert(deliverySources)
+        .values(
+          input.sourceDocumentIds.map((sid) => ({ deliveryId: created.id, sourceDocumentId: sid })),
+        );
+    } catch (err) {
+      if (isSourceDocumentUniqueViolation(err)) {
+        throw new SourceAlreadyLinkedError(input.sourceDocumentIds);
+      }
+      throw err;
+    }
   }
   return created;
 }
@@ -357,14 +630,27 @@ async function createDelivery(
 async function updateDelivery(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   app: any,
-  id: string,
+  existing: typeof deliveries.$inferSelect,
   input: z.infer<typeof DeliveryUpsertSchema>,
   statusId: string,
+  userId: string | null,
 ) {
+  const id = existing.id;
+  // Защита от отката: если документ уже подтверждён МОЛ, обычное «Сохранить»
+  // не должно понижать статус обратно до filled/draft.
+  const existingCode = await getStatusCodeById(app, existing.statusId);
+  const effectiveStatusId =
+    existingCode === 'confirmed_mol' && input.statusCode !== 'confirmed_mol'
+      ? existing.statusId
+      : statusId;
+  // Первичная фиксация аудита подтверждения (идемпотентно: повторное
+  // подтверждение не перезаписывает кто/когда).
+  const isFirstConfirm =
+    input.statusCode === 'confirmed_mol' && existing.confirmedByMolUserId === null;
   await app.db
     .update(deliveries)
     .set({
-      statusId,
+      statusId: effectiveStatusId,
       siteId: input.siteId,
       supplierId: input.supplierId ?? null,
       contractorId: input.contractorId ?? null,
@@ -372,6 +658,10 @@ async function updateDelivery(
       driverName: input.driverName ?? null,
       arrivedAt: input.arrivedAt ? new Date(input.arrivedAt) : null,
       comment: input.comment ?? null,
+      ...(isFirstConfirm && {
+        confirmedByMolUserId: userId,
+        confirmedByMolAt: new Date(),
+      }),
       version: drSql`${deliveries.version} + 1`,
       updatedAt: new Date(),
     })
@@ -395,10 +685,28 @@ async function updateDelivery(
       })),
     );
   }
+  if (input.sourceDocumentIds.length) {
+    await assertSourcesAvailableForDelivery(app, input.sourceDocumentIds, id);
+  }
   await app.db.delete(deliverySources).where(eq(deliverySources.deliveryId, id));
   if (input.sourceDocumentIds.length) {
-    await app.db
-      .insert(deliverySources)
-      .values(input.sourceDocumentIds.map((sid) => ({ deliveryId: id, sourceDocumentId: sid })));
+    try {
+      await app.db
+        .insert(deliverySources)
+        .values(input.sourceDocumentIds.map((sid) => ({ deliveryId: id, sourceDocumentId: sid })));
+    } catch (err) {
+      if (isSourceDocumentUniqueViolation(err)) {
+        throw new SourceAlreadyLinkedError(input.sourceDocumentIds);
+      }
+      throw err;
+    }
   }
+}
+
+function isSourceDocumentUniqueViolation(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  const e = err as { code?: string; constraint?: string; constraint_name?: string };
+  if (e.code !== '23505') return false;
+  const name = e.constraint ?? e.constraint_name ?? '';
+  return name.endsWith('_source_document_id_unique');
 }

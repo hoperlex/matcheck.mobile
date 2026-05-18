@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Alert,
@@ -25,14 +25,18 @@ import {
   CameraOutlined,
   DeleteOutlined,
   PlusOutlined,
+  UndoOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   Counterparty,
   Shipment,
   ShipmentKind,
+  ShipmentPhoto,
   ShipmentStatusCode,
   Site,
+  SourceDocument,
+  SourceDocumentDetail,
   Status,
 } from '@matcheck/contracts';
 import { api } from '../../services/api';
@@ -43,14 +47,19 @@ import {
   effectiveState,
   enqueueMutation,
   getShipment,
+  hardDeleteShipment,
+  markDeletion as markShipmentDeletion,
+  unmarkDeletion as unmarkShipmentDeletion,
   upsertServerSnapshot,
 } from '../../services/shipments';
+import { PendingDeletionTag } from '../../shared/ui/PendingDeletionTag';
 import { runSync } from '../../services/sync';
 import { db, SYSTEM_SITE_ID } from '../../lib/db';
 import { ResponsiveTable } from '../../shared/ui/ResponsiveTable';
 import { useBreakpoint } from '../../shared/hooks/useBreakpoint';
 import { PhotoGallery } from '../kpp/PhotoGallery';
 import { ShipmentsHistory } from './ShipmentsHistory';
+import { ExpectedOutbound } from './ExpectedOutbound';
 
 type DraftItem = {
   clientKey: string;
@@ -68,8 +77,23 @@ const KIND_OPTIONS: { label: string; value: ShipmentKind }[] = [
   { label: 'Списание', value: 'writeoff' },
 ];
 
+type ListTab = 'expected' | 'accepted';
+
 const trimQty = (s: string) =>
   s.includes('.') ? s.replace(/0+$/, '').replace(/\.$/, '') : s;
+
+function formatMolDate(iso: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(d);
+}
 
 function newKey(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
@@ -83,6 +107,9 @@ export default function ShipmentPage() {
   const [params, setParams] = useSearchParams();
   const shipmentId = params.get('shipment');
   const fromList = params.get('from') === 'list';
+  // Дефолт — 'accepted' (не ломаем привычку: страница и раньше открывалась
+  // на истории отгрузок). Вкладка 'expected' появляется только при явном tab=expected.
+  const tab: ListTab = params.get('tab') === 'expected' ? 'expected' : 'accepted';
 
   // Для inspector_kpp объект-источник фиксирован значением из БД (selectбыл бы
   // disabled, а сервер всё равно перепишет siteId на user.siteId).
@@ -102,6 +129,11 @@ export default function ShipmentPage() {
   const [loadedShipment, setLoadedShipment] = useState<Shipment | null>(null);
   const [creating, setCreating] = useState(false);
 
+  // ID отгрузки, для которой уже выполнили первичную гидратацию формы из server data.
+  // Защищает локальные правки (plate/driverName/comment/items) от затирания при рефетче
+  // ['shipments', id] — рефетч происходит, например, после загрузки/удаления фото.
+  const hydratedIdRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!shipmentId) {
       setItems([]);
@@ -113,6 +145,7 @@ export default function ShipmentPage() {
       setDriverName('');
       setComment('');
       setLoadedShipment(null);
+      hydratedIdRef.current = null;
     }
   }, [shipmentId, inspectorSiteId]);
 
@@ -150,16 +183,27 @@ export default function ShipmentPage() {
     enabled: !!shipmentId,
   });
 
-  const photosCountQuery = useQuery({
-    queryKey: ['shipment-photos-count', shipmentId],
-    queryFn: async () => {
-      if (!shipmentId) return 0;
+  // Локальные IDB-записи фото — параллельный источник к loadedShipment.photos.
+  // Мерджим оба, чтобы свежеснятое фото показывалось в галерее, не дожидаясь pullSync.
+  const localPhotosQuery = useQuery({
+    queryKey: ['photos-local', 'shipment', shipmentId],
+    queryFn: async (): Promise<ShipmentPhoto[]> => {
+      if (!shipmentId) return [];
       const dbi = await db();
       const all = await dbi
         .transaction('photos')
         .store.index('byDelivery')
         .getAll(shipmentId);
-      return all.filter((p) => p.operationKind === 'shipment').length;
+      return all
+        .filter((p) => p.operationKind === 'shipment')
+        .map((p) => ({
+          id: p.id,
+          kind: p.kind,
+          s3Key: p.s3Key ?? '',
+          thumbS3Key: p.thumbS3Key ?? null,
+          contentHash: p.contentHash ?? null,
+          takenAt: new Date(p.takenAt).toISOString(),
+        }));
     },
     enabled: !!shipmentId,
   });
@@ -168,28 +212,31 @@ export default function ShipmentPage() {
     const s = shipmentQuery.data;
     if (!s) return;
     setLoadedShipment(s);
-    setKind(s.kind);
-    if (isInspector) {
-      setSiteId(inspectorSiteId);
-    } else {
-      setSiteId((prev) => prev ?? (s.siteId === SYSTEM_SITE_ID ? null : s.siteId));
+    if (hydratedIdRef.current !== s.id) {
+      hydratedIdRef.current = s.id;
+      setKind(s.kind);
+      if (isInspector) {
+        setSiteId(inspectorSiteId);
+      } else {
+        setSiteId((prev) => prev ?? (s.siteId === SYSTEM_SITE_ID ? null : s.siteId));
+      }
+      setDestSiteId((prev) => prev ?? s.destSiteId ?? null);
+      setReceiverId((prev) => prev ?? s.receiverCounterpartyId ?? null);
+      setPlate(s.vehiclePlate ?? '');
+      setDriverName(s.driverName ?? '');
+      setComment(s.comment ?? '');
+      setItems(
+        s.items.map((it, idx) => ({
+          clientKey: newKey(),
+          lineNo: idx + 1,
+          nameRaw: it.nameRaw,
+          qtyActual: it.qtyActual ?? it.qtyPlanned,
+          unit: it.unit,
+          materialId: it.materialId,
+        })),
+      );
     }
-    setDestSiteId((prev) => prev ?? s.destSiteId ?? null);
-    setReceiverId((prev) => prev ?? s.receiverCounterpartyId ?? null);
-    setPlate(s.vehiclePlate ?? '');
-    setDriverName(s.driverName ?? '');
-    setComment(s.comment ?? '');
-    setItems(
-      s.items.map((it, idx) => ({
-        clientKey: newKey(),
-        lineNo: idx + 1,
-        nameRaw: it.nameRaw,
-        qtyActual: it.qtyActual ?? it.qtyPlanned,
-        unit: it.unit,
-        materialId: it.materialId,
-      })),
-    );
-  }, [shipmentQuery.data]);
+  }, [shipmentQuery.data, isInspector, inspectorSiteId]);
 
   const createBlank = async () => {
     if (creating) return;
@@ -220,6 +267,67 @@ export default function ShipmentPage() {
     }
   };
 
+  /**
+   * Создаёт отгрузку по выбранному исходящему УПД. Аналог createFromUpd
+   * в KppPage, но строит Shipment: kind='contractor', получатель — contractorId
+   * из УПД (для outbound-документа это и есть получатель груза).
+   */
+  const createFromUpd = async (upd: SourceDocument) => {
+    if (creating) return;
+    if (inspectorWithoutSite) {
+      message.error('Объект не назначен — обратитесь к администратору');
+      return;
+    }
+    setCreating(true);
+    try {
+      const dbi = await db();
+      let detail = await dbi.get('source_documents', upd.id);
+      if (!detail) {
+        try {
+          detail = await api.get<SourceDocumentDetail>(`/source-documents/${upd.id}`);
+        } catch {
+          message.error('Нет связи и детали УПД ещё не загружены — попробуйте позже');
+          return;
+        }
+      }
+      const id = crypto.randomUUID();
+      const patch: Partial<Shipment> = {
+        kind: 'contractor',
+        siteId: inspectorSiteId ?? detail.siteId ?? SYSTEM_SITE_ID,
+        receiverCounterpartyId: detail.contractorId ?? null,
+        sourceDocumentIds: [upd.id],
+        items: detail.items.map((it, i) => ({
+          id: crypto.randomUUID(),
+          materialId: it.materialId ?? null,
+          nameRaw: it.nameRaw,
+          qtyPlanned: it.qty,
+          qtyActual: it.qty,
+          unit: it.unit,
+          comment: null,
+          lineNo: i + 1,
+          volumeM3: it.volumeM3 ?? null,
+          massKg: it.massKg ?? null,
+          volumeConfidence: it.volumeConfidence ?? null,
+          groupName: it.groupName ?? null,
+        })),
+      };
+      await applyLocalEdit(id, patch);
+      await enqueueMutation({
+        id: crypto.randomUUID(),
+        kind: 'shipment_upsert',
+        entityId: id,
+        baseVersion: 0,
+        payload: null,
+      });
+      void runSync();
+      navigate(`/shipments?shipment=${id}&from=list`);
+    } catch (err) {
+      message.error(`Не удалось открыть УПД: ${(err as Error).message}`);
+    } finally {
+      setCreating(false);
+    }
+  };
+
   const photoProps: UploadProps = {
     accept: 'image/*',
     capture: 'environment',
@@ -230,7 +338,7 @@ export default function ShipmentPage() {
         await capturePhoto('shipment', shipmentId, file, 'cargo');
         message.success('Фото добавлено');
         await Promise.all([
-          queryClient.invalidateQueries({ queryKey: ['shipment-photos-count', shipmentId] }),
+          queryClient.invalidateQueries({ queryKey: ['photos-local', 'shipment', shipmentId] }),
           queryClient.invalidateQueries({ queryKey: ['shipments', shipmentId] }),
         ]);
         void runSync();
@@ -265,50 +373,59 @@ export default function ShipmentPage() {
     );
   };
 
+  const buildPatch = (nextCode: ShipmentStatusCode): Partial<Shipment> => {
+    if (!loadedShipment) throw new Error('Отгрузка ещё не загружена');
+    const nextStatus: Status = { ...loadedShipment.status, code: nextCode };
+    return {
+      status: nextStatus,
+      kind,
+      siteId: siteId ?? loadedShipment.siteId,
+      receiverCounterpartyId:
+        kind === 'contractor' || kind === 'return' ? receiverId : null,
+      destSiteId: kind === 'transfer' ? destSiteId : null,
+      vehiclePlate: plate || null,
+      driverName: driverName || null,
+      shippedAt: loadedShipment.shippedAt ?? new Date().toISOString(),
+      comment: comment || null,
+      items: items
+        .filter((i) => i.nameRaw.trim().length > 0)
+        .map((i) => ({
+          id: crypto.randomUUID(),
+          materialId: i.materialId,
+          nameRaw: i.nameRaw,
+          qtyPlanned: null,
+          qtyActual: i.qtyActual,
+          unit: i.unit,
+          comment: null,
+          lineNo: i.lineNo,
+          volumeM3: null,
+          massKg: null,
+          volumeConfidence: null,
+          groupName: null,
+        })),
+    };
+  };
+
+  const persistStatus = async (nextCode: ShipmentStatusCode) => {
+    if (!loadedShipment) throw new Error('Отгрузка ещё не загружена');
+    await applyLocalEdit(loadedShipment.id, buildPatch(nextCode));
+    await enqueueMutation({
+      id: crypto.randomUUID(),
+      kind: 'shipment_upsert',
+      entityId: loadedShipment.id,
+      baseVersion: loadedShipment.version,
+      payload: null,
+    });
+    void runSync();
+  };
+
   const save = useMutation({
     mutationFn: async () => {
       if (!loadedShipment) throw new Error('Отгрузка ещё не загружена');
-      const nextStatus: Status = {
-        ...loadedShipment.status,
-        code: 'shipped' satisfies ShipmentStatusCode,
-      };
-      const patch: Partial<Shipment> = {
-        status: nextStatus,
-        kind,
-        siteId: siteId ?? loadedShipment.siteId,
-        receiverCounterpartyId:
-          kind === 'contractor' || kind === 'return' ? receiverId : null,
-        destSiteId: kind === 'transfer' ? destSiteId : null,
-        vehiclePlate: plate || null,
-        driverName: driverName || null,
-        shippedAt: loadedShipment.shippedAt ?? new Date().toISOString(),
-        comment: comment || null,
-        items: items
-          .filter((i) => i.nameRaw.trim().length > 0)
-          .map((i) => ({
-            id: crypto.randomUUID(),
-            materialId: i.materialId,
-            nameRaw: i.nameRaw,
-            qtyPlanned: null,
-            qtyActual: i.qtyActual,
-            unit: i.unit,
-            comment: null,
-            lineNo: i.lineNo,
-            volumeM3: null,
-            massKg: null,
-            volumeConfidence: null,
-            groupName: null,
-          })),
-      };
-      await applyLocalEdit(loadedShipment.id, patch);
-      await enqueueMutation({
-        id: crypto.randomUUID(),
-        kind: 'shipment_upsert',
-        entityId: loadedShipment.id,
-        baseVersion: loadedShipment.version,
-        payload: null,
-      });
-      void runSync();
+      const currentCode = loadedShipment.status.code as ShipmentStatusCode;
+      const nextCode: ShipmentStatusCode =
+        currentCode === 'confirmed_mol' ? 'confirmed_mol' : 'shipped';
+      await persistStatus(nextCode);
     },
     onSuccess: () => {
       message.success('Отгрузка сохранена');
@@ -318,10 +435,71 @@ export default function ShipmentPage() {
     onError: (err: Error) => message.error(err.message),
   });
 
-  const photosCount = Math.max(
-    photosCountQuery.data ?? 0,
-    loadedShipment?.photos.length ?? 0,
-  );
+  const confirmMol = useMutation({
+    mutationFn: async () => {
+      await persistStatus('confirmed_mol');
+    },
+    onSuccess: () => {
+      message.success('Отгрузка подтверждена МОЛ');
+      void queryClient.invalidateQueries({ queryKey: ['shipments'] });
+      navigate('/shipments');
+    },
+    onError: (err: Error) => message.error(err.message),
+  });
+
+  const markDel = useMutation({
+    mutationFn: async (reason: string | null) => {
+      if (!loadedShipment) throw new Error('Отгрузка ещё не загружена');
+      return markShipmentDeletion(loadedShipment.id, reason);
+    },
+    onSuccess: () => {
+      message.success('Помечено на удаление');
+      void queryClient.invalidateQueries({ queryKey: ['shipments', shipmentId] });
+      void queryClient.invalidateQueries({ queryKey: ['shipments'] });
+    },
+    onError: (err: Error) => message.error(err.message),
+  });
+
+  const unmarkDel = useMutation({
+    mutationFn: async () => {
+      if (!loadedShipment) throw new Error('Отгрузка ещё не загружена');
+      return unmarkShipmentDeletion(loadedShipment.id);
+    },
+    onSuccess: () => {
+      message.success('Пометка снята');
+      void queryClient.invalidateQueries({ queryKey: ['shipments', shipmentId] });
+      void queryClient.invalidateQueries({ queryKey: ['shipments'] });
+    },
+    onError: (err: Error) => message.error(err.message),
+  });
+
+  const hardDel = useMutation({
+    mutationFn: async () => {
+      if (!loadedShipment) throw new Error('Отгрузка ещё не загружена');
+      return hardDeleteShipment(loadedShipment.id);
+    },
+    onSuccess: () => {
+      message.success('Отгрузка удалена');
+      void queryClient.invalidateQueries({ queryKey: ['shipments'] });
+      void queryClient.invalidateQueries({ queryKey: ['source-documents'] });
+      navigate('/shipments?trash=1');
+    },
+    onError: (err: Error) => message.error(err.message),
+  });
+
+  const [markReason, setMarkReason] = useState('');
+
+  // Мерджим серверные photos и локальные IDB-записи по id, чтобы превью
+  // свежеснятого фото не пропадало между моментами IDB-put и pullSync.
+  const mergedPhotos: ShipmentPhoto[] = useMemo(() => {
+    const server = loadedShipment?.photos ?? [];
+    const local = localPhotosQuery.data ?? [];
+    return [
+      ...server,
+      ...local.filter((lp) => !server.some((sp) => sp.id === lp.id)),
+    ];
+  }, [loadedShipment?.photos, localPhotosQuery.data]);
+  const photosCount = mergedPhotos.length;
 
   const verifyReason: string | null = (() => {
     const reasons: string[] = [];
@@ -463,6 +641,11 @@ export default function ShipmentPage() {
   // ─── Режим формы ─────────────────────────────────────────────────────────
   if (shipmentId) {
     void trimQty;
+    const pendingAt = loadedShipment?.pendingDeletionAt ?? null;
+    const isPending = pendingAt !== null;
+    const isAdmin = authUser?.role === 'admin';
+    const canUnmark =
+      isAdmin || authUser?.id === (loadedShipment?.pendingDeletionByUserId ?? null);
     return (
       <Space direction="vertical" size="middle" style={{ width: '100%', paddingBottom: isDesktop ? 0 : 96 }}>
         <Space style={{ width: '100%' }} align="center">
@@ -476,7 +659,62 @@ export default function ShipmentPage() {
           <Typography.Title level={3} style={{ margin: 0 }}>
             Отгрузка
           </Typography.Title>
+          {isPending && loadedShipment && (
+            <PendingDeletionTag
+              at={loadedShipment.pendingDeletionAt}
+              byEmail={loadedShipment.pendingDeletionByUserEmail}
+              reason={loadedShipment.pendingDeletionReason}
+            />
+          )}
         </Space>
+
+        {isPending && loadedShipment && (
+          <Alert
+            type="warning"
+            showIcon
+            message="Документ помечен на удаление"
+            description={
+              <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                <Typography.Text>
+                  Пометил: {loadedShipment.pendingDeletionByUserEmail ?? '—'} ·{' '}
+                  {loadedShipment.pendingDeletionAt
+                    ? new Date(loadedShipment.pendingDeletionAt).toLocaleString('ru-RU')
+                    : '—'}
+                </Typography.Text>
+                {loadedShipment.pendingDeletionReason && (
+                  <Typography.Text type="secondary">
+                    Причина: {loadedShipment.pendingDeletionReason}
+                  </Typography.Text>
+                )}
+                <Space wrap>
+                  {canUnmark && (
+                    <Button
+                      icon={<UndoOutlined />}
+                      loading={unmarkDel.isPending}
+                      onClick={() => unmarkDel.mutate()}
+                    >
+                      Восстановить
+                    </Button>
+                  )}
+                  {isAdmin && (
+                    <Popconfirm
+                      title="Удалить навсегда?"
+                      description="Запись, фото и связи с документами будут стёрты."
+                      okText="Да, удалить"
+                      cancelText="Нет"
+                      okButtonProps={{ danger: true }}
+                      onConfirm={() => hardDel.mutate()}
+                    >
+                      <Button danger icon={<DeleteOutlined />} loading={hardDel.isPending}>
+                        Удалить навсегда
+                      </Button>
+                    </Popconfirm>
+                  )}
+                </Space>
+              </Space>
+            }
+          />
+        )}
 
         <Card size="small" title="Вид отгрузки" styles={{ body: { padding: 12 } }}>
           <Segmented
@@ -601,17 +839,6 @@ export default function ShipmentPage() {
           defaultActiveKey={photosCount > 0 ? ['photos'] : []}
           items={[
             {
-              key: 'comment',
-              label: 'Комментарий',
-              children: (
-                <Input.TextArea
-                  rows={3}
-                  value={comment}
-                  onChange={(e) => setComment(e.target.value)}
-                />
-              ),
-            },
-            {
               key: 'photos',
               label: `Фото${photosCount ? ` (${photosCount})` : ''}`,
               children: (
@@ -631,7 +858,7 @@ export default function ShipmentPage() {
                   {shipmentId && loadedShipment && (
                     <PhotoGallery
                       deliveryId={shipmentId}
-                      photos={loadedShipment.photos}
+                      photos={mergedPhotos}
                       operationKind="shipment"
                     />
                   )}
@@ -667,72 +894,153 @@ export default function ShipmentPage() {
           )}
         </Card>
 
-        {isDesktop ? (
-          <div
-            style={{
-              position: 'sticky',
-              bottom: 0,
-              marginTop: 8,
-              padding: '12px 0',
-              background: '#f5f5f5',
-              display: 'flex',
-              justifyContent: 'flex-end',
-              gap: 8,
-              zIndex: 5,
-            }}
-          >
-            <Button onClick={() => navigate('/shipments')}>Отмена</Button>
-            <Tooltip title={verifyReason ?? ''} placement="top">
-              <span style={{ display: 'inline-flex' }}>
-                <Button
-                  type="primary"
-                  loading={save.isPending}
-                  disabled={!!verifyReason}
-                  onClick={() => save.mutate()}
-                >
-                  Сохранить
-                </Button>
-              </span>
-            </Tooltip>
-          </div>
-        ) : (
-          <div
-            style={{
-              position: 'fixed',
-              left: 0,
-              right: 0,
-              bottom: 0,
-              padding: 12,
-              background: '#fff',
-              borderTop: '1px solid #f0f0f0',
-              zIndex: 100,
-              display: 'flex',
-              gap: 8,
-            }}
-          >
-            <Button
-              size="large"
-              style={{ flex: 1 }}
-              onClick={() => navigate('/shipments')}
+        <Collapse
+          size="small"
+          items={[
+            {
+              key: 'comment',
+              label: 'Комментарий',
+              children: (
+                <Input.TextArea
+                  rows={3}
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                />
+              ),
+            },
+          ]}
+        />
+
+        {(() => {
+          const isConfirmed = loadedShipment.status.code === 'confirmed_mol';
+          const confirmTooltip = isConfirmed
+            ? `Подтверждено: ${loadedShipment.confirmedByMolUserEmail ?? '—'}, ${formatMolDate(loadedShipment.confirmedByMolAt)}`
+            : (verifyReason ?? 'Подтвердить документ как МОЛ');
+          // Помеченный документ — read-only: блокируем Save и Подтвердить МОЛ.
+          const saveDisabled = !!verifyReason || isPending;
+          const confirmDisabled = isConfirmed || !!verifyReason || isPending;
+          const canMarkDeletion =
+            !isPending &&
+            (loadedShipment.status.code === 'shipped' ||
+              loadedShipment.status.code === 'confirmed_mol');
+          const markBlock = canMarkDeletion ? (
+            <Popconfirm
+              title="Пометить на удаление?"
+              description={
+                <Input.TextArea
+                  placeholder="Причина (необязательно)"
+                  rows={2}
+                  maxLength={500}
+                  value={markReason}
+                  onChange={(e) => setMarkReason(e.target.value)}
+                />
+              }
+              okText="Пометить"
+              cancelText="Нет"
+              onConfirm={() => {
+                const reason = markReason.trim() || null;
+                markDel.mutate(reason);
+                setMarkReason('');
+              }}
             >
-              Отмена
-            </Button>
-            <Tooltip title={verifyReason ?? ''} placement="top">
-              <span style={{ flex: 1, display: 'inline-flex' }}>
-                <Button
-                  type="primary"
-                  size="large"
-                  style={{ flex: 1 }}
-                  loading={save.isPending}
-                  disabled={!!verifyReason}
-                  onClick={() => save.mutate()}
-                >
-                  Сохранить
-                </Button>
-              </span>
-            </Tooltip>
-          </div>
-        )}
+              <Button danger icon={<DeleteOutlined />} loading={markDel.isPending}>
+                Пометить на удаление
+              </Button>
+            </Popconfirm>
+          ) : null;
+          return isDesktop ? (
+            <div
+              style={{
+                position: 'sticky',
+                bottom: 0,
+                marginTop: 8,
+                padding: '12px 0',
+                background: '#f5f5f5',
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: 8,
+                zIndex: 5,
+              }}
+            >
+              <Button onClick={() => navigate('/shipments')}>Отмена</Button>
+              {markBlock}
+              <Tooltip title={verifyReason ?? ''} placement="top">
+                <span style={{ display: 'inline-flex' }}>
+                  <Button
+                    type="primary"
+                    loading={save.isPending}
+                    disabled={saveDisabled}
+                    onClick={() => save.mutate()}
+                  >
+                    Сохранить
+                  </Button>
+                </span>
+              </Tooltip>
+              <Tooltip title={confirmTooltip} placement="top">
+                <span style={{ display: 'inline-flex' }}>
+                  <Button
+                    loading={confirmMol.isPending}
+                    disabled={confirmDisabled}
+                    onClick={() => confirmMol.mutate()}
+                  >
+                    Подтвердить МОЛ
+                  </Button>
+                </span>
+              </Tooltip>
+            </div>
+          ) : (
+            <div
+              style={{
+                position: 'fixed',
+                left: 0,
+                right: 0,
+                bottom: 0,
+                padding: 12,
+                background: '#fff',
+                borderTop: '1px solid #f0f0f0',
+                zIndex: 100,
+                display: 'flex',
+                gap: 8,
+              }}
+            >
+              <Button
+                size="large"
+                style={{ flex: 1 }}
+                onClick={() => navigate('/shipments')}
+              >
+                Отмена
+              </Button>
+              {markBlock && <span style={{ flex: 1, display: 'inline-flex' }}>{markBlock}</span>}
+              <Tooltip title={verifyReason ?? ''} placement="top">
+                <span style={{ flex: 1, display: 'inline-flex' }}>
+                  <Button
+                    type="primary"
+                    size="large"
+                    style={{ flex: 1 }}
+                    loading={save.isPending}
+                    disabled={saveDisabled}
+                    onClick={() => save.mutate()}
+                  >
+                    Сохранить
+                  </Button>
+                </span>
+              </Tooltip>
+              <Tooltip title={confirmTooltip} placement="top">
+                <span style={{ flex: 1, display: 'inline-flex' }}>
+                  <Button
+                    size="large"
+                    style={{ flex: 1 }}
+                    loading={confirmMol.isPending}
+                    disabled={confirmDisabled}
+                    onClick={() => confirmMol.mutate()}
+                  >
+                    Подтвердить МОЛ
+                  </Button>
+                </span>
+              </Tooltip>
+            </div>
+          );
+        })()}
       </Space>
     );
   }
@@ -744,15 +1052,29 @@ export default function ShipmentPage() {
         <Typography.Title level={3} style={{ margin: 0 }}>
           Отгрузка
         </Typography.Title>
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          loading={creating}
-          onClick={createBlank}
-          disabled={inspectorWithoutSite}
-        >
-          Новая отгрузка
-        </Button>
+        <Space wrap>
+          <Segmented
+            value={tab}
+            onChange={(v) => {
+              const next = v as ListTab;
+              if (next === 'expected') setParams({ tab: 'expected' });
+              else setParams({});
+            }}
+            options={[
+              { label: 'Ожидаемые', value: 'expected' },
+              { label: 'Принятые', value: 'accepted' },
+            ]}
+          />
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            loading={creating}
+            onClick={createBlank}
+            disabled={inspectorWithoutSite}
+          >
+            Новая отгрузка
+          </Button>
+        </Space>
       </Space>
       {inspectorWithoutSite && (
         <Alert
@@ -762,12 +1084,16 @@ export default function ShipmentPage() {
           description="Чтобы видеть отгрузки и создавать новые, обратитесь к администратору — он должен назначить вам объект на странице «Администрирование → Пользователи»."
         />
       )}
-      <ShipmentsHistory
-        onOpen={(id) => {
-          setParams({});
-          navigate(`/shipments?shipment=${id}&from=list`);
-        }}
-      />
+      {tab === 'expected' ? (
+        <ExpectedOutbound onOpen={createFromUpd} />
+      ) : (
+        <ShipmentsHistory
+          onOpen={(id) => {
+            setParams({});
+            navigate(`/shipments?shipment=${id}&from=list`);
+          }}
+        />
+      )}
     </Space>
   );
 }

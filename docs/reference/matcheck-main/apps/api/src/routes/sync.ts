@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { desc, eq, gte } from 'drizzle-orm';
+import { desc, eq, gte, sql as drSql } from 'drizzle-orm';
 import { z } from 'zod';
 import { asZod } from '../lib/fastify.js';
 import { SyncDeltaResponseSchema } from '@matcheck/contracts';
@@ -9,6 +9,7 @@ import {
   deliveryItems,
   deliveryPhotos,
   deliverySources,
+  entityDeletions,
   materials,
   shipments,
   shipmentItems,
@@ -19,10 +20,15 @@ import {
   sourceDocumentItems,
   sourceDocuments,
   statuses,
+  users,
 } from '../db/schema.js';
 
 const QuerySchema = z.object({
   since: z.string().datetime().optional(),
+  // Окно (в днях) для initial-sync: deliveries/shipments/sourceDocuments
+  // отдаются за последние N дней. Default 90. При since != null игнорируется
+  // (старые записи могли поменяться, дельта-sync их захватывает).
+  windowDays: z.coerce.number().int().min(1).max(365).optional(),
 });
 
 export async function syncRoutes(rawApp: FastifyInstance): Promise<void> {
@@ -35,6 +41,33 @@ export async function syncRoutes(rawApp: FastifyInstance): Promise<void> {
     },
     async (req) => {
       const since = req.query.since ? new Date(req.query.since) : null;
+      const windowDays = req.query.windowDays ?? 90;
+      // effectiveSince — для deliveries/shipments/sourceDocuments:
+      //  - при дельта-sync (since != null): since;
+      //  - при initial-sync (since == null): now - windowDays days.
+      // Справочники (counterparties/materials/sites/statuses) окно не применяют —
+      // они полностью нужны клиенту независимо от дат.
+      const effectiveSince = since ?? new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000);
+      const inspectorOnly = req.user?.role === 'inspector_kpp';
+      const userSiteId = req.user?.siteId ?? null;
+
+      // Инспектор без привязки к объекту не должен видеть никаких данных —
+      // это явная ошибка конфигурации, а не "доступ ко всему".
+      if (inspectorOnly && !userSiteId) {
+        const now = new Date().toISOString();
+        return {
+          cursor: now,
+          serverNow: now,
+          counterparties: [],
+          materials: [],
+          sites: [],
+          statuses: [],
+          sourceDocuments: [],
+          deliveries: [],
+          shipments: [],
+          deletedIds: { deliveries: [], shipments: [], sourceDocuments: [] },
+        };
+      }
 
       const cpRows = await app.db
         .select()
@@ -54,11 +87,31 @@ export async function syncRoutes(rawApp: FastifyInstance): Promise<void> {
         .where(since ? gte(sites.updatedAt, since) : undefined)
         .orderBy(desc(sites.updatedAt))
         .limit(500);
+      // Статусы (entity_type='delivery'|'shipment'|…) клиент использует для UI:
+      // лейбл, цвет, sortOrder. Меняются редко — отдаём всегда без фильтра.
+      const statusRows = await app.db
+        .select()
+        .from(statuses)
+        .orderBy(statuses.entityType, statuses.sortOrder);
 
+      // Источниковые документы: для inspector_kpp фильтруем по своему siteId
+      // и оставляем только не привязанные к приёмке/отгрузке — это сценарий
+      // «Ожидаемые УПД» в мобильном Inbox. Для manager/admin — все документы
+      // в окне effectiveSince.
+      const sdWhereParts = [gte(sourceDocuments.updatedAt, effectiveSince)];
+      if (inspectorOnly && userSiteId) {
+        sdWhereParts.push(eq(sourceDocuments.siteId, userSiteId));
+        sdWhereParts.push(
+          drSql`not exists (select 1 from delivery_sources ds where ds.source_document_id = ${sourceDocuments.id})`,
+        );
+        sdWhereParts.push(
+          drSql`not exists (select 1 from shipment_sources ss where ss.source_document_id = ${sourceDocuments.id})`,
+        );
+      }
       const sdRows = await app.db
         .select()
         .from(sourceDocuments)
-        .where(since ? gte(sourceDocuments.updatedAt, since) : undefined)
+        .where(drAnd(...sdWhereParts))
         .orderBy(desc(sourceDocuments.updatedAt))
         .limit(200);
 
@@ -76,24 +129,24 @@ export async function syncRoutes(rawApp: FastifyInstance): Promise<void> {
             .where(sql_in(sourceDocumentAttachments.sourceDocumentId, sdIds))
         : [];
 
-      const inspectorOnly = req.user?.role === 'inspector_kpp';
-      const inspectorId = req.user?.id;
+      // Инспектор видит всё в рамках своего объекта (включая записи других
+      // инспекторов на том же siteId) — синхронизировано с GET /deliveries,
+      // см. коммит 1833b9d. До этого фильтр был по inspectorId.
+      // Окно effectiveSince применяется и при initial-sync (windowDays), и при
+      // дельта-sync (since).
       const dRowsJoined = await app.db
-        .select({ d: deliveries, s: statuses })
+        .select({ d: deliveries, s: statuses, molEmail: users.email })
         .from(deliveries)
         .innerJoin(statuses, eq(deliveries.statusId, statuses.id))
+        .leftJoin(users, eq(deliveries.confirmedByMolUserId, users.id))
         .where(
-          inspectorOnly && inspectorId
-            ? since
-              ? eqAnd(deliveries.inspectorId, inspectorId, gte(deliveries.updatedAt, since))
-              : eq(deliveries.inspectorId, inspectorId)
-            : since
-              ? gte(deliveries.updatedAt, since)
-              : undefined,
+          inspectorOnly && userSiteId
+            ? eqAnd(deliveries.siteId, userSiteId, gte(deliveries.updatedAt, effectiveSince))
+            : gte(deliveries.updatedAt, effectiveSince),
         )
         .orderBy(desc(deliveries.updatedAt))
         .limit(500);
-      const dRows = dRowsJoined.map((r) => ({ ...r.d, _status: r.s }));
+      const dRows = dRowsJoined.map((r) => ({ ...r.d, _status: r.s, _molEmail: r.molEmail }));
       const dIds = dRows.map((r) => r.id);
       const dItems = dIds.length
         ? await app.db.select().from(deliveryItems).where(sql_in(deliveryItems.deliveryId, dIds))
@@ -108,23 +161,20 @@ export async function syncRoutes(rawApp: FastifyInstance): Promise<void> {
             .where(sql_in(deliverySources.deliveryId, dIds))
         : [];
 
-      // ── Shipments (симметрично deliveries) ──
+      // ── Shipments (симметрично deliveries: видимость по siteId + окно) ──
       const shRowsJoined = await app.db
-        .select({ s: shipments, st: statuses })
+        .select({ s: shipments, st: statuses, molEmail: users.email })
         .from(shipments)
         .innerJoin(statuses, eq(shipments.statusId, statuses.id))
+        .leftJoin(users, eq(shipments.confirmedByMolUserId, users.id))
         .where(
-          inspectorOnly && inspectorId
-            ? since
-              ? eqAnd(shipments.inspectorId, inspectorId, gte(shipments.updatedAt, since))
-              : eq(shipments.inspectorId, inspectorId)
-            : since
-              ? gte(shipments.updatedAt, since)
-              : undefined,
+          inspectorOnly && userSiteId
+            ? eqAnd(shipments.siteId, userSiteId, gte(shipments.updatedAt, effectiveSince))
+            : gte(shipments.updatedAt, effectiveSince),
         )
         .orderBy(desc(shipments.updatedAt))
         .limit(500);
-      const shRows = shRowsJoined.map((r) => ({ ...r.s, _status: r.st }));
+      const shRows = shRowsJoined.map((r) => ({ ...r.s, _status: r.st, _molEmail: r.molEmail }));
       const shIds = shRows.map((r) => r.id);
       const shItems = shIds.length
         ? await app.db.select().from(shipmentItems).where(sql_in(shipmentItems.shipmentId, shIds))
@@ -142,9 +192,42 @@ export async function syncRoutes(rawApp: FastifyInstance): Promise<void> {
             .where(sql_in(shipmentSources.shipmentId, shIds))
         : [];
 
+      // ── deletedIds (журнал hard-delete для офлайн-клиента) ──
+      // Возвращаем только при дельта-sync (since != null) — на initial-sync
+      // клиент стартует с нуля, история удалений не нужна. Для inspector_kpp
+      // фильтр по siteId (записи без siteId — например, до 0024 — не отдаём).
+      const deletedDeliveryIds: string[] = [];
+      const deletedShipmentIds: string[] = [];
+      const deletedSourceDocumentIds: string[] = [];
+      if (since) {
+        const delRows = await app.db
+          .select({ entityType: entityDeletions.entityType, entityId: entityDeletions.entityId })
+          .from(entityDeletions)
+          .where(
+            inspectorOnly && userSiteId
+              ? eqAnd(
+                  entityDeletions.siteId,
+                  userSiteId,
+                  gte(entityDeletions.deletedAt, since),
+                )
+              : gte(entityDeletions.deletedAt, since),
+          );
+        for (const r of delRows) {
+          if (r.entityType === 'delivery') deletedDeliveryIds.push(r.entityId);
+          else if (r.entityType === 'shipment') deletedShipmentIds.push(r.entityId);
+          else if (r.entityType === 'source_document')
+            deletedSourceDocumentIds.push(r.entityId);
+        }
+      }
+
       return {
         cursor: new Date().toISOString(),
         serverNow: new Date().toISOString(),
+        deletedIds: {
+          deliveries: deletedDeliveryIds,
+          shipments: deletedShipmentIds,
+          sourceDocuments: deletedSourceDocumentIds,
+        },
         counterparties: cpRows.map((c) => ({
           id: c.id,
           inn: c.inn,
@@ -176,6 +259,14 @@ export async function syncRoutes(rawApp: FastifyInstance): Promise<void> {
           createdAt: s.createdAt.toISOString(),
           updatedAt: s.updatedAt.toISOString(),
         })),
+        statuses: statusRows.map((st) => ({
+          id: st.id,
+          entityType: st.entityType,
+          code: st.code,
+          label: st.label,
+          color: st.color,
+          sortOrder: st.sortOrder,
+        })),
         sourceDocuments: sdRows.map((sd) => ({
           id: sd.id,
           kind: sd.kind,
@@ -194,6 +285,19 @@ export async function syncRoutes(rawApp: FastifyInstance): Promise<void> {
           llmProviderId: sd.llmProviderId,
           llmConfidence: sd.llmConfidence,
           parsedAt: sd.parsedAt.toISOString(),
+          queuedAt: sd.queuedAt?.toISOString() ?? null,
+          processedAt: sd.processedAt?.toISOString() ?? null,
+          parseErrorCode: (sd.parseErrorCode as
+            | 'duplicate_upd'
+            | 'validation_mismatch'
+            | 'pdf_no_text'
+            | 'parse_failed'
+            | 'internal_error'
+            | null) ?? null,
+          parseErrorDetails: sd.parseErrorDetails ?? null,
+          originalFilename: sd.originalFilename,
+          contentHash: sd.contentHash,
+          jobAttempts: sd.jobAttempts,
           version: sd.version,
           createdAt: sd.createdAt.toISOString(),
           updatedAt: sd.updatedAt.toISOString(),
@@ -246,6 +350,15 @@ export async function syncRoutes(rawApp: FastifyInstance): Promise<void> {
           arrivedAt: d.arrivedAt?.toISOString() ?? null,
           inspectorId: d.inspectorId,
           comment: d.comment,
+          confirmedByMolUserId: d.confirmedByMolUserId,
+          confirmedByMolUserEmail: d._molEmail,
+          confirmedByMolAt: d.confirmedByMolAt?.toISOString() ?? null,
+          // Soft-delete: email автора пометки в sync не подтягиваем (опциональный
+          // join усложнил бы запрос), офлайн-клиент покажет адрес как «—».
+          pendingDeletionAt: d.pendingDeletionAt?.toISOString() ?? null,
+          pendingDeletionByUserId: d.pendingDeletionByUserId,
+          pendingDeletionByUserEmail: null,
+          pendingDeletionReason: d.pendingDeletionReason,
           version: d.version,
           sourceDocumentIds: dSources
             .filter((s) => s.deliveryId === d.id)
@@ -275,6 +388,7 @@ export async function syncRoutes(rawApp: FastifyInstance): Promise<void> {
               thumbS3Key: p.thumbS3Key,
               contentHash: p.contentHash,
               takenAt: p.takenAt.toISOString(),
+              uploadedAt: p.uploadedAt?.toISOString() ?? null,
             })),
           createdAt: d.createdAt.toISOString(),
           updatedAt: d.updatedAt.toISOString(),
@@ -298,6 +412,13 @@ export async function syncRoutes(rawApp: FastifyInstance): Promise<void> {
           shippedAt: s.shippedAt?.toISOString() ?? null,
           inspectorId: s.inspectorId,
           comment: s.comment,
+          confirmedByMolUserId: s.confirmedByMolUserId,
+          confirmedByMolUserEmail: s._molEmail,
+          confirmedByMolAt: s.confirmedByMolAt?.toISOString() ?? null,
+          pendingDeletionAt: s.pendingDeletionAt?.toISOString() ?? null,
+          pendingDeletionByUserId: s.pendingDeletionByUserId,
+          pendingDeletionByUserEmail: null,
+          pendingDeletionReason: s.pendingDeletionReason,
           version: s.version,
           sourceDocumentIds: shSources
             .filter((x) => x.shipmentId === s.id)
@@ -327,6 +448,7 @@ export async function syncRoutes(rawApp: FastifyInstance): Promise<void> {
               thumbS3Key: p.thumbS3Key,
               contentHash: p.contentHash,
               takenAt: p.takenAt.toISOString(),
+              uploadedAt: p.uploadedAt?.toISOString() ?? null,
             })),
           createdAt: s.createdAt.toISOString(),
           updatedAt: s.updatedAt.toISOString(),

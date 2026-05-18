@@ -1,5 +1,6 @@
 import { db, SYSTEM_SITE_ID, type DeliveryRecord, type MutationRecord } from '../lib/db';
 import type { Delivery, DeliveryStatusCode, DeliveryUpsert, Status } from '@matcheck/contracts';
+import { api } from './api';
 
 const PLACEHOLDER_NOT_FILLED: Status = {
   id: '',
@@ -106,6 +107,21 @@ export async function enqueueMutation(
   await d.put('mutations', { ...m, attempts: 0, createdAt: Date.now() });
 }
 
+// Soft-delete операции — обращаемся к серверу напрямую и возвращаем свежий DTO.
+// Локальное хранилище IndexedDB у помеченных документов не используется: они
+// сразу становятся read-only, а после восстановления invalidate перечитает.
+export function markDeletion(id: string, reason: string | null = null): Promise<Delivery> {
+  return api.post<Delivery>(`/deliveries/${id}/mark-deletion`, { reason });
+}
+
+export function unmarkDeletion(id: string): Promise<Delivery> {
+  return api.post<Delivery>(`/deliveries/${id}/unmark-deletion`);
+}
+
+export function hardDeleteDelivery(id: string): Promise<{ ok: true }> {
+  return api.delete<{ ok: true }>(`/deliveries/${id}`);
+}
+
 export function buildUpsertPayload(r: DeliveryRecord): DeliveryUpsert {
   const effective = effectiveState(r);
   if (!effective) {
@@ -131,6 +147,10 @@ export function buildUpsertPayload(r: DeliveryRecord): DeliveryUpsert {
       unit: it.unit,
       comment: it.comment,
       lineNo: it.lineNo,
+      volumeM3: it.volumeM3,
+      massKg: it.massKg,
+      volumeConfidence: it.volumeConfidence,
+      groupName: it.groupName,
     })),
     baseVersion: r.version,
   };
