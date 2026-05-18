@@ -158,12 +158,15 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
                     state.headerError?.let {
                         Text(it, color = MaterialTheme.colorScheme.error)
                     }
-                    MolConfirmButton(
-                        confirmed = state.confirmedByMol,
-                        onClick = { showMolConfirmDialog = true },
-                    )
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        OutlinedButton(
+                        MolConfirmButton(
+                            confirmed = state.confirmedByMol,
+                            onClick = { showMolConfirmDialog = true },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(64.dp),
+                        )
+                        Button(
                             onClick = vm::saveLocally,
                             enabled = !state.isFinalizing,
                             modifier = Modifier
@@ -172,18 +175,6 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
                         ) {
                             Text(
                                 if (state.isFinalizing) "..." else "Сохранить",
-                                style = MaterialTheme.typography.titleMedium,
-                            )
-                        }
-                        Button(
-                            onClick = vm::completeSession,
-                            enabled = !state.isFinalizing,
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(64.dp),
-                        ) {
-                            Text(
-                                if (state.isFinalizing) "..." else "Закончить приёмку",
                                 style = MaterialTheme.typography.titleMedium,
                             )
                         }
@@ -397,31 +388,27 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
 }
 
 @Composable
-private fun MolConfirmButton(confirmed: Boolean, onClick: () -> Unit) {
+private fun MolConfirmButton(
+    confirmed: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val label = "Подтверждено МОЛ"
     if (confirmed) {
         FilledTonalButton(
             onClick = onClick,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = modifier,
             colors = ButtonDefaults.filledTonalButtonColors(
                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
             ),
         ) {
             Icon(Icons.Default.Verified, contentDescription = null)
-            Text(
-                "  Подтверждено МОЛ",
-                style = MaterialTheme.typography.titleMedium,
-            )
+            Text("  $label", style = MaterialTheme.typography.titleMedium)
         }
     } else {
-        OutlinedButton(
-            onClick = onClick,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(
-                "Подтвердить МОЛ",
-                style = MaterialTheme.typography.titleMedium,
-            )
+        OutlinedButton(onClick = onClick, modifier = modifier) {
+            Text(label, style = MaterialTheme.typography.titleMedium)
         }
     }
 }
