@@ -4,11 +4,13 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material.icons.filled.Close
@@ -69,68 +71,78 @@ fun PhotoPreviewDialog(filePath: String, onDismiss: () -> Unit) {
         var offsetX by remember(filePath) { mutableFloatStateOf(0f) }
         var offsetY by remember(filePath) { mutableFloatStateOf(0f) }
 
-        BoxWithConstraints(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xF2000000)),
+                .background(Color(0xCC000000)),
             contentAlignment = Alignment.Center,
         ) {
-            val current = bitmap
-            when {
-                current != null -> {
-                    Image(
-                        bitmap = current,
-                        contentDescription = null,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer(
-                                scaleX = scale,
-                                scaleY = scale,
-                                translationX = offsetX,
-                                translationY = offsetY,
-                            )
-                            .pointerInput(filePath) {
-                                detectTransformGestures(
-                                    panZoomLock = false,
-                                ) { _, pan, zoom, _ ->
-                                    val newScale = (scale * zoom).coerceIn(1f, 6f)
-                                    scale = newScale
-                                    if (newScale <= 1.001f) {
-                                        offsetX = 0f
-                                        offsetY = 0f
-                                    } else {
-                                        offsetX += pan.x
-                                        offsetY += pan.y
-                                    }
-                                }
-                            },
-                    )
-                }
-                loaded -> {
-                    Icon(
-                        imageVector = Icons.Default.BrokenImage,
-                        contentDescription = "Файл фото не найден",
-                        tint = Color.White,
-                        modifier = Modifier.size(64.dp),
-                    )
-                }
-                else -> {
-                    CircularProgressIndicator(color = Color.White)
-                }
-            }
-
-            IconButton(
-                onClick = onDismiss,
+            Box(
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(12.dp)
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(Color(0x66FFFFFF)),
-                colors = IconButtonDefaults.iconButtonColors(contentColor = Color.White),
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .fillMaxHeight(0.5f)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color.Black),
+                contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Default.Close, contentDescription = "Закрыть")
+                val current = bitmap
+                when {
+                    current != null -> {
+                        Image(
+                            bitmap = current,
+                            contentDescription = null,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer(
+                                    scaleX = scale,
+                                    scaleY = scale,
+                                    translationX = offsetX,
+                                    translationY = offsetY,
+                                )
+                                .pointerInput(filePath) {
+                                    detectTransformGestures(
+                                        panZoomLock = false,
+                                    ) { _, pan, zoom, _ ->
+                                        val newScale = (scale * zoom).coerceIn(1f, 6f)
+                                        scale = newScale
+                                        if (newScale <= 1.001f) {
+                                            offsetX = 0f
+                                            offsetY = 0f
+                                        } else {
+                                            offsetX += pan.x
+                                            offsetY += pan.y
+                                        }
+                                    }
+                                },
+                        )
+                    }
+                    loaded -> {
+                        Icon(
+                            imageVector = Icons.Default.BrokenImage,
+                            contentDescription = "Файл фото не найден",
+                            tint = Color.White,
+                            modifier = Modifier.size(64.dp),
+                        )
+                    }
+                    else -> {
+                        CircularProgressIndicator(color = Color.White)
+                    }
+                }
+
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(Color(0x66FFFFFF)),
+                    colors = IconButtonDefaults.iconButtonColors(contentColor = Color.White),
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "Закрыть")
+                }
             }
         }
     }
