@@ -37,8 +37,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.matcheckmobile.presentation.viewmodel.IntakeUpdRow
 import com.example.matcheckmobile.presentation.viewmodel.IntakeUpdSelectViewModel
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 private val ContentMaxWidth = 720.dp
@@ -145,10 +146,10 @@ fun IntakeUpdSelectScreen(
                             modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            items(rows, key = { it.document.localId }) { row ->
+                            items(rows, key = { it.document.id }) { row ->
                                 UpdRowCard(
                                     row = row,
-                                    onClick = { onOpenWithUpd(row.document.localId) },
+                                    onClick = { onOpenWithUpd(row.document.id) },
                                 )
                             }
                         }
@@ -161,7 +162,9 @@ fun IntakeUpdSelectScreen(
 
 @Composable
 private fun UpdRowCard(row: IntakeUpdRow, onClick: () -> Unit) {
-    val df = remember { SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()) }
+    val dateFormatter = remember {
+        DateTimeFormatter.ofPattern("dd.MM.yyyy", Locale.getDefault()).withZone(ZoneId.systemDefault())
+    }
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -176,8 +179,11 @@ private fun UpdRowCard(row: IntakeUpdRow, onClick: () -> Unit) {
                 text = row.supplierName ?: "Поставщик не указан",
                 style = MaterialTheme.typography.bodyLarge,
             )
-            val date = row.document.docDate?.let { df.format(Date(it)) } ?: "—"
-            val sum = row.document.totalSum?.let { "%.2f ₽".format(it) } ?: "—"
+            val date = row.document.docDate?.let { iso ->
+                runCatching { dateFormatter.format(Instant.parse(iso)) }.getOrNull()
+            } ?: "—"
+            // totalSum приходит как строковое десятичное (Decimal на сервере) — печатаем как есть с символом валюты.
+            val sum = row.document.totalSum?.let { "$it ₽" } ?: "—"
             Text(
                 text = "$date · $sum",
                 style = MaterialTheme.typography.bodyMedium,
