@@ -1,16 +1,19 @@
 package com.example.matcheckmobile.data.local.dao
 
 import androidx.room.Dao
-import androidx.room.Insert
-import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Upsert
 import com.example.matcheckmobile.data.local.entity.ReceiptSessionEntity
 import com.example.matcheckmobile.domain.model.SyncStatus
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ReceiptSessionDao {
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    /**
+     * INSERT-or-UPDATE (без DELETE). Критично: REPLACE триггерит FK CASCADE
+     * и сносит дочерние operation_attachments / material_operations.
+     */
+    @Upsert
     suspend fun upsert(session: ReceiptSessionEntity)
 
     @Query("SELECT * FROM receipt_sessions WHERE localId = :id LIMIT 1")

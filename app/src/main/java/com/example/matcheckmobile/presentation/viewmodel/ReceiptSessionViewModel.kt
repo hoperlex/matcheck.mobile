@@ -24,7 +24,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -123,23 +122,8 @@ class ReceiptSessionViewModel(
 
     val sessionPhotos: StateFlow<List<OperationAttachmentEntity>> = sessionIdFlow
         .flatMapLatest { sid ->
-            android.util.Log.d("matcheck", "sessionPhotos: switch sid=$sid")
-            if (sid.isNullOrEmpty()) {
-                flowOf(emptyList())
-            } else {
-                val raw = container.receiptSessionRepository.findSessionAttachmentsRaw(sid)
-                android.util.Log.d(
-                    "matcheck",
-                    "sessionPhotos: raw query sid=$sid count=${raw.size}",
-                )
-                container.receiptSessionRepository.observeSessionAttachments(sid)
-                    .onEach { list ->
-                        android.util.Log.d(
-                            "matcheck",
-                            "sessionPhotos: sid=$sid emit count=${list.size} paths=${list.map { it.localFilePath }}",
-                        )
-                    }
-            }
+            if (sid.isNullOrEmpty()) flowOf(emptyList())
+            else container.receiptSessionRepository.observeSessionAttachments(sid)
         }
         .stateIn(
             scope = viewModelScope,
@@ -152,18 +136,10 @@ class ReceiptSessionViewModel(
     }
 
     private suspend fun bootstrap() {
-        android.util.Log.d(
-            "matcheck",
-            "bootstrap: initialSessionId=$initialSessionId initialUpdId=$initialUpdId",
-        )
         val currentSite = container.deviceSettings.currentSiteIdFlow.first()
         val existingId = initialSessionId
         if (!existingId.isNullOrEmpty()) {
             val session = container.receiptSessionRepository.findById(existingId)
-            android.util.Log.d(
-                "matcheck",
-                "bootstrap: load session $existingId found=${session != null} status=${session?.syncStatus}",
-            )
             if (session != null) {
                 val docText = session.sourceDocumentManualText
                     ?: session.sourceDocumentLocalId?.let {
@@ -410,10 +386,6 @@ class ReceiptSessionViewModel(
             sourceDocumentLocalId = current.sourceDocumentLocalId,
             sourceDocumentManualText = current.manualDocText(),
             comment = current.comment.trim().ifEmpty { null },
-        )
-        android.util.Log.d(
-            "matcheck",
-            "ensureSession: created ${session.localId}, migrating ${current.sessionPhotoPaths.size} photos",
         )
         for (path in current.sessionPhotoPaths) {
             container.receiptSessionRepository.addSessionPhoto(session.localId, path)

@@ -1,19 +1,22 @@
 package com.example.matcheckmobile.data.local.dao
 
 import androidx.room.Dao
-import androidx.room.Insert
-import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Upsert
 import com.example.matcheckmobile.data.local.entity.SourceDocumentEntity
 import com.example.matcheckmobile.data.local.entity.SourceDocumentItemEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface SourceDocumentDao {
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    /**
+     * INSERT-or-UPDATE (без DELETE) — REPLACE снёс бы дочерние source_document_items
+     * через FK CASCADE.
+     */
+    @Upsert
     suspend fun upsertDocument(doc: SourceDocumentEntity)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun upsertItems(items: List<SourceDocumentItemEntity>)
 
     @Query("SELECT * FROM source_documents WHERE localId = :id LIMIT 1")

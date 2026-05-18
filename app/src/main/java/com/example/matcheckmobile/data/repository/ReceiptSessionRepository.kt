@@ -30,10 +30,6 @@ class ReceiptSessionRepository(
     fun observeSessionAttachments(sessionId: String): Flow<List<OperationAttachmentEntity>> =
         attachmentDao.observeBySession(sessionId)
 
-    /** Прямой не‑реактивный запрос — для диагностики, обходит InvalidationTracker. */
-    suspend fun findSessionAttachmentsRaw(sessionId: String): List<OperationAttachmentEntity> =
-        attachmentDao.findBySessionRaw(sessionId)
-
     fun observeLocalSavedReceipts(): Flow<List<ReceiptSessionEntity>> =
         sessionDao.observeLocalSavedReceipts()
 
@@ -130,22 +126,11 @@ class ReceiptSessionRepository(
     }
 
     suspend fun addSessionPhoto(sessionId: String, localFilePath: String) {
-        val session = sessionDao.findById(sessionId)
-        if (session == null) {
-            android.util.Log.w("matcheck", "addSessionPhoto: session $sessionId not found, skip")
-            return
-        }
-        if (!session.isEditable()) {
-            android.util.Log.w(
-                "matcheck",
-                "addSessionPhoto: session $sessionId status=${session.syncStatus} not editable",
-            )
-            return
-        }
-        val id = UUID.randomUUID().toString()
+        val session = sessionDao.findById(sessionId) ?: return
+        if (!session.isEditable()) return
         attachmentDao.upsert(
             OperationAttachmentEntity(
-                localId = id,
+                localId = UUID.randomUUID().toString(),
                 operationLocalId = null,
                 sessionLocalId = sessionId,
                 localFilePath = localFilePath,
@@ -155,12 +140,6 @@ class ReceiptSessionRepository(
                 createdAt = System.currentTimeMillis(),
                 lastUploadError = null,
             )
-        )
-        val readback = attachmentDao.findById(id)
-        android.util.Log.d(
-            "matcheck",
-            "addSessionPhoto: inserted att=$id session=$sessionId readback=${readback != null} " +
-                "readbackSid=${readback?.sessionLocalId}",
         )
     }
 
