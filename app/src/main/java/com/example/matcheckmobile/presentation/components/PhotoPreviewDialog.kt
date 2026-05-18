@@ -2,7 +2,9 @@ package com.example.matcheckmobile.presentation.components
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,6 +20,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -28,7 +31,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -71,10 +73,17 @@ fun PhotoPreviewDialog(filePath: String, onDismiss: () -> Unit) {
         var offsetX by remember(filePath) { mutableFloatStateOf(0f) }
         var offsetY by remember(filePath) { mutableFloatStateOf(0f) }
 
+        val backgroundInteraction = remember { MutableInteractionSource() }
+        val cardInteraction = remember { MutableInteractionSource() }
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xCC000000)),
+                .background(MaterialTheme.colorScheme.background)
+                .clickable(
+                    interactionSource = backgroundInteraction,
+                    indication = null,
+                    onClick = onDismiss,
+                ),
             contentAlignment = Alignment.Center,
         ) {
             Box(
@@ -83,7 +92,12 @@ fun PhotoPreviewDialog(filePath: String, onDismiss: () -> Unit) {
                     .padding(horizontal = 16.dp)
                     .fillMaxHeight(0.5f)
                     .clip(RoundedCornerShape(16.dp))
-                    .background(Color.Black),
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .clickable(
+                        interactionSource = cardInteraction,
+                        indication = null,
+                        onClick = {},
+                    ),
                 contentAlignment = Alignment.Center,
             ) {
                 val current = bitmap
@@ -122,12 +136,12 @@ fun PhotoPreviewDialog(filePath: String, onDismiss: () -> Unit) {
                         Icon(
                             imageVector = Icons.Default.BrokenImage,
                             contentDescription = "Файл фото не найден",
-                            tint = Color.White,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(64.dp),
                         )
                     }
                     else -> {
-                        CircularProgressIndicator(color = Color.White)
+                        CircularProgressIndicator()
                     }
                 }
 
@@ -138,8 +152,10 @@ fun PhotoPreviewDialog(filePath: String, onDismiss: () -> Unit) {
                         .padding(8.dp)
                         .size(36.dp)
                         .clip(CircleShape)
-                        .background(Color(0x66FFFFFF)),
-                    colors = IconButtonDefaults.iconButtonColors(contentColor = Color.White),
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                    colors = IconButtonDefaults.iconButtonColors(
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                    ),
                 ) {
                     Icon(Icons.Default.Close, contentDescription = "Закрыть")
                 }
