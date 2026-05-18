@@ -83,7 +83,7 @@ fun MainScreen(
             val isTablet = maxWidth >= TabletBreakpoint
             val contentMaxWidth: Dp = if (isTablet) 900.dp else maxWidth
             val outerPadding = if (isTablet) 32.dp else 16.dp
-            val buttonHeight = if (isTablet) 220.dp else 120.dp
+            val buttonHeight = if (isTablet) 176.dp else 96.dp
             val gap = if (isTablet) 24.dp else 16.dp
 
             Box(
