@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -46,11 +47,14 @@ fun PhotoThumb(
     size: androidx.compose.ui.unit.Dp = 80.dp,
 ) {
     var bitmap by remember(filePath) { mutableStateOf<ImageBitmap?>(null) }
+    var loaded by remember(filePath) { mutableStateOf(false) }
     val targetPx = with(androidx.compose.ui.platform.LocalDensity.current) { size.roundToPx() }
     LaunchedEffect(filePath, targetPx) {
-        bitmap = withContext(Dispatchers.IO) {
+        val decoded = withContext(Dispatchers.IO) {
             decodeOrientedThumb(filePath, targetPx)?.asImageBitmap()
         }
+        bitmap = decoded
+        loaded = true
     }
     Box(
         modifier = modifier.size(size + 8.dp),
@@ -61,13 +65,21 @@ fun PhotoThumb(
                 .align(Alignment.BottomStart)
                 .clip(RoundedCornerShape(8.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center,
         ) {
-            bitmap?.let {
+            val current = bitmap
+            if (current != null) {
                 Image(
-                    bitmap = it,
+                    bitmap = current,
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
+                )
+            } else if (loaded) {
+                Icon(
+                    imageVector = Icons.Default.BrokenImage,
+                    contentDescription = "Файл фото не найден",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }

@@ -19,9 +19,11 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -98,9 +100,17 @@ class ReceiptSessionViewModel(
             initialValue = emptyList(),
         )
 
-    val items: StateFlow<List<MaterialOperationEntity>> = _state
-        .flatMapLatest { ui ->
-            val sid = ui.sessionId
+    private val sessionIdFlow: StateFlow<String?> = _state
+        .map { it.sessionId }
+        .distinctUntilChanged()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.Eagerly,
+            initialValue = null,
+        )
+
+    val items: StateFlow<List<MaterialOperationEntity>> = sessionIdFlow
+        .flatMapLatest { sid ->
             if (sid.isNullOrEmpty()) flowOf(emptyList())
             else container.receiptSessionRepository.observeItems(sid)
         }
@@ -110,9 +120,8 @@ class ReceiptSessionViewModel(
             initialValue = emptyList(),
         )
 
-    val sessionPhotos: StateFlow<List<OperationAttachmentEntity>> = _state
-        .flatMapLatest { ui ->
-            val sid = ui.sessionId
+    val sessionPhotos: StateFlow<List<OperationAttachmentEntity>> = sessionIdFlow
+        .flatMapLatest { sid ->
             if (sid.isNullOrEmpty()) flowOf(emptyList())
             else container.receiptSessionRepository.observeSessionAttachments(sid)
         }
