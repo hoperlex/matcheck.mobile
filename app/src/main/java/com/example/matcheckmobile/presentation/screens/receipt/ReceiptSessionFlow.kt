@@ -118,6 +118,7 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
     var showCommentDialog by remember { mutableStateOf(false) }
     var showCancelConfirm by remember { mutableStateOf(false) }
     var showMolConfirmDialog by remember { mutableStateOf(false) }
+    var showSaveConfirmDialog by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val photoStorage = remember {
@@ -159,15 +160,8 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
                         Text(it, color = MaterialTheme.colorScheme.error)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        MolConfirmButton(
-                            confirmed = state.confirmedByMol,
-                            onClick = { showMolConfirmDialog = true },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(64.dp),
-                        )
                         Button(
-                            onClick = vm::saveLocally,
+                            onClick = { showSaveConfirmDialog = true },
                             enabled = !state.isFinalizing,
                             modifier = Modifier
                                 .weight(1f)
@@ -178,6 +172,13 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
                                 style = MaterialTheme.typography.titleMedium,
                             )
                         }
+                        MolConfirmButton(
+                            confirmed = state.confirmedByMol,
+                            onClick = { showMolConfirmDialog = true },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(64.dp),
+                        )
                     }
                 }
             }
@@ -353,6 +354,27 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
             },
             dismissButton = {
                 TextButton(onClick = { showCancelConfirm = false }) { Text("Назад") }
+            },
+        )
+    }
+
+    if (showSaveConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showSaveConfirmDialog = false },
+            text = {
+                Text(
+                    text = "Материалы проверены, фотофиксация сделана.",
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showSaveConfirmDialog = false
+                    vm.saveLocally()
+                }) { Text("Подтверждаю") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSaveConfirmDialog = false }) { Text("Отмена") }
             },
         )
     }
