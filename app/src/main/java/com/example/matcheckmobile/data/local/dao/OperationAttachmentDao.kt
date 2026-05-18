@@ -22,6 +22,9 @@ interface OperationAttachmentDao {
     @Query("SELECT * FROM operation_attachments WHERE sessionLocalId = :sessionId ORDER BY createdAt")
     fun observeBySession(sessionId: String): Flow<List<OperationAttachmentEntity>>
 
+    @Query("SELECT * FROM operation_attachments WHERE sessionLocalId = :sessionId ORDER BY createdAt")
+    suspend fun findBySessionRaw(sessionId: String): List<OperationAttachmentEntity>
+
     @Query("DELETE FROM operation_attachments WHERE localId = :id")
     suspend fun deleteById(id: String)
 

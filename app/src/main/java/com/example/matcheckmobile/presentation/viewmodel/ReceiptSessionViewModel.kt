@@ -124,14 +124,22 @@ class ReceiptSessionViewModel(
     val sessionPhotos: StateFlow<List<OperationAttachmentEntity>> = sessionIdFlow
         .flatMapLatest { sid ->
             android.util.Log.d("matcheck", "sessionPhotos: switch sid=$sid")
-            if (sid.isNullOrEmpty()) flowOf(emptyList())
-            else container.receiptSessionRepository.observeSessionAttachments(sid)
-                .onEach { list ->
-                    android.util.Log.d(
-                        "matcheck",
-                        "sessionPhotos: sid=$sid emit count=${list.size} paths=${list.map { it.localFilePath }}",
-                    )
-                }
+            if (sid.isNullOrEmpty()) {
+                flowOf(emptyList())
+            } else {
+                val raw = container.receiptSessionRepository.findSessionAttachmentsRaw(sid)
+                android.util.Log.d(
+                    "matcheck",
+                    "sessionPhotos: raw query sid=$sid count=${raw.size}",
+                )
+                container.receiptSessionRepository.observeSessionAttachments(sid)
+                    .onEach { list ->
+                        android.util.Log.d(
+                            "matcheck",
+                            "sessionPhotos: sid=$sid emit count=${list.size} paths=${list.map { it.localFilePath }}",
+                        )
+                    }
+            }
         }
         .stateIn(
             scope = viewModelScope,
