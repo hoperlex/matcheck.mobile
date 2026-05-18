@@ -51,10 +51,6 @@ object MatcheckViewModelFactories {
             val app = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as MatcheckApplication
             IntakeUpdSelectViewModel(app.container)
         }
-        initializer {
-            val app = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as MatcheckApplication
-            SavedReceiptsViewModel(app.container)
-        }
     }
 }
 

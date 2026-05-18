@@ -15,14 +15,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -36,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.matcheckmobile.presentation.viewmodel.IntakeUpdRow
 import com.example.matcheckmobile.presentation.viewmodel.IntakeUpdSelectViewModel
+import com.example.matcheckmobile.presentation.viewmodel.SavedReceiptRow
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -49,7 +48,7 @@ fun IntakeUpdSelectScreen(
     onBack: () -> Unit,
     onOpenWithUpd: (updLocalId: String) -> Unit,
     onCreateEmpty: () -> Unit,
-    onOpenSavedList: () -> Unit,
+    onOpenSavedReceipt: (sessionLocalId: String) -> Unit,
 ) {
     val vm: IntakeUpdSelectViewModel = matcheckViewModel()
     val rows by vm.rows.collectAsStateWithLifecycle()
@@ -105,47 +104,46 @@ fun IntakeUpdSelectScreen(
                     .padding(outerPadding),
                 contentAlignment = Alignment.TopCenter,
             ) {
-                Column(
-                    modifier = Modifier
-                        .widthIn(max = ContentMaxWidth)
-                        .fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    OutlinedButton(
-                        onClick = onOpenSavedList,
+                if (savedReceipts.isEmpty() && rows.isEmpty()) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(56.dp),
+                            .padding(top = 24.dp),
                     ) {
-                        Icon(Icons.Default.Bookmarks, contentDescription = null)
                         Text(
-                            "  Сохранённые приёмки (${savedReceipts.size})",
+                            "Нет входящих УПД и сохранённых приёмок",
                             style = MaterialTheme.typography.titleMedium,
                         )
+                        Text(
+                            "Можно начать пустую приёмку — кнопка снизу.",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
                     }
-                    if (rows.isEmpty()) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 24.dp),
-                        ) {
-                            Text(
-                                "Нет входящих УПД для приёмки",
-                                style = MaterialTheme.typography.titleMedium,
-                            )
-                            Text(
-                                "Можно начать пустую приёмку — кнопка снизу.",
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .widthIn(max = ContentMaxWidth)
+                            .fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        if (savedReceipts.isNotEmpty()) {
+                            item(key = "saved-header") {
+                                SectionHeader("Сохранённые приёмки (${savedReceipts.size})")
+                            }
+                            items(savedReceipts, key = { "saved-${it.session.localId}" }) { row ->
+                                SavedReceiptCard(
+                                    row = row,
+                                    onClick = { onOpenSavedReceipt(row.session.localId) },
+                                )
+                            }
                         }
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            items(rows, key = { it.document.localId }) { row ->
+                        if (rows.isNotEmpty()) {
+                            item(key = "upd-header") {
+                                SectionHeader("Входящие УПД")
+                            }
+                            items(rows, key = { "upd-${it.document.localId}" }) { row ->
                                 UpdRowCard(
                                     row = row,
                                     onClick = { onOpenWithUpd(row.document.localId) },
@@ -157,6 +155,16 @@ fun IntakeUpdSelectScreen(
             }
         }
     }
+}
+
+@Composable
+private fun SectionHeader(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 4.dp, bottom = 4.dp),
+    )
 }
 
 @Composable
@@ -180,6 +188,37 @@ private fun UpdRowCard(row: IntakeUpdRow, onClick: () -> Unit) {
             val sum = row.document.totalSum?.let { "%.2f ₽".format(it) } ?: "—"
             Text(
                 text = "$date · $sum",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SavedReceiptCard(row: SavedReceiptRow, onClick: () -> Unit) {
+    val df = remember { SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()) }
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = row.updNumber?.let { "УПД $it" } ?: "Без УПД",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = row.siteName ?: "Объект не указан",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            val party = row.contractorName ?: row.supplierName
+            if (!party.isNullOrEmpty()) {
+                Text(text = party, style = MaterialTheme.typography.bodySmall)
+            }
+            val ts = row.session.finalizedAt ?: row.session.startedAt
+            val plate = row.session.vehicleNumber.ifBlank { "—" }
+            Text(
+                text = "Сохранено: ${df.format(Date(ts))} · ГРЗ $plate",
                 style = MaterialTheme.typography.bodySmall,
             )
         }

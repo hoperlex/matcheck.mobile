@@ -4,7 +4,6 @@ object Routes {
     const val LOGIN = "login"
     const val MAIN = "main"
     const val INTAKE_UPD_SELECT = "intake_upd_select"
-    const val SAVED_RECEIPTS = "saved_receipts"
     const val RECEIPT_BASE = "receipt"
     const val ARG_UPD_ID = "updId"
     const val ARG_SESSION_ID = "sessionId"
