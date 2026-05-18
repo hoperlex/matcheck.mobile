@@ -217,6 +217,29 @@ class ReceiptSessionViewModel(
         }
     }
 
+    /** Удалить уже сохранённое в БД сессионное фото. */
+    fun removeSessionPhoto(attachmentId: String) {
+        viewModelScope.launch {
+            container.receiptSessionRepository.removeSessionPhoto(attachmentId)
+        }
+    }
+
+    /** Удалить in-memory фото (приёмка ещё не создана как сессия). */
+    fun removeInMemorySessionPhoto(path: String) {
+        _state.update {
+            it.copy(sessionPhotoPaths = it.sessionPhotoPaths.filterNot { p -> p == path })
+        }
+        runCatching { java.io.File(path).delete() }
+    }
+
+    /** Удалить фото-черновик у позиции (item-form всегда in-memory до сохранения позиции). */
+    fun removeItemPhoto(path: String) {
+        _state.update {
+            it.copy(itemForm = it.itemForm.copy(photoPaths = it.itemForm.photoPaths - path))
+        }
+        runCatching { java.io.File(path).delete() }
+    }
+
     // Item form
     fun openItemForm() {
         viewModelScope.launch {

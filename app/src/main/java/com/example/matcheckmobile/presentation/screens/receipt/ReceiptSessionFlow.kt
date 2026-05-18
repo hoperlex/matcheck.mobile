@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -69,6 +70,7 @@ import com.example.matcheckmobile.data.local.entity.SourceDocumentEntity
 import com.example.matcheckmobile.domain.model.vehicleTypeByCode
 import com.example.matcheckmobile.domain.validation.normalizeVehiclePlate
 import com.example.matcheckmobile.domain.validation.vehiclePlateHint
+import com.example.matcheckmobile.presentation.components.PhotoThumb
 import com.example.matcheckmobile.presentation.components.VehicleTypeChips
 import com.example.matcheckmobile.presentation.components.rememberPhotoCapture
 import com.example.matcheckmobile.presentation.viewmodel.ReceiptSessionViewModel
@@ -261,10 +263,24 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
                 Text("  Добавить фото", style = MaterialTheme.typography.titleMedium)
             }
             if (photosCount > 0) {
-                Text(
-                    "Прикреплено фото: $photosCount",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(vertical = 4.dp),
+                ) {
+                    items(sessionPhotos, key = { it.localId }) { att ->
+                        PhotoThumb(
+                            filePath = att.localFilePath,
+                            onRemove = { vm.removeSessionPhoto(att.localId) },
+                        )
+                    }
+                    items(state.sessionPhotoPaths, key = { "mem-$it" }) { path ->
+                        PhotoThumb(
+                            filePath = path,
+                            onRemove = { vm.removeInMemorySessionPhoto(path) },
+                        )
+                    }
+                }
             }
         }
     }
@@ -485,7 +501,18 @@ private fun ItemFormStep(vm: ReceiptSessionViewModel) {
                 Text("  Добавить фото", style = MaterialTheme.typography.titleMedium)
             }
             if (form.photoPaths.isNotEmpty()) {
-                Text("Прикреплено: ${form.photoPaths.size}", style = MaterialTheme.typography.bodyMedium)
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(vertical = 4.dp),
+                ) {
+                    items(form.photoPaths, key = { it }) { path ->
+                        PhotoThumb(
+                            filePath = path,
+                            onRemove = { vm.removeItemPhoto(path) },
+                        )
+                    }
+                }
             }
             form.errorMessage?.let {
                 Text(it, color = MaterialTheme.colorScheme.error)

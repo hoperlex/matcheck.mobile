@@ -13,6 +13,7 @@ import com.example.matcheckmobile.domain.model.SessionKind
 import com.example.matcheckmobile.domain.model.SyncStatus
 import com.example.matcheckmobile.domain.model.UploadStatus
 import kotlinx.coroutines.flow.Flow
+import java.io.File
 import java.util.UUID
 
 class ReceiptSessionRepository(
@@ -112,6 +113,16 @@ class ReceiptSessionRepository(
                 confirmedByMol = confirmedByMol,
             )
         )
+    }
+
+    /** Удаляет сессионное фото (только пока приёмка редактируемая) и подчищает локальный файл. */
+    suspend fun removeSessionPhoto(attachmentId: String) {
+        val attachment = attachmentDao.findById(attachmentId) ?: return
+        val sessionId = attachment.sessionLocalId ?: return
+        val session = sessionDao.findById(sessionId) ?: return
+        if (!session.isEditable()) return
+        attachmentDao.deleteById(attachmentId)
+        runCatching { File(attachment.localFilePath).delete() }
     }
 
     suspend fun addSessionPhoto(sessionId: String, localFilePath: String) {
