@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.matcheckmobile.MatcheckApplication
+import com.example.matcheckmobile.presentation.components.CommentField
 import com.example.matcheckmobile.presentation.components.PhotoPreviewDialog
 import com.example.matcheckmobile.presentation.components.PhotoThumb
 import com.example.matcheckmobile.presentation.components.VehicleTypeChips
@@ -174,14 +175,9 @@ fun Stage2FormScreen(
                         minLines = 3,
                     )
 
-                    OutlinedTextField(
+                    CommentField(
                         value = state.commentText,
                         onValueChange = vm::setComment,
-                        label = { Text("Комментарий") },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(if (isTablet) 160.dp else 120.dp),
-                        minLines = 3,
                     )
 
                     Box(
