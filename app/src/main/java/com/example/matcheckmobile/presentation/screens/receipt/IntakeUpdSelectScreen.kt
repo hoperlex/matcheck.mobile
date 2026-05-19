@@ -27,7 +27,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -35,10 +34,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.matcheckmobile.presentation.viewmodel.IntakeUpdRow
 import com.example.matcheckmobile.presentation.viewmodel.IntakeUpdSelectViewModel
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.util.Locale
 
 private val ContentMaxWidth = 720.dp
 
@@ -146,9 +141,6 @@ fun IntakeUpdSelectScreen(
 
 @Composable
 private fun UpdRowCard(row: IntakeUpdRow, onClick: () -> Unit) {
-    val dateFormatter = remember {
-        DateTimeFormatter.ofPattern("dd.MM.yyyy", Locale.getDefault()).withZone(ZoneId.systemDefault())
-    }
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -161,13 +153,6 @@ private fun UpdRowCard(row: IntakeUpdRow, onClick: () -> Unit) {
             Text(
                 text = "УПД ${row.document.docNumber ?: "—"}",
                 style = MaterialTheme.typography.titleLarge,
-            )
-            val date = row.document.docDate?.let { iso ->
-                runCatching { dateFormatter.format(Instant.parse(iso)) }.getOrNull()
-            } ?: "—"
-            Text(
-                text = date,
-                style = MaterialTheme.typography.bodyMedium,
             )
             Text(
                 text = "Подрядчик: ${row.contractorName ?: "—"}",
