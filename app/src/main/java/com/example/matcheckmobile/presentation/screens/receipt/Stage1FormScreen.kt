@@ -178,8 +178,10 @@ fun Stage1FormScreen(
                         value = state.commentText,
                         onValueChange = vm::setComment,
                         label = { Text("Комментарий") },
-                        modifier = Modifier.fillMaxWidth(),
-                        minLines = 2,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(if (isTablet) 160.dp else 120.dp),
+                        minLines = 3,
                     )
 
                     Box(
