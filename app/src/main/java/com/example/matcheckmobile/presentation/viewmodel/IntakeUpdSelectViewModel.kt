@@ -28,9 +28,17 @@ data class IntakeUpdRow(
     val contractorName: String?,
 )
 
+/** Группа УПД по подрядчику. Используется для секций в [IntakeUpdSelectScreen]. */
+data class IntakeUpdGroup(
+    val contractorName: String,
+    val rows: List<IntakeUpdRow>,
+)
+
+private const val UNKNOWN_CONTRACTOR_LABEL = "Подрядчик не указан"
+
 class IntakeUpdSelectViewModel(container: AppContainer) : ViewModel() {
 
-    val rows: StateFlow<List<IntakeUpdRow>> = combine(
+    val groups: StateFlow<List<IntakeUpdGroup>> = combine(
         container.database.remoteSourceDocumentDao().observeAll(),
         container.database.remoteCounterpartyDao().observeAll(),
         container.database.remoteDeliveryDao().observeAttachedSourceDocumentIdsJson(),
@@ -42,7 +50,7 @@ class IntakeUpdSelectViewModel(container: AppContainer) : ViewModel() {
             }
         }
         val byCounterpartyId = cps.associateBy { it.id }
-        docs
+        val rows = docs
             .asSequence()
             .filter { it.id !in attachedIds }
             .map { d ->
@@ -55,6 +63,18 @@ class IntakeUpdSelectViewModel(container: AppContainer) : ViewModel() {
                 )
             }
             .toList()
+
+        // Группируем по подрядчику. Безымянные («Подрядчик не указан») сортируем
+        // в конец, остальные — по алфавиту.
+        rows.groupBy { it.contractorName?.takeIf { name -> name.isNotBlank() } ?: UNKNOWN_CONTRACTOR_LABEL }
+            .toList()
+            .sortedWith(
+                compareBy(
+                    { it.first == UNKNOWN_CONTRACTOR_LABEL },
+                    { it.first.lowercase() },
+                ),
+            )
+            .map { (contractor, items) -> IntakeUpdGroup(contractor, items) }
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),

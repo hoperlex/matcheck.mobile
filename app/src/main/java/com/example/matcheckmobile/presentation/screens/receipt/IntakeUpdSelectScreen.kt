@@ -31,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.matcheckmobile.presentation.viewmodel.IntakeUpdGroup
 import com.example.matcheckmobile.presentation.viewmodel.IntakeUpdRow
 import com.example.matcheckmobile.presentation.viewmodel.IntakeUpdSelectViewModel
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
@@ -45,7 +46,7 @@ fun IntakeUpdSelectScreen(
     onCreateEmpty: () -> Unit,
 ) {
     val vm: IntakeUpdSelectViewModel = matcheckViewModel()
-    val rows by vm.rows.collectAsStateWithLifecycle()
+    val groups by vm.groups.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -103,7 +104,7 @@ fun IntakeUpdSelectScreen(
                         .fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    if (rows.isEmpty()) {
+                    if (groups.isEmpty()) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -125,17 +126,44 @@ fun IntakeUpdSelectScreen(
                             modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            items(rows, key = { it.document.id }) { row ->
-                                UpdRowCard(
-                                    row = row,
-                                    onClick = { onOpenWithUpd(row.document.id) },
-                                )
+                            groups.forEach { group ->
+                                item(key = "header:${group.contractorName}") {
+                                    ContractorHeader(
+                                        name = group.contractorName,
+                                        count = group.rows.size,
+                                    )
+                                }
+                                items(group.rows, key = { it.document.id }) { row ->
+                                    UpdRowCard(
+                                        row = row,
+                                        onClick = { onOpenWithUpd(row.document.id) },
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ContractorHeader(name: String, count: Int) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 12.dp, bottom = 4.dp, start = 4.dp),
+    ) {
+        Text(
+            text = name,
+            style = MaterialTheme.typography.titleLarge,
+        )
+        Text(
+            text = "УПД: $count",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -153,10 +181,6 @@ private fun UpdRowCard(row: IntakeUpdRow, onClick: () -> Unit) {
             Text(
                 text = "УПД ${row.document.docNumber ?: "—"}",
                 style = MaterialTheme.typography.headlineSmall,
-            )
-            Text(
-                text = "Подрядчик: ${row.contractorName ?: "—"}",
-                style = MaterialTheme.typography.titleMedium,
             )
             Text(
                 text = "Поставщик: ${row.supplierName ?: "—"}",
