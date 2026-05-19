@@ -165,10 +165,8 @@ private fun UpdRowCard(row: IntakeUpdRow, onClick: () -> Unit) {
             val date = row.document.docDate?.let { iso ->
                 runCatching { dateFormatter.format(Instant.parse(iso)) }.getOrNull()
             } ?: "—"
-            // totalSum приходит как строковое десятичное (Decimal на сервере) — печатаем как есть с символом валюты.
-            val sum = row.document.totalSum?.let { "$it ₽" } ?: "—"
             Text(
-                text = "$date · $sum",
+                text = date,
                 style = MaterialTheme.typography.bodyMedium,
             )
             Text(
