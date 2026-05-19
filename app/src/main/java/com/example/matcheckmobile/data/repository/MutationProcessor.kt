@@ -22,21 +22,19 @@ import java.io.IOException
  * Push-цикл локальных мутаций на сервер. По образцу
  * apps/web/src/services/sync.ts: pushPendingMutations.
  *
- * Поведение по статусам ответа:
+ * Разбор ошибок делает [classifyMutationFailure]; обработка по семантике:
  * - 200 → пишем серверный snapshot в Room, удаляем mutation
- * - 409 conflict (OCC) → пишем server-snapshot в delivery.serverSnapshotJson,
- *   ставим conflictPending=true на mutation. Ждём UI-разрешения через
- *   ConflictRepository
- * - 409 soft-delete-семантика (must_mark_first / already_pending / not_pending
- *   / pending_deletion) → перечитываем сущность с сервера, drop mutation
- *   (она "морально устарела")
- * - 400 cannot_mark_status → drop, логируем
+ * - OCC conflict → пишем server-snapshot в delivery.serverSnapshotJson,
+ *   conflictPending=true. Ждём UI-разрешения через ConflictRepository
+ * - pending_deletion / already_pending / not_pending → перечитываем сущность
+ *   через GET /:id (приходит актуальный pendingDeletionAt), drop mutation
+ * - must_mark_first / cannot_mark_status → drop (клиентская логика разошлась
+ *   с сервером; inspector_kpp такое инициировать не должен)
  * - 5xx / IOException → backoff: attempts++, оставляем в очереди
- * - другие 4xx → drop (бажный локальный state, retry бесполезен)
+ * - другие 4xx → drop (state локально сломан, retry бесполезен)
  *
- * При обработке push-mutations порядок гарантируется: одна мутация
- * блокирует следующие на той же сущности (FIFO). Между разными сущностями
- * порядка нет.
+ * Порядок: одна мутация блокирует следующие на той же entityId (FIFO).
+ * Между разными сущностями порядка нет.
  */
 class MutationProcessor(
     private val mutationDao: MutationDao,
@@ -76,7 +74,7 @@ class MutationProcessor(
                         m.copy(
                             conflictPending = true,
                             attempts = m.attempts + 1,
-                            lastError = "conflict",
+                            lastError = outcome.tag,
                         ),
                     )
                     blockedEntities += key
@@ -204,26 +202,44 @@ class MutationProcessor(
 
         val code = error.code()
         val raw = runCatching { error.response()?.errorBody()?.string() }.getOrNull()
+        val failure = classifyMutationFailure(code, raw)
 
-        if (code == 409) {
-            // OCC conflict — есть server snapshot. Парсим как Delivery/ShipmentConflictResponse.
-            val occHandled = tryHandleOccConflict(m, raw)
-            if (occHandled) return Outcome.Conflict
-
-            // Soft-delete семантика — перечитываем сущность, drop mutation.
-            tryRefreshAfterSoftConflict(m)
-            return Outcome.Drop
+        return when (failure) {
+            is MutationFailure.Conflict -> {
+                // OCC: пишем server-snapshot в Room и ставим conflictPending.
+                // Ожидается UI разрешения через ConflictRepository.
+                if (tryApplyOccSnapshot(m, raw)) Outcome.Conflict(failure.tag)
+                else Outcome.Drop
+            }
+            MutationFailure.PendingDeletion,
+            MutationFailure.AlreadyPending,
+            MutationFailure.NotPending -> {
+                // Локальная копия отстала: документ либо помечен на удаление,
+                // либо уже в нужном soft-delete-состоянии. Освежаем GET /:id —
+                // там придёт актуальный pendingDeletionAt/By/Reason.
+                tryRefreshFromServer(m)
+                Outcome.Drop
+            }
+            MutationFailure.MustMarkFirst,
+            MutationFailure.CannotMarkStatus -> {
+                // Клиентская логика разошлась с серверной. Inspector_kpp не
+                // должен пытаться финальный DELETE (must_mark_first — это
+                // только admin) или mark по черновику (cannot_mark_status —
+                // надо было обычный DELETE). Drop с описательным lastError.
+                Outcome.Drop
+            }
+            is MutationFailure.Other -> {
+                if (code in 500..599) Outcome.Backoff("http $code")
+                else Outcome.Drop
+            }
         }
-        if (code in 500..599) return Outcome.Backoff("http $code")
-        return Outcome.Drop // 4xx (кроме 409) — состояние локально сломано
     }
 
-    private suspend fun tryHandleOccConflict(m: MutationEntity, raw: String?): Boolean {
+    private suspend fun tryApplyOccSnapshot(m: MutationEntity, raw: String?): Boolean {
         if (raw.isNullOrBlank()) return false
         return when (m.entityType) {
             "delivery" -> runCatching {
                 val parsed = json.decodeFromString(DeliveryConflictResponse.serializer(), raw)
-                if (parsed.error != "conflict") return@runCatching false
                 val entity = parsed.server.toEntity().copy(
                     conflictPending = true,
                     serverSnapshotJson = raw,
@@ -238,7 +254,6 @@ class MutationProcessor(
             }.getOrDefault(false)
             "shipment" -> runCatching {
                 val parsed = json.decodeFromString(ShipmentConflictResponse.serializer(), raw)
-                if (parsed.error != "conflict") return@runCatching false
                 val entity = parsed.server.toEntity().copy(
                     conflictPending = true,
                     serverSnapshotJson = raw,
@@ -255,7 +270,7 @@ class MutationProcessor(
         }
     }
 
-    private suspend fun tryRefreshAfterSoftConflict(m: MutationEntity) {
+    private suspend fun tryRefreshFromServer(m: MutationEntity) {
         runCatching {
             when (m.entityType) {
                 "delivery" -> saveDeliveryFromServer(deliveriesApi.get(m.entityId))
@@ -273,7 +288,7 @@ class MutationProcessor(
 
     sealed interface Outcome {
         data object Ok : Outcome
-        data object Conflict : Outcome
+        data class Conflict(val tag: String) : Outcome
         data object Drop : Outcome
         data class Backoff(val error: String) : Outcome
     }
