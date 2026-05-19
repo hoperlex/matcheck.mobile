@@ -48,6 +48,15 @@ interface RemoteSourceDocumentDao {
     @Query("SELECT * FROM remote_source_documents WHERE id = :id")
     suspend fun findById(id: String): RemoteSourceDocumentEntity?
 
+    @Query(
+        """
+        SELECT * FROM remote_source_document_items
+        WHERE sourceDocumentId = :sourceDocumentId
+        ORDER BY lineNo ASC
+        """
+    )
+    suspend fun findItemsBySource(sourceDocumentId: String): List<RemoteSourceDocumentItemEntity>
+
     @Query("SELECT * FROM remote_source_documents ORDER BY docDate DESC")
     fun observeAll(): Flow<List<RemoteSourceDocumentEntity>>
 

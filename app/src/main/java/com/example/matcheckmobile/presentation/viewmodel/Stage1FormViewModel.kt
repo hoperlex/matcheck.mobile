@@ -33,6 +33,27 @@ class Stage1FormViewModel(
     private val _state = MutableStateFlow(Stage1FormUiState(updId = updId))
     val state: StateFlow<Stage1FormUiState> = _state.asStateFlow()
 
+    init {
+        // Предзаполнить материалы из позиций УПД (если она выбрана) —
+        // удобно инспектору, чтобы не печатать вручную то, что и так есть
+        // в документе.
+        val id = updId
+        if (!id.isNullOrBlank()) {
+            viewModelScope.launch {
+                val items = runCatching {
+                    container.database.remoteSourceDocumentDao().findItemsBySource(id)
+                }.getOrDefault(emptyList())
+                val text = items.joinToString("\n") { it.nameRaw }
+                if (text.isNotEmpty()) {
+                    _state.update { current ->
+                        if (current.materialsText.isBlank()) current.copy(materialsText = text)
+                        else current
+                    }
+                }
+            }
+        }
+    }
+
     fun onPhotoTaken(path: String) {
         _state.update { it.copy(photoPaths = it.photoPaths + path) }
     }
