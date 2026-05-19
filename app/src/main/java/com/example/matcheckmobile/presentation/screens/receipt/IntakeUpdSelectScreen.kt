@@ -152,15 +152,15 @@ private fun UpdRowCard(row: IntakeUpdRow, onClick: () -> Unit) {
         ) {
             Text(
                 text = "УПД ${row.document.docNumber ?: "—"}",
-                style = MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.headlineSmall,
             )
             Text(
                 text = "Подрядчик: ${row.contractorName ?: "—"}",
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.titleMedium,
             )
             Text(
                 text = "Поставщик: ${row.supplierName ?: "—"}",
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.titleMedium,
             )
         }
     }
