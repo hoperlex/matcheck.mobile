@@ -79,7 +79,8 @@ fun IntakeStagesScreen(
                     verticalArrangement = Arrangement.spacedBy(gap),
                 ) {
                     StageButton(
-                        text = "1 Этап",
+                        title = "1 Этап",
+                        description = "Описание: фотофиксация госномера, груза, документов",
                         onClick = onStage1,
                         isTablet = isTablet,
                         modifier = Modifier
@@ -87,7 +88,8 @@ fun IntakeStagesScreen(
                             .weight(1f),
                     )
                     StageButton(
-                        text = "2 Этап",
+                        title = "2 Этап",
+                        description = "Описание: фотофиксация разгруженной машины, МОЛ, госномер",
                         onClick = onStage2,
                         isTablet = isTablet,
                         modifier = Modifier
@@ -102,7 +104,8 @@ fun IntakeStagesScreen(
 
 @Composable
 private fun StageButton(
-    text: String,
+    title: String,
+    description: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     isTablet: Boolean,
@@ -118,12 +121,25 @@ private fun StageButton(
         ),
         border = BorderStroke(2.dp, Color.Black),
     ) {
-        Text(
-            text = text,
-            style = if (isTablet)
-                MaterialTheme.typography.displayMedium
-            else
-                MaterialTheme.typography.displaySmall,
-        )
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.SpaceBetween,
+            horizontalAlignment = Alignment.Start,
+        ) {
+            Text(
+                text = title,
+                style = if (isTablet)
+                    MaterialTheme.typography.displayMedium
+                else
+                    MaterialTheme.typography.displaySmall,
+            )
+            Text(
+                text = description,
+                style = if (isTablet)
+                    MaterialTheme.typography.bodyLarge
+                else
+                    MaterialTheme.typography.bodyMedium,
+            )
+        }
     }
 }
