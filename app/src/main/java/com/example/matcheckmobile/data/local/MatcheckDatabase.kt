@@ -5,7 +5,10 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.matcheckmobile.data.local.dao.CounterpartyDao
+import com.example.matcheckmobile.data.local.dao.DeliveryLocalMetaDao
 import com.example.matcheckmobile.data.local.dao.MaterialDao
 import com.example.matcheckmobile.data.local.dao.MaterialOperationDao
 import com.example.matcheckmobile.data.local.dao.MutationDao
@@ -23,6 +26,7 @@ import com.example.matcheckmobile.data.local.dao.SourceDocumentDao
 import com.example.matcheckmobile.data.local.dao.SyncQueueDao
 import com.example.matcheckmobile.data.local.dao.UserDao
 import com.example.matcheckmobile.data.local.entity.CounterpartyEntity
+import com.example.matcheckmobile.data.local.entity.DeliveryLocalMetaEntity
 import com.example.matcheckmobile.data.local.entity.MaterialEntity
 import com.example.matcheckmobile.data.local.entity.MaterialOperationEntity
 import com.example.matcheckmobile.data.local.entity.MutationEntity
@@ -60,6 +64,7 @@ import com.example.matcheckmobile.data.local.entity.UserEntity
         SourceDocumentEntity::class,
         SourceDocumentItemEntity::class,
         ReceiptSessionEntity::class,
+        DeliveryLocalMetaEntity::class,
         // Серверная модель (источник правды — matcheck API).
         RemoteDeliveryEntity::class,
         RemoteDeliveryItemEntity::class,
@@ -76,7 +81,7 @@ import com.example.matcheckmobile.data.local.entity.UserEntity
         RemoteSourceDocumentAttachmentEntity::class,
         MutationEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)
@@ -99,6 +104,7 @@ abstract class MatcheckDatabase : RoomDatabase() {
     abstract fun remoteStatusDao(): RemoteStatusDao
     abstract fun remoteSourceDocumentDao(): RemoteSourceDocumentDao
     abstract fun mutationDao(): MutationDao
+    abstract fun deliveryLocalMetaDao(): DeliveryLocalMetaDao
 
     companion object {
         private const val DB_NAME = "matcheck.db"
@@ -112,7 +118,30 @@ abstract class MatcheckDatabase : RoomDatabase() {
                     context.applicationContext,
                     MatcheckDatabase::class.java,
                     DB_NAME,
-                ).fallbackToDestructiveMigration(dropAllTables = true).build().also { INSTANCE = it }
+                )
+                    .addMigrations(MIGRATION_7_8)
+                    .fallbackToDestructiveMigration(dropAllTables = true)
+                    .build()
+                    .also { INSTANCE = it }
+            }
+        }
+
+        // Добавлена таблица delivery_local_meta — локальный vehicleTypeCode,
+        // который не приходит из server-snapshot и не должен теряться при /sync.
+        // FK на remote_deliveries(id) с CASCADE.
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `delivery_local_meta` (
+                        `deliveryId` TEXT NOT NULL,
+                        `vehicleTypeCode` TEXT,
+                        PRIMARY KEY(`deliveryId`),
+                        FOREIGN KEY(`deliveryId`) REFERENCES `remote_deliveries`(`id`)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
             }
         }
     }

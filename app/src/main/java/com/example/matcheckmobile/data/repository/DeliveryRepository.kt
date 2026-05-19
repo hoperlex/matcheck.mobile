@@ -1,7 +1,9 @@
 package com.example.matcheckmobile.data.repository
 
+import com.example.matcheckmobile.data.local.dao.DeliveryLocalMetaDao
 import com.example.matcheckmobile.data.local.dao.MutationDao
 import com.example.matcheckmobile.data.local.dao.RemoteDeliveryDao
+import com.example.matcheckmobile.data.local.entity.DeliveryLocalMetaEntity
 import com.example.matcheckmobile.data.local.entity.MutationEntity
 import com.example.matcheckmobile.data.local.entity.RemoteDeliveryEntity
 import com.example.matcheckmobile.data.local.entity.RemoteDeliveryItemEntity
@@ -24,6 +26,7 @@ import java.util.UUID
 class DeliveryRepository(
     private val deliveryDao: RemoteDeliveryDao,
     private val mutationDao: MutationDao,
+    private val localMetaDao: DeliveryLocalMetaDao,
 ) {
 
     private val json: Json = Json { encodeDefaults = true; ignoreUnknownKeys = true }
@@ -32,6 +35,21 @@ class DeliveryRepository(
     fun observeTrash(): Flow<List<RemoteDeliveryEntity>> = deliveryDao.observeTrash()
 
     suspend fun findById(id: String): RemoteDeliveryEntity? = deliveryDao.findById(id)
+
+    /**
+     * Локальный тип транспорта (Ларгус/Газель/Грузовик/Фура). Хранится только
+     * на устройстве — на сервере поля нет, поэтому /sync его не затирает.
+     * Поток с актуальным значением для конкретной приёмки — для подписки в UI.
+     */
+    fun observeVehicleType(deliveryId: String): Flow<String?> =
+        localMetaDao.observeVehicleTypeCode(deliveryId)
+
+    suspend fun getVehicleType(deliveryId: String): String? =
+        localMetaDao.getByDeliveryId(deliveryId)?.vehicleTypeCode
+
+    suspend fun setVehicleType(deliveryId: String, code: String?) {
+        localMetaDao.upsert(DeliveryLocalMetaEntity(deliveryId = deliveryId, vehicleTypeCode = code))
+    }
 
     /**
      * Создаёт черновик / обновляет существующую приёмку и ставит upsert-мутацию.
