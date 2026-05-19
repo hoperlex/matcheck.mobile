@@ -25,6 +25,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.matcheckmobile.domain.model.VEHICLE_TYPES
 import com.example.matcheckmobile.domain.model.VehicleType
@@ -35,24 +36,32 @@ fun VehicleTypeChips(
     selectedCode: String?,
     onSelected: (VehicleType) -> Unit,
     modifier: Modifier = Modifier,
+    label: String? = "Тип транспорта",
+    maxItemsInRow: Int = VEHICLE_TYPES.size,
+    iconHeight: Dp = 36.dp,
+    showSubtitle: Boolean = true,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
-        Text(
-            text = "Тип транспорта",
-            style = MaterialTheme.typography.labelMedium,
-            modifier = Modifier.padding(bottom = 6.dp, start = 4.dp),
-        )
+        if (label != null) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.padding(bottom = 6.dp, start = 4.dp),
+            )
+        }
         FlowRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
-            maxItemsInEachRow = VEHICLE_TYPES.size,
+            maxItemsInEachRow = maxItemsInRow,
         ) {
             VEHICLE_TYPES.forEach { type ->
                 VehicleChip(
                     type = type,
                     selected = type.code == selectedCode,
                     onClick = { onSelected(type) },
+                    iconHeight = iconHeight,
+                    showSubtitle = showSubtitle,
                     modifier = Modifier.weight(1f, fill = true),
                 )
             }
@@ -65,6 +74,8 @@ private fun VehicleChip(
     type: VehicleType,
     selected: Boolean,
     onClick: () -> Unit,
+    iconHeight: Dp,
+    showSubtitle: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val container = if (selected)
@@ -97,7 +108,7 @@ private fun VehicleChip(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(36.dp),
+                    .height(iconHeight),
                 contentAlignment = Alignment.Center,
             ) {
                 Image(
@@ -115,18 +126,20 @@ private fun VehicleChip(
                 textAlign = TextAlign.Center,
                 maxLines = 1,
             )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(
-                    text = "${formatNum(type.volumeM3)} м³",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Text(
-                    text = "${formatNum(type.payloadTons)} т",
-                    style = MaterialTheme.typography.bodySmall,
-                )
+            if (showSubtitle) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        text = "${formatNum(type.volumeM3)} м³",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Text(
+                        text = "${formatNum(type.payloadTons)} т",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
             }
         }
     }

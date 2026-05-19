@@ -22,6 +22,7 @@ import com.example.matcheckmobile.presentation.screens.receipt.IntakeStagesScree
 import com.example.matcheckmobile.presentation.screens.receipt.IntakeUpdSelectScreen
 import com.example.matcheckmobile.presentation.screens.receipt.ReceiptScreen
 import com.example.matcheckmobile.presentation.screens.receipt.SavedReceiptsScreen
+import com.example.matcheckmobile.presentation.screens.receipt.Stage1FormScreen
 import com.example.matcheckmobile.presentation.screens.receipt.Stage2PlaceholderScreen
 import com.example.matcheckmobile.presentation.screens.settings.SettingsScreen
 import com.example.matcheckmobile.presentation.screens.sync.SyncQueueScreen
@@ -77,13 +78,32 @@ fun MatcheckNavHost() {
             IntakeUpdSelectScreen(
                 onBack = { navController.popBackStack() },
                 onOpenWithUpd = { updId ->
-                    navController.navigate(Routes.receiptForUpd(updId))
+                    navController.navigate(Routes.stage1FormForUpd(updId))
                 },
                 onCreateEmpty = {
-                    navController.navigate(Routes.receiptNew())
+                    navController.navigate(Routes.stage1FormNew())
                 },
                 onOpenSavedList = {
                     navController.navigate(Routes.SAVED_RECEIPTS)
+                },
+            )
+        }
+        composable(
+            route = Routes.STAGE1_FORM,
+            arguments = listOf(
+                navArgument(Routes.ARG_UPD_ID) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) {
+            Stage1FormScreen(
+                onBack = { navController.popBackStack() },
+                onFinalized = {
+                    // Возвращаемся сразу на экран этапов — список УПД и сама форма уйдут
+                    // из бэк-стека, чтобы кнопка «Назад» не открывала уже сохранённую приёмку.
+                    navController.popBackStack(Routes.INTAKE_STAGES, inclusive = false)
                 },
             )
         }
