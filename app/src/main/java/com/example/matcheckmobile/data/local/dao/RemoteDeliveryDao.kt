@@ -98,4 +98,12 @@ interface RemoteDeliveryDao {
 
     @Query("SELECT * FROM remote_delivery_items WHERE deliveryId = :deliveryId ORDER BY lineNo ASC")
     suspend fun findItemsByDelivery(deliveryId: String): List<RemoteDeliveryItemEntity>
+
+    @Query(
+        """
+        SELECT sourceDocumentIdsJson FROM remote_deliveries
+        WHERE pendingDeletionAt IS NULL AND sourceDocumentIdsJson != '[]'
+        """
+    )
+    fun observeAttachedSourceDocumentIdsJson(): Flow<List<String>>
 }

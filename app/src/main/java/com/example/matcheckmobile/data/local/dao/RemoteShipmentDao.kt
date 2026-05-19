@@ -83,4 +83,12 @@ interface RemoteShipmentDao {
 
     @Query("SELECT * FROM remote_shipments WHERE conflictPending = 1 ORDER BY updatedAt DESC")
     fun observeConflicts(): kotlinx.coroutines.flow.Flow<List<RemoteShipmentEntity>>
+
+    @Query(
+        """
+        SELECT sourceDocumentIdsJson FROM remote_shipments
+        WHERE pendingDeletionAt IS NULL AND sourceDocumentIdsJson != '[]'
+        """
+    )
+    fun observeAttachedSourceDocumentIdsJson(): kotlinx.coroutines.flow.Flow<List<String>>
 }
