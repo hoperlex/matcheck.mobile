@@ -128,10 +128,7 @@ fun IntakeUpdSelectScreen(
                         ) {
                             groups.forEach { group ->
                                 item(key = "header:${group.contractorName}") {
-                                    ContractorHeader(
-                                        name = group.contractorName,
-                                        count = group.rows.size,
-                                    )
+                                    ContractorHeader(name = group.contractorName)
                                 }
                                 items(group.rows, key = { it.document.id }) { row ->
                                     UpdRowCard(
@@ -149,22 +146,14 @@ fun IntakeUpdSelectScreen(
 }
 
 @Composable
-private fun ContractorHeader(name: String, count: Int) {
-    Column(
+private fun ContractorHeader(name: String) {
+    Text(
+        text = name,
+        style = MaterialTheme.typography.titleLarge,
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 12.dp, bottom = 4.dp, start = 4.dp),
-    ) {
-        Text(
-            text = name,
-            style = MaterialTheme.typography.titleLarge,
-        )
-        Text(
-            text = "УПД: $count",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
+    )
 }
 
 @Composable
