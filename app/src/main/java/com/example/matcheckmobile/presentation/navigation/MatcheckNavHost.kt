@@ -100,9 +100,6 @@ fun MatcheckNavHost() {
                 onCreateEmpty = {
                     navController.navigate(Routes.stage1FormNew())
                 },
-                onOpenSavedList = {
-                    navController.navigate(Routes.SAVED_RECEIPTS)
-                },
             )
         }
         composable(
