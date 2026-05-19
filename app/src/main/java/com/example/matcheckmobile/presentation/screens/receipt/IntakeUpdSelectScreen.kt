@@ -154,14 +154,13 @@ private fun UpdRowCard(row: IntakeUpdRow, onClick: () -> Unit) {
             .fillMaxWidth()
             .clickable { onClick() },
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
             Text(
                 text = "УПД ${row.document.docNumber ?: "—"}",
                 style = MaterialTheme.typography.titleLarge,
-            )
-            Text(
-                text = row.supplierName ?: "Поставщик не указан",
-                style = MaterialTheme.typography.bodyLarge,
             )
             val date = row.document.docDate?.let { iso ->
                 runCatching { dateFormatter.format(Instant.parse(iso)) }.getOrNull()
@@ -170,6 +169,14 @@ private fun UpdRowCard(row: IntakeUpdRow, onClick: () -> Unit) {
             val sum = row.document.totalSum?.let { "$it ₽" } ?: "—"
             Text(
                 text = "$date · $sum",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                text = "Подрядчик: ${row.contractorName ?: "—"}",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                text = "Поставщик: ${row.supplierName ?: "—"}",
                 style = MaterialTheme.typography.bodyMedium,
             )
         }

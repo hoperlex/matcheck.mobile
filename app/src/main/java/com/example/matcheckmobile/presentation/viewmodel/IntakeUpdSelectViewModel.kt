@@ -24,6 +24,8 @@ data class IntakeUpdRow(
     val document: RemoteSourceDocumentEntity,
     /** Имя поставщика. На сервере приходит в `supplierName` готовое; counterparties используем как fallback. */
     val supplierName: String?,
+    /** Имя подрядчика. Аналогично supplierName: серверное поле + fallback на counterparties. */
+    val contractorName: String?,
 )
 
 class IntakeUpdSelectViewModel(container: AppContainer) : ViewModel() {
@@ -48,6 +50,8 @@ class IntakeUpdSelectViewModel(container: AppContainer) : ViewModel() {
                     document = d,
                     supplierName = d.supplierName
                         ?: d.supplierId?.let { byCounterpartyId[it]?.name },
+                    contractorName = d.contractorName
+                        ?: d.contractorId?.let { byCounterpartyId[it]?.name },
                 )
             }
             .toList()
