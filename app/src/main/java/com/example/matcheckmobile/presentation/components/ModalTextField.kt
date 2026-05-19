@@ -32,20 +32,21 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 
 /**
- * Однострочный «псевдо-инпут» комментария. По тапу открывается модальное окно
- * с полноценным многострочным полем ввода — это удобнее системной клавиатуры,
+ * Однострочный «псевдо-инпут». По тапу открывается модальное окно с
+ * полноценным многострочным полем ввода — это удобнее системной клавиатуры,
  * которая на планшетах закрывает половину экрана.
  *
  * Visual: внешне как обычный OutlinedTextField, но клик ловит прозрачная
  * плёнка сверху — поэтому фокус не уходит в TextField и клавиатура не
- * поднимается.
+ * поднимается. Используется для длинных текстовых полей (Материалы,
+ * Комментарий и т.п.).
  */
 @Composable
-fun CommentField(
+fun ModalTextField(
     value: String,
     onValueChange: (String) -> Unit,
+    label: String,
     modifier: Modifier = Modifier,
-    label: String = "Комментарий",
     placeholder: String = "Нажмите для ввода",
 ) {
     var dialogVisible by remember { mutableStateOf(false) }
@@ -73,7 +74,7 @@ fun CommentField(
     }
 
     if (dialogVisible) {
-        CommentEditorDialog(
+        ModalTextFieldDialog(
             initialValue = value,
             label = label,
             onDismiss = { result ->
@@ -85,7 +86,7 @@ fun CommentField(
 }
 
 @Composable
-private fun CommentEditorDialog(
+private fun ModalTextFieldDialog(
     initialValue: String,
     label: String,
     onDismiss: (resultText: String) -> Unit,
