@@ -50,6 +50,18 @@ data class MaterialDraft(
 )
 
 /**
+ * Убирает trailing-нули и точку у decimal-строки: "2.0000" → "2",
+ * "2.5000" → "2.5". Сервер хранит Decimal как строку с фиксированной
+ * точностью, инспектору удобнее короткий вид. Нечисловые строки возвращаются
+ * как есть.
+ */
+private fun String.compactDecimal(): String {
+    if (isEmpty() || !contains('.')) return this
+    val cleaned = trimEnd('0').trimEnd('.')
+    return cleaned.ifEmpty { "0" }
+}
+
+/**
  * Однострочный «псевдо-инпут» для материалов: показывает количество позиций,
  * по тапу открывает редактор-список. Каждая строка — название (75% ширины)
  * и количество (25% справа), при тапе превращается в inline-редактор.
@@ -65,7 +77,8 @@ fun MaterialsField(
     val display = value
         .filter { it.name.isNotBlank() }
         .joinToString(" · ") { draft ->
-            if (draft.qty.isBlank()) draft.name else "${draft.name} · ${draft.qty}"
+            val qty = draft.qty.compactDecimal()
+            if (qty.isBlank()) draft.name else "${draft.name} · $qty"
         }
 
     Box(modifier = modifier.fillMaxWidth()) {
@@ -200,7 +213,7 @@ private fun MaterialsEditorDialog(
                                 onClick = {
                                     commitEdit()
                                     editingName = draft.name
-                                    editingQty = draft.qty
+                                    editingQty = draft.qty.compactDecimal()
                                     editingIndex = index
                                 },
                             )
@@ -256,7 +269,7 @@ private fun MaterialRow(
                 modifier = Modifier.weight(0.75f),
             )
             Text(
-                text = draft.qty.ifBlank { "—" },
+                text = draft.qty.compactDecimal().ifBlank { "—" },
                 style = MaterialTheme.typography.bodyLarge,
                 modifier = Modifier.weight(0.25f),
             )
