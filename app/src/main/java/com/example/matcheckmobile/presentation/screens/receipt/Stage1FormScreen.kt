@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.matcheckmobile.MatcheckApplication
+import com.example.matcheckmobile.presentation.components.MaterialsField
 import com.example.matcheckmobile.presentation.components.ModalTextField
 import com.example.matcheckmobile.presentation.components.PhotoPreviewDialog
 import com.example.matcheckmobile.presentation.components.PhotoThumb
@@ -163,10 +164,9 @@ fun Stage1FormScreen(
                         showSubtitle = false,
                     )
 
-                    ModalTextField(
+                    MaterialsField(
                         value = state.materialsText,
                         onValueChange = vm::setMaterials,
-                        label = "Материалы",
                     )
 
                     ModalTextField(
