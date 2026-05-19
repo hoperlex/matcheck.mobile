@@ -7,7 +7,7 @@ import com.example.matcheckmobile.data.local.entity.OperationAttachmentEntity
 import com.example.matcheckmobile.data.local.entity.ReceiptSessionEntity
 import com.example.matcheckmobile.data.repository.OperationRepository
 import com.example.matcheckmobile.di.AppContainer
-import com.example.matcheckmobile.sync.SyncScheduler
+import com.example.matcheckmobile.sync.MatcheckSyncScheduler
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -37,6 +37,10 @@ class SyncQueueViewModel(private val container: AppContainer) : ViewModel() {
         )
 
     fun retryNow() {
-        SyncScheduler.requestImmediateSync(container.appContext)
+        // Раньше дёргали legacy SyncScheduler → OperationSyncWorker, который
+        // пушил остаточные ReceiptSession через api.sendSession() и сервер
+        // создавал мусорные приёмки со статусом not_filled. Теперь крутим
+        // только новый push-pull для Delivery/Shipment.
+        MatcheckSyncScheduler.requestImmediateSync(container.appContext)
     }
 }

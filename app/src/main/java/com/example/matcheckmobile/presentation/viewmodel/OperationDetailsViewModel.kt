@@ -8,7 +8,7 @@ import com.example.matcheckmobile.data.local.entity.OperationAttachmentEntity
 import com.example.matcheckmobile.di.AppContainer
 import com.example.matcheckmobile.domain.model.AttachmentType
 import com.example.matcheckmobile.presentation.navigation.Routes
-import com.example.matcheckmobile.sync.SyncScheduler
+import com.example.matcheckmobile.sync.MatcheckSyncScheduler
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
@@ -44,7 +44,11 @@ class OperationDetailsViewModel(
         if (operationId.isEmpty()) return
         viewModelScope.launch {
             container.operationRepository.attachPhoto(operationId, localFilePath, type)
-            SyncScheduler.requestImmediateSync(container.appContext)
+            // Не дёргаем legacy SyncScheduler — он создавал мусорные приёмки
+            // not_filled через api.sendSession(). Триггерим новый push-pull
+            // (Delivery/Shipment + photo presign), фото операции синхронизируется
+            // штатным циклом.
+            MatcheckSyncScheduler.requestImmediateSync(container.appContext)
         }
     }
 }
