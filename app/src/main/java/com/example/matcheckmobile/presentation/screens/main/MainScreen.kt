@@ -7,15 +7,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -81,9 +77,8 @@ fun MainScreen(
                 .padding(padding),
         ) {
             val isTablet = maxWidth >= TabletBreakpoint
-            val contentMaxWidth: Dp = if (isTablet) 900.dp else maxWidth
+            val contentMaxWidth: Dp = if (isTablet) 720.dp else maxWidth
             val outerPadding = if (isTablet) 32.dp else 16.dp
-            val buttonHeight = if (isTablet) 176.dp else 96.dp
             val gap = if (isTablet) 24.dp else 16.dp
 
             Box(
@@ -95,8 +90,7 @@ fun MainScreen(
                 Column(
                     modifier = Modifier
                         .widthIn(max = contentMaxWidth)
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
+                        .fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(gap),
                 ) {
                     StatusBanner(
@@ -105,46 +99,22 @@ fun MainScreen(
                         pendingAttachments = status.pendingAttachments,
                     )
 
-                    if (isTablet) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(gap),
-                        ) {
-                            ActionButton(
-                                text = "Приёмка",
-                                onClick = onReceipt,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(buttonHeight),
-                                isTablet = true,
-                            )
-                            ActionButton(
-                                text = "Выезд",
-                                onClick = onDispatch,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(buttonHeight),
-                                isTablet = true,
-                            )
-                        }
-                    } else {
-                        ActionButton(
-                            text = "Приёмка",
-                            onClick = onReceipt,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(buttonHeight),
-                            isTablet = false,
-                        )
-                        ActionButton(
-                            text = "Выезд",
-                            onClick = onDispatch,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(buttonHeight),
-                            isTablet = false,
-                        )
-                    }
+                    ActionButton(
+                        text = "Приёмка",
+                        onClick = onReceipt,
+                        isTablet = isTablet,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                    )
+                    ActionButton(
+                        text = "Выезд",
+                        onClick = onDispatch,
+                        isTablet = isTablet,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                    )
                 }
             }
         }
@@ -248,15 +218,16 @@ private fun ActionButton(
     Button(
         onClick = onClick,
         modifier = modifier,
-        contentPadding = PaddingValues(16.dp),
+        shape = RoundedCornerShape(24.dp),
+        contentPadding = PaddingValues(24.dp),
         colors = ButtonDefaults.buttonColors(),
     ) {
         Text(
             text = text,
             style = if (isTablet)
-                MaterialTheme.typography.headlineMedium
+                MaterialTheme.typography.displayMedium
             else
-                MaterialTheme.typography.headlineSmall,
+                MaterialTheme.typography.displaySmall,
         )
     }
 }
