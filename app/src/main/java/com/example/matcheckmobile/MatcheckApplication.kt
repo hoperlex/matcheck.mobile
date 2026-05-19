@@ -48,9 +48,12 @@ class MatcheckApplication : Application() {
                 }
             }
         }
-        // Legacy sync worker (старые receipt_sessions / material_operations)
-        // — оставлен до Этапа 6, пока UI на старых таблицах.
-        SyncScheduler.schedulePeriodicSync(this)
+        // Legacy sync worker отключён: UI приёмок теперь через Stage1/Stage2 →
+        // DeliveryRepository.upsert → MutationProcessor (новый push). Старый
+        // OperationSyncWorker, если он был запланирован на этом устройстве,
+        // снимаем — иначе он пушит остаточные ReceiptSession и сервер
+        // создаёт мусорные приёмки со статусом not_filled.
+        SyncScheduler.cancelAll(this)
     }
 
     private suspend fun seedDefaultsIfNeeded() {

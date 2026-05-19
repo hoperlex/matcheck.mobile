@@ -36,4 +36,17 @@ object SyncScheduler {
         WorkManager.getInstance(context)
             .enqueueUniquePeriodicWork(PERIODIC_WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, request)
     }
+
+    /**
+     * Снимает уже запланированные legacy-воркеры на устройствах, где их
+     * успели зарегистрировать. После перехода на Stage1/Stage2 (новый push
+     * через [MutationProcessor]) этот цикл больше не нужен — иначе он
+     * пушит остаточные ReceiptSession в api.sendSession() и сервер создаёт
+     * мусорные приёмки со статусом not_filled.
+     */
+    fun cancelAll(context: Context) {
+        val wm = WorkManager.getInstance(context)
+        wm.cancelUniqueWork(ONE_TIME_WORK_NAME)
+        wm.cancelUniqueWork(PERIODIC_WORK_NAME)
+    }
 }
