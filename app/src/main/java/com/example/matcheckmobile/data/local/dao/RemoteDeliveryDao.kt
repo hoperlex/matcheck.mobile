@@ -86,4 +86,16 @@ interface RemoteDeliveryDao {
 
     @Query("SELECT * FROM remote_deliveries WHERE conflictPending = 1 ORDER BY updatedAt DESC")
     fun observeConflicts(): kotlinx.coroutines.flow.Flow<List<RemoteDeliveryEntity>>
+
+    @Query(
+        """
+        SELECT * FROM remote_deliveries
+        WHERE statusCode = :status AND pendingDeletionAt IS NULL
+        ORDER BY updatedAt DESC, createdAt DESC
+        """
+    )
+    fun observeByStatus(status: String): Flow<List<RemoteDeliveryEntity>>
+
+    @Query("SELECT * FROM remote_delivery_items WHERE deliveryId = :deliveryId ORDER BY lineNo ASC")
+    suspend fun findItemsByDelivery(deliveryId: String): List<RemoteDeliveryItemEntity>
 }

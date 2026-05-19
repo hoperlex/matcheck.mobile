@@ -16,6 +16,11 @@ object Routes {
     fun stage1FormForUpd(updId: String): String = "$STAGE1_FORM_BASE?$ARG_UPD_ID=$updId"
     fun stage1FormNew(): String = STAGE1_FORM_BASE
 
+    const val ARG_DELIVERY_ID = "deliveryId"
+    const val STAGE2_FORM_BASE = "stage2_form"
+    const val STAGE2_FORM = "$STAGE2_FORM_BASE/{$ARG_DELIVERY_ID}"
+    fun stage2Form(deliveryId: String): String = "$STAGE2_FORM_BASE/$deliveryId"
+
     /**
      * `receipt?updId=...&sessionId=...` — оба опциональны.
      * `updId` — для новой приёмки с предвыбранным УПД;

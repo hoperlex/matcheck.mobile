@@ -23,7 +23,8 @@ import com.example.matcheckmobile.presentation.screens.receipt.IntakeUpdSelectSc
 import com.example.matcheckmobile.presentation.screens.receipt.ReceiptScreen
 import com.example.matcheckmobile.presentation.screens.receipt.SavedReceiptsScreen
 import com.example.matcheckmobile.presentation.screens.receipt.Stage1FormScreen
-import com.example.matcheckmobile.presentation.screens.receipt.Stage2PlaceholderScreen
+import com.example.matcheckmobile.presentation.screens.receipt.Stage2FormScreen
+import com.example.matcheckmobile.presentation.screens.receipt.Stage2ListScreen
 import com.example.matcheckmobile.presentation.screens.settings.SettingsScreen
 import com.example.matcheckmobile.presentation.screens.sync.SyncQueueScreen
 
@@ -72,7 +73,23 @@ fun MatcheckNavHost() {
             )
         }
         composable(Routes.INTAKE_STAGE2) {
-            Stage2PlaceholderScreen(onBack = { navController.popBackStack() })
+            Stage2ListScreen(
+                onBack = { navController.popBackStack() },
+                onOpenDelivery = { id -> navController.navigate(Routes.stage2Form(id)) },
+            )
+        }
+        composable(
+            route = Routes.STAGE2_FORM,
+            arguments = listOf(navArgument(Routes.ARG_DELIVERY_ID) { type = NavType.StringType }),
+        ) {
+            Stage2FormScreen(
+                onBack = { navController.popBackStack() },
+                onFinalized = {
+                    // На завершении 2 этапа возвращаемся на список Stage2 —
+                    // приёмка из списка уйдёт (сменит статус на confirmed_mol).
+                    navController.popBackStack(Routes.INTAKE_STAGE2, inclusive = false)
+                },
+            )
         }
         composable(Routes.INTAKE_UPD_SELECT) {
             IntakeUpdSelectScreen(

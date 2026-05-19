@@ -33,8 +33,13 @@ class DeliveryRepository(
 
     fun observeActive(): Flow<List<RemoteDeliveryEntity>> = deliveryDao.observeActive()
     fun observeTrash(): Flow<List<RemoteDeliveryEntity>> = deliveryDao.observeTrash()
+    fun observeByStatus(status: String): Flow<List<RemoteDeliveryEntity>> =
+        deliveryDao.observeByStatus(status)
 
     suspend fun findById(id: String): RemoteDeliveryEntity? = deliveryDao.findById(id)
+
+    suspend fun findItemsByDelivery(deliveryId: String): List<RemoteDeliveryItemEntity> =
+        deliveryDao.findItemsByDelivery(deliveryId)
 
     /**
      * Локальный тип транспорта (Ларгус/Газель/Грузовик/Фура). Хранится только
