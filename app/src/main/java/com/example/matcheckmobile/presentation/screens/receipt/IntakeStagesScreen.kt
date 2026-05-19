@@ -26,8 +26,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.matcheckmobile.ui.theme.OpenSansFontFamily
 
 private val TabletBreakpoint = 600.dp
 
@@ -126,19 +129,20 @@ private fun StageButton(
             verticalArrangement = Arrangement.SpaceBetween,
             horizontalAlignment = Alignment.Start,
         ) {
+            // Заголовок ×1.5 от исходного displayMedium/displaySmall, центрируется
+            // на всю ширину кнопки.
             Text(
                 text = title,
-                style = if (isTablet)
-                    MaterialTheme.typography.displayMedium
-                else
-                    MaterialTheme.typography.displaySmall,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center,
+                fontFamily = OpenSansFontFamily,
+                fontSize = if (isTablet) 68.sp else 54.sp,
             )
+            // Описание ×2 от исходного bodyLarge/bodyMedium, слева снизу.
             Text(
                 text = description,
-                style = if (isTablet)
-                    MaterialTheme.typography.bodyLarge
-                else
-                    MaterialTheme.typography.bodyMedium,
+                fontFamily = OpenSansFontFamily,
+                fontSize = if (isTablet) 32.sp else 28.sp,
             )
         }
     }
