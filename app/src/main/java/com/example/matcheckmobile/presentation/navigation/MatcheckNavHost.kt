@@ -18,9 +18,11 @@ import com.example.matcheckmobile.presentation.screens.details.OperationDetailsS
 import com.example.matcheckmobile.presentation.screens.journal.JournalScreen
 import com.example.matcheckmobile.presentation.screens.login.LoginScreen
 import com.example.matcheckmobile.presentation.screens.main.MainScreen
+import com.example.matcheckmobile.presentation.screens.receipt.IntakeStagesScreen
 import com.example.matcheckmobile.presentation.screens.receipt.IntakeUpdSelectScreen
 import com.example.matcheckmobile.presentation.screens.receipt.ReceiptScreen
 import com.example.matcheckmobile.presentation.screens.receipt.SavedReceiptsScreen
+import com.example.matcheckmobile.presentation.screens.receipt.Stage2PlaceholderScreen
 import com.example.matcheckmobile.presentation.screens.settings.SettingsScreen
 import com.example.matcheckmobile.presentation.screens.sync.SyncQueueScreen
 
@@ -53,13 +55,23 @@ fun MatcheckNavHost() {
         }
         composable(Routes.MAIN) {
             MainScreen(
-                onReceipt = { navController.navigate(Routes.INTAKE_UPD_SELECT) },
+                onReceipt = { navController.navigate(Routes.INTAKE_STAGES) },
                 onDispatch = { navController.navigate(Routes.DISPATCH) },
                 onJournal = { navController.navigate(Routes.JOURNAL) },
                 onSyncQueue = { navController.navigate(Routes.SYNC_QUEUE) },
                 onSettings = { navController.navigate(Routes.SETTINGS) },
                 onDocuments = { navController.navigate(Routes.DOCUMENTS) },
             )
+        }
+        composable(Routes.INTAKE_STAGES) {
+            IntakeStagesScreen(
+                onBack = { navController.popBackStack() },
+                onStage1 = { navController.navigate(Routes.INTAKE_UPD_SELECT) },
+                onStage2 = { navController.navigate(Routes.INTAKE_STAGE2) },
+            )
+        }
+        composable(Routes.INTAKE_STAGE2) {
+            Stage2PlaceholderScreen(onBack = { navController.popBackStack() })
         }
         composable(Routes.INTAKE_UPD_SELECT) {
             IntakeUpdSelectScreen(

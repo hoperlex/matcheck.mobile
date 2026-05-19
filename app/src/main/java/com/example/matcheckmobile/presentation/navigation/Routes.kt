@@ -3,6 +3,8 @@ package com.example.matcheckmobile.presentation.navigation
 object Routes {
     const val LOGIN = "login"
     const val MAIN = "main"
+    const val INTAKE_STAGES = "intake_stages"
+    const val INTAKE_STAGE2 = "intake_stage2"
     const val INTAKE_UPD_SELECT = "intake_upd_select"
     const val SAVED_RECEIPTS = "saved_receipts"
     const val RECEIPT_BASE = "receipt"
