@@ -18,7 +18,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -38,30 +37,40 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.foundation.text.KeyboardOptions
+
+/** Одна позиция материала: название + количество. */
+data class MaterialDraft(
+    val name: String,
+    val qty: String,
+)
 
 /**
- * Однострочный «псевдо-инпут» для материалов: показывает текущее значение
- * (как ModalTextField), но при тапе открывает специализированный
- * редактор-список — каждый материал отдельной кликабельной строкой
- * с бордером, нумерацией и переносом длинного текста.
- *
- * Внутреннее представление — multi-line строка ("материал1\n материал2\n...").
+ * Однострочный «псевдо-инпут» для материалов: показывает количество позиций,
+ * по тапу открывает редактор-список. Каждая строка — название (75% ширины)
+ * и количество (25% справа), при тапе превращается в inline-редактор.
  */
 @Composable
 fun MaterialsField(
-    value: String,
-    onValueChange: (String) -> Unit,
+    value: List<MaterialDraft>,
+    onValueChange: (List<MaterialDraft>) -> Unit,
     modifier: Modifier = Modifier,
     label: String = "Материалы",
 ) {
     var dialogVisible by remember { mutableStateOf(false) }
+    val display = value
+        .filter { it.name.isNotBlank() }
+        .joinToString(" · ") { draft ->
+            if (draft.qty.isBlank()) draft.name else "${draft.name} · ${draft.qty}"
+        }
 
     Box(modifier = modifier.fillMaxWidth()) {
         OutlinedTextField(
-            value = value.replace("\n", " · "),
+            value = display,
             onValueChange = {},
             readOnly = true,
             singleLine = true,
@@ -82,7 +91,7 @@ fun MaterialsField(
 
     if (dialogVisible) {
         MaterialsEditorDialog(
-            initialValue = value,
+            initial = value,
             onDismiss = { result ->
                 onValueChange(result)
                 dialogVisible = false
@@ -93,32 +102,36 @@ fun MaterialsField(
 
 @Composable
 private fun MaterialsEditorDialog(
-    initialValue: String,
-    onDismiss: (String) -> Unit,
+    initial: List<MaterialDraft>,
+    onDismiss: (List<MaterialDraft>) -> Unit,
 ) {
     val items = remember {
-        mutableStateListOf<String>().apply {
-            addAll(initialValue.split("\n").map { it.trim() }.filter { it.isNotEmpty() })
-        }
+        mutableStateListOf<MaterialDraft>().apply { addAll(initial) }
     }
     var editingIndex by remember { mutableStateOf<Int?>(null) }
-    var editingText by remember { mutableStateOf("") }
+    var editingName by remember { mutableStateOf("") }
+    var editingQty by remember { mutableStateOf("") }
 
     fun commitEdit() {
         editingIndex?.let { idx ->
-            val trimmed = editingText.trim()
-            if (trimmed.isEmpty()) items.removeAt(idx) else items[idx] = trimmed
+            val name = editingName.trim()
+            val qty = editingQty.trim()
+            if (name.isEmpty() && qty.isEmpty()) items.removeAt(idx)
+            else items[idx] = MaterialDraft(name = name, qty = qty)
         }
         editingIndex = null
-        editingText = ""
+        editingName = ""
+        editingQty = ""
     }
 
-    fun resultText(): String = items.joinToString("\n") { it.trim() }.trim()
+    fun result(): List<MaterialDraft> = items
+        .map { MaterialDraft(name = it.name.trim(), qty = it.qty.trim()) }
+        .filter { it.name.isNotEmpty() || it.qty.isNotEmpty() }
 
     Dialog(
         onDismissRequest = {
             commitEdit()
-            onDismiss(resultText())
+            onDismiss(result())
         },
         properties = DialogProperties(
             dismissOnClickOutside = true,
@@ -137,11 +150,26 @@ private fun MaterialsEditorDialog(
                     text = "Материалы",
                     style = MaterialTheme.typography.titleLarge,
                 )
-                Text(
-                    text = "Название",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                // Шапка двух столбцов.
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 28.dp, end = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = "Название",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(0.75f),
+                    )
+                    Text(
+                        text = "Количество",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(0.25f),
+                    )
+                }
 
                 LazyColumn(
                     modifier = Modifier
@@ -149,26 +177,30 @@ private fun MaterialsEditorDialog(
                         .heightIn(max = 420.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    itemsIndexed(items, key = { index, _ -> index }) { index, text ->
+                    itemsIndexed(items, key = { index, _ -> index }) { index, draft ->
                         if (editingIndex == index) {
                             EditableMaterialRow(
                                 number = index + 1,
-                                value = editingText,
-                                onValueChange = { editingText = it },
+                                name = editingName,
+                                qty = editingQty,
+                                onNameChange = { editingName = it },
+                                onQtyChange = { editingQty = it },
                                 onCommit = { commitEdit() },
                                 onDelete = {
                                     items.removeAt(index)
                                     editingIndex = null
-                                    editingText = ""
+                                    editingName = ""
+                                    editingQty = ""
                                 },
                             )
                         } else {
                             MaterialRow(
                                 number = index + 1,
-                                text = text,
+                                draft = draft,
                                 onClick = {
                                     commitEdit()
-                                    editingText = text
+                                    editingName = draft.name
+                                    editingQty = draft.qty
                                     editingIndex = index
                                 },
                             )
@@ -179,37 +211,14 @@ private fun MaterialsEditorDialog(
                 OutlinedButton(
                     onClick = {
                         commitEdit()
-                        items.add("")
-                        editingText = ""
+                        items.add(MaterialDraft("", ""))
+                        editingName = ""
+                        editingQty = ""
                         editingIndex = items.lastIndex
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text("+ Добавить материал")
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
-                ) {
-                    OutlinedButton(
-                        onClick = {
-                            items.clear()
-                            editingIndex = null
-                            editingText = ""
-                        },
-                        enabled = items.isNotEmpty(),
-                    ) {
-                        Text("Стереть")
-                    }
-                    Button(
-                        onClick = {
-                            commitEdit()
-                            onDismiss(resultText())
-                        },
-                    ) {
-                        Text("Добавить")
-                    }
                 }
             }
         }
@@ -219,7 +228,7 @@ private fun MaterialsEditorDialog(
 @Composable
 private fun MaterialRow(
     number: Int,
-    text: String,
+    draft: MaterialDraft,
     onClick: () -> Unit,
 ) {
     Card(
@@ -234,6 +243,7 @@ private fun MaterialRow(
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
                 text = "$number.",
@@ -241,13 +251,15 @@ private fun MaterialRow(
                 modifier = Modifier.width(28.dp),
             )
             Text(
-                text = text,
+                text = draft.name.ifBlank { "—" },
                 style = MaterialTheme.typography.bodyLarge,
                 modifier = Modifier.weight(0.75f),
             )
-            // 25% справа — пустое пространство, чтобы длинный текст
-            // переносился, не доходя до правого края.
-            Spacer(modifier = Modifier.weight(0.25f))
+            Text(
+                text = draft.qty.ifBlank { "—" },
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.weight(0.25f),
+            )
         }
     }
 }
@@ -255,12 +267,14 @@ private fun MaterialRow(
 @Composable
 private fun EditableMaterialRow(
     number: Int,
-    value: String,
-    onValueChange: (String) -> Unit,
+    name: String,
+    qty: String,
+    onNameChange: (String) -> Unit,
+    onQtyChange: (String) -> Unit,
     onCommit: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val focusRequester = remember { FocusRequester() }
+    val nameFocus = remember { FocusRequester() }
     Card(
         shape = RoundedCornerShape(12.dp),
         border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary),
@@ -272,6 +286,7 @@ private fun EditableMaterialRow(
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
                 text = "$number.",
@@ -279,12 +294,19 @@ private fun EditableMaterialRow(
                 modifier = Modifier.width(28.dp),
             )
             OutlinedTextField(
-                value = value,
-                onValueChange = onValueChange,
+                value = name,
+                onValueChange = onNameChange,
                 singleLine = false,
                 modifier = Modifier
-                    .weight(1f)
-                    .focusRequester(focusRequester),
+                    .weight(0.75f)
+                    .focusRequester(nameFocus),
+            )
+            OutlinedTextField(
+                value = qty,
+                onValueChange = onQtyChange,
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.weight(0.25f),
             )
             IconButton(onClick = onCommit) {
                 Icon(Icons.Default.Check, contentDescription = "Готово")
@@ -299,6 +321,6 @@ private fun EditableMaterialRow(
         }
     }
     LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
+        nameFocus.requestFocus()
     }
 }

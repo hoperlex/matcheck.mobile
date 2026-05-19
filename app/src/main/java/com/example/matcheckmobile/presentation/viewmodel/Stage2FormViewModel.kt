@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.data.repository.DeliveryRepository
 import com.example.matcheckmobile.di.AppContainer
+import com.example.matcheckmobile.presentation.components.MaterialDraft
 import com.example.matcheckmobile.presentation.navigation.Routes
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,7 +17,7 @@ import java.io.File
 
 /**
  * Форма «2 Этап» — подтверждение МОЛ ранее оформленной приёмки. Открывает
- * существующую Delivery по [Routes.ARG_OPERATION_ID], предзаполняет поля и
+ * существующую Delivery по [Routes.ARG_DELIVERY_ID], предзаполняет поля и
  * на финализации переводит статус с `filled` на `confirmed_mol`.
  *
  * Локальные фото из state'а (новые) ставятся в очередь загрузки. Старые
@@ -46,7 +47,12 @@ class Stage2FormViewModel(
             return
         }
         val items = container.deliveryRepository.findItemsByDelivery(deliveryId)
-        val materialsText = items.joinToString("\n") { it.nameRaw }
+        val materials = items.map { item ->
+            MaterialDraft(
+                name = item.nameRaw,
+                qty = item.qtyActual ?: item.qtyPlanned.orEmpty(),
+            )
+        }
         val vehicleTypeCode = container.deliveryRepository.getVehicleType(deliveryId)
         val sourceDocIds = RemoteMappers.decodeIdList(delivery.sourceDocumentIdsJson)
 
@@ -54,7 +60,7 @@ class Stage2FormViewModel(
             it.copy(
                 siteId = delivery.siteId,
                 sourceDocumentIds = sourceDocIds,
-                materialsText = materialsText,
+                materials = materials,
                 commentText = delivery.comment.orEmpty(),
                 vehicleTypeCode = vehicleTypeCode,
                 loaded = true,
@@ -74,8 +80,8 @@ class Stage2FormViewModel(
         _state.update { it.copy(vehicleTypeCode = code) }
     }
 
-    fun setMaterials(text: String) {
-        _state.update { it.copy(materialsText = text) }
+    fun setMaterials(drafts: List<MaterialDraft>) {
+        _state.update { it.copy(materials = drafts) }
     }
 
     fun setComment(text: String) {
@@ -86,11 +92,6 @@ class Stage2FormViewModel(
         _state.update { it.copy(error = null) }
     }
 
-    /**
-     * Финализация 2 этапа: upsert той же Delivery со статусом `confirmed_mol`,
-     * перезапись items из текущего materialsText, сохранение vehicleType,
-     * добавление новых фото.
-     */
     fun finalizeStage2() {
         val cur = _state.value
         if (cur.isSaving || cur.finalized || !cur.loaded) return
@@ -104,13 +105,12 @@ class Stage2FormViewModel(
         _state.update { it.copy(isSaving = true, error = null) }
         viewModelScope.launch {
             try {
-                val items = cur.materialsText
-                    .split("\n")
-                    .map { it.trim() }
-                    .filter { it.isNotEmpty() }
-                    .mapIndexed { idx, line ->
+                val items = cur.materials
+                    .filter { it.name.isNotBlank() || it.qty.isNotBlank() }
+                    .mapIndexed { idx, m ->
                         DeliveryRepository.ItemInput(
-                            nameRaw = line,
+                            nameRaw = m.name.trim().ifEmpty { "—" },
+                            qtyActual = m.qty.trim().ifEmpty { null },
                             lineNo = idx + 1,
                         )
                     }
@@ -153,7 +153,7 @@ data class Stage2FormUiState(
     val sourceDocumentIds: List<String> = emptyList(),
     val photoPaths: List<String> = emptyList(),
     val vehicleTypeCode: String? = null,
-    val materialsText: String = "",
+    val materials: List<MaterialDraft> = emptyList(),
     val commentText: String = "",
     val loaded: Boolean = false,
     val isSaving: Boolean = false,

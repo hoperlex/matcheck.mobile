@@ -165,7 +165,7 @@ fun Stage1FormScreen(
                     )
 
                     MaterialsField(
-                        value = state.materialsText,
+                        value = state.materials,
                         onValueChange = vm::setMaterials,
                     )
 

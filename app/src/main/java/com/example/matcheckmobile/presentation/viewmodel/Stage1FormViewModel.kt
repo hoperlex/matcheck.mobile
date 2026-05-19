@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.matcheckmobile.data.repository.DeliveryRepository
 import com.example.matcheckmobile.di.AppContainer
+import com.example.matcheckmobile.presentation.components.MaterialDraft
 import com.example.matcheckmobile.presentation.navigation.Routes
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -15,13 +16,14 @@ import java.io.File
 
 /**
  * Упрощённая форма «1 Этап» приёмки: фото + тип транспорта (локально) +
- * материалы (по строкам) + комментарий. Сохранение создаёт Delivery со
- * статусом `filled` через [DeliveryRepository.upsert], локальный
+ * материалы (список название/количество) + комментарий. Сохранение создаёт
+ * Delivery со статусом `filled` через [DeliveryRepository.upsert], локальный
  * vehicleTypeCode пишется в delivery_local_meta, фото ставятся в очередь
  * загрузки через [com.example.matcheckmobile.data.repository.PhotoRepository.captureForDelivery].
  *
  * updId передаётся через NavGraph как опциональный аргумент — если есть,
- * приёмка привязывается к выбранной УПД через sourceDocumentIds.
+ * приёмка привязывается к выбранной УПД через sourceDocumentIds, а позиции
+ * УПД предзаполняются в materials (name + qty).
  */
 class Stage1FormViewModel(
     private val container: AppContainer,
@@ -34,19 +36,16 @@ class Stage1FormViewModel(
     val state: StateFlow<Stage1FormUiState> = _state.asStateFlow()
 
     init {
-        // Предзаполнить материалы из позиций УПД (если она выбрана) —
-        // удобно инспектору, чтобы не печатать вручную то, что и так есть
-        // в документе.
         val id = updId
         if (!id.isNullOrBlank()) {
             viewModelScope.launch {
                 val items = runCatching {
                     container.database.remoteSourceDocumentDao().findItemsBySource(id)
                 }.getOrDefault(emptyList())
-                val text = items.joinToString("\n") { it.nameRaw }
-                if (text.isNotEmpty()) {
+                if (items.isNotEmpty()) {
+                    val drafts = items.map { MaterialDraft(name = it.nameRaw, qty = it.qty) }
                     _state.update { current ->
-                        if (current.materialsText.isBlank()) current.copy(materialsText = text)
+                        if (current.materials.isEmpty()) current.copy(materials = drafts)
                         else current
                     }
                 }
@@ -66,8 +65,8 @@ class Stage1FormViewModel(
         _state.update { it.copy(vehicleTypeCode = code) }
     }
 
-    fun setMaterials(text: String) {
-        _state.update { it.copy(materialsText = text) }
+    fun setMaterials(drafts: List<MaterialDraft>) {
+        _state.update { it.copy(materials = drafts) }
     }
 
     fun setComment(text: String) {
@@ -78,12 +77,6 @@ class Stage1FormViewModel(
         _state.update { it.copy(error = null) }
     }
 
-    /**
-     * Финализация 1 этапа: создаём Delivery со статусом `filled`, привязываем
-     * выбранную УПД (если есть), сохраняем vehicleType локально, ставим фото
-     * в очередь загрузки. UI должен перейти на предыдущий экран по флагу
-     * [Stage1FormUiState.finalized].
-     */
     fun finalizeStage1() {
         val cur = _state.value
         if (cur.isSaving || cur.finalized) return
@@ -97,13 +90,12 @@ class Stage1FormViewModel(
         _state.update { it.copy(isSaving = true, error = null) }
         viewModelScope.launch {
             try {
-                val items = cur.materialsText
-                    .split("\n")
-                    .map { it.trim() }
-                    .filter { it.isNotEmpty() }
-                    .mapIndexed { idx, line ->
+                val items = cur.materials
+                    .filter { it.name.isNotBlank() || it.qty.isNotBlank() }
+                    .mapIndexed { idx, m ->
                         DeliveryRepository.ItemInput(
-                            nameRaw = line,
+                            nameRaw = m.name.trim().ifEmpty { "—" },
+                            qtyActual = m.qty.trim().ifEmpty { null },
                             lineNo = idx + 1,
                         )
                     }
@@ -145,7 +137,7 @@ data class Stage1FormUiState(
     val updId: String? = null,
     val photoPaths: List<String> = emptyList(),
     val vehicleTypeCode: String? = null,
-    val materialsText: String = "",
+    val materials: List<MaterialDraft> = emptyList(),
     val commentText: String = "",
     val isSaving: Boolean = false,
     val finalized: Boolean = false,
