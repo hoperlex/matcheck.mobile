@@ -87,11 +87,11 @@ fun Stage1FormScreen(
             TopAppBar(
                 title = { Text("Новая приёмка") },
                 navigationIcon = {
-                    IconButton(onClick = onBack, modifier = Modifier.size(56.dp)) {
+                    IconButton(onClick = onBack, modifier = Modifier.size(64.dp)) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Назад",
-                            modifier = Modifier.size(32.dp),
+                            modifier = Modifier.size(40.dp),
                         )
                     }
                 },
