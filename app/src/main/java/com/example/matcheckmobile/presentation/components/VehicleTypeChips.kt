@@ -72,13 +72,14 @@ fun VehicleTypeChips(
             maxItemsInEachRow = maxItemsInRow,
         ) {
             VEHICLE_TYPES.forEach { type ->
+                val isSelected = type.code == selectedCode
                 VehicleChip(
                     type = type,
-                    selected = type.code == selectedCode,
+                    selected = isSelected,
                     onClick = { onSelected(type) },
                     iconHeight = iconHeight,
                     showSubtitle = showSubtitle,
-                    loadInfo = loadInfo,
+                    loadInfo = if (isSelected) loadInfo else null,
                     modifier = Modifier.weight(1f, fill = true),
                 )
             }
