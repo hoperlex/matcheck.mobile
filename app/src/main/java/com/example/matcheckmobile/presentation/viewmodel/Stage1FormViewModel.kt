@@ -7,6 +7,7 @@ import com.example.matcheckmobile.data.repository.DeliveryRepository
 import com.example.matcheckmobile.di.AppContainer
 import com.example.matcheckmobile.presentation.components.MaterialDraft
 import com.example.matcheckmobile.presentation.navigation.Routes
+import com.example.matcheckmobile.sync.MatcheckSyncScheduler
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -124,6 +125,8 @@ class Stage1FormViewModel(
                         )
                     }
                 }
+
+                MatcheckSyncScheduler.requestImmediateSync(container.appContext)
 
                 _state.update { it.copy(isSaving = false, finalized = true) }
             } catch (e: Throwable) {
