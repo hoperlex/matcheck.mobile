@@ -199,6 +199,14 @@ fun Stage1FormScreen(
                                 modifier = Modifier.weight(0.35f),
                             )
                         }
+
+                        if (state.updId == null) {
+                            ModalTextField(
+                                value = state.manualUpdText,
+                                onValueChange = vm::setManualUpd,
+                                label = "Введите УПД",
+                            )
+                        }
                     }
 
                     Box(

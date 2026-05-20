@@ -162,6 +162,10 @@ class Stage1FormViewModel(
         _state.update { it.copy(licensePlate = text, showPlateError = false) }
     }
 
+    fun setManualUpd(text: String) {
+        _state.update { it.copy(manualUpdText = text) }
+    }
+
     fun dismissError() {
         _state.update { it.copy(error = null) }
     }
@@ -203,8 +207,12 @@ class Stage1FormViewModel(
 
                 val plate = cur.licensePlate.trim()
                 val userComment = cur.commentText.trim()
+                val manualUpd = cur.manualUpdText.trim()
                 val combinedComment = buildString {
                     append("Госномер: ").append(plate)
+                    if (manualUpd.isNotEmpty() && cur.updId == null) {
+                        append('\n').append("УПД: ").append(manualUpd)
+                    }
                     if (userComment.isNotEmpty()) {
                         append('\n').append(userComment)
                     }
@@ -264,6 +272,7 @@ data class Stage1FormUiState(
     val commentText: String = "",
     val licensePlate: String = "",
     val showPlateError: Boolean = false,
+    val manualUpdText: String = "",
     val loadInfo: VehicleLoadInfo? = null,
     val isSaving: Boolean = false,
     val finalized: Boolean = false,
