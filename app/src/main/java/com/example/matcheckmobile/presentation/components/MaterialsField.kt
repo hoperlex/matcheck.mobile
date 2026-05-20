@@ -63,9 +63,9 @@ private fun String.compactDecimal(): String {
 }
 
 /**
- * Однострочный «псевдо-инпут» для материалов: показывает количество позиций,
- * по тапу открывает редактор-список. Каждая строка — название (75% ширины)
- * и количество (25% справа), при тапе превращается в inline-редактор.
+ * Поле «Материалы». В обычном режиме — псевдо-инпут с однострочной сводкой
+ * и редактором по тапу. В режиме [readOnly] — короткая кнопка-чип «Материалы (N)»,
+ * по тапу открывает диалог-просмотр без редактирования и без добавления.
  */
 @Composable
 fun MaterialsField(
@@ -73,41 +73,60 @@ fun MaterialsField(
     onValueChange: (List<MaterialDraft>) -> Unit,
     modifier: Modifier = Modifier,
     label: String = "Материалы",
+    readOnly: Boolean = false,
 ) {
     var dialogVisible by remember { mutableStateOf(false) }
-    val display = value
-        .filter { it.name.isNotBlank() }
-        .joinToString(" · ") { draft ->
-            val qty = draft.qty.compactDecimal()
-            if (qty.isBlank()) draft.name else "${draft.name} · $qty"
-        }
 
-    Box(modifier = modifier.fillMaxWidth()) {
-        OutlinedTextField(
-            value = display,
-            onValueChange = {},
-            readOnly = true,
-            singleLine = true,
-            label = { Text(label) },
-            placeholder = { Text("Нажмите для ввода") },
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(
-            modifier = Modifier
-                .matchParentSize()
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = { dialogVisible = true },
-                ),
-        )
+    if (readOnly) {
+        val count = value.count { it.name.isNotBlank() }
+        OutlinedButton(
+            onClick = { dialogVisible = true },
+            shape = RoundedCornerShape(12.dp),
+            modifier = modifier
+                .fillMaxWidth()
+                .heightIn(min = 56.dp),
+        ) {
+            Text(
+                text = "$label  ($count)",
+                style = MaterialTheme.typography.titleMedium,
+            )
+        }
+    } else {
+        val display = value
+            .filter { it.name.isNotBlank() }
+            .joinToString(" · ") { draft ->
+                val qty = draft.qty.compactDecimal()
+                if (qty.isBlank()) draft.name else "${draft.name} · $qty"
+            }
+
+        Box(modifier = modifier.fillMaxWidth()) {
+            OutlinedTextField(
+                value = display,
+                onValueChange = {},
+                readOnly = true,
+                singleLine = true,
+                label = { Text(label) },
+                placeholder = { Text("Нажмите для ввода") },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { dialogVisible = true },
+                    ),
+            )
+        }
     }
 
     if (dialogVisible) {
         MaterialsEditorDialog(
             initial = value,
+            readOnly = readOnly,
             onDismiss = { result ->
-                onValueChange(result)
+                if (!readOnly) onValueChange(result)
                 dialogVisible = false
             },
         )
@@ -118,6 +137,7 @@ fun MaterialsField(
 private fun MaterialsEditorDialog(
     initial: List<MaterialDraft>,
     onDismiss: (List<MaterialDraft>) -> Unit,
+    readOnly: Boolean = false,
 ) {
     val items = remember {
         mutableStateListOf<MaterialDraft>().apply { addAll(initial) }
@@ -164,7 +184,6 @@ private fun MaterialsEditorDialog(
                     text = "Материалы",
                     style = MaterialTheme.typography.titleLarge,
                 )
-                // Шапка двух столбцов.
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -186,54 +205,78 @@ private fun MaterialsEditorDialog(
                     )
                 }
 
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 420.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    itemsIndexed(items, key = { index, _ -> index }) { index, draft ->
-                        if (editingIndex == index) {
-                            EditableMaterialRow(
-                                number = index + 1,
-                                name = editingName,
-                                qty = editingQty,
-                                onNameChange = { editingName = it },
-                                onQtyChange = { editingQty = it },
-                                onCommit = { commitEdit() },
-                                onDelete = {
-                                    items.removeAt(index)
-                                    editingIndex = null
-                                    editingName = ""
-                                    editingQty = ""
-                                },
-                            )
-                        } else {
-                            MaterialRow(
-                                number = index + 1,
-                                draft = draft,
-                                onClick = {
-                                    commitEdit()
-                                    editingName = draft.name
-                                    editingQty = draft.qty.compactDecimal()
-                                    editingIndex = index
-                                },
-                            )
+                if (items.isEmpty()) {
+                    Text(
+                        text = "Список пуст",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 12.dp),
+                        textAlign = TextAlign.Center,
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 420.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        itemsIndexed(items, key = { index, _ -> index }) { index, draft ->
+                            if (!readOnly && editingIndex == index) {
+                                EditableMaterialRow(
+                                    number = index + 1,
+                                    name = editingName,
+                                    qty = editingQty,
+                                    onNameChange = { editingName = it },
+                                    onQtyChange = { editingQty = it },
+                                    onCommit = { commitEdit() },
+                                    onDelete = {
+                                        items.removeAt(index)
+                                        editingIndex = null
+                                        editingName = ""
+                                        editingQty = ""
+                                    },
+                                )
+                            } else {
+                                val rowClick: (() -> Unit)? = if (readOnly) null else {
+                                    {
+                                        commitEdit()
+                                        editingName = draft.name
+                                        editingQty = draft.qty.compactDecimal()
+                                        editingIndex = index
+                                    }
+                                }
+                                MaterialRow(
+                                    number = index + 1,
+                                    draft = draft,
+                                    onClick = rowClick,
+                                )
+                            }
                         }
                     }
                 }
 
-                OutlinedButton(
-                    onClick = {
-                        commitEdit()
-                        items.add(MaterialDraft("", ""))
-                        editingName = ""
-                        editingQty = ""
-                        editingIndex = items.lastIndex
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("+ Добавить материал")
+                if (readOnly) {
+                    OutlinedButton(
+                        onClick = { onDismiss(result()) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Закрыть")
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = {
+                            commitEdit()
+                            items.add(MaterialDraft("", ""))
+                            editingName = ""
+                            editingQty = ""
+                            editingIndex = items.lastIndex
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("+ Добавить материал")
+                    }
                 }
             }
         }
@@ -244,14 +287,15 @@ private fun MaterialsEditorDialog(
 private fun MaterialRow(
     number: Int,
     draft: MaterialDraft,
-    onClick: () -> Unit,
+    onClick: (() -> Unit)?,
 ) {
+    val baseModifier = Modifier.fillMaxWidth()
+    val cardModifier = if (onClick != null) baseModifier.clickable(onClick = onClick) else baseModifier
     Card(
-        onClick = onClick,
         shape = RoundedCornerShape(12.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = cardModifier,
     ) {
         Row(
             modifier = Modifier

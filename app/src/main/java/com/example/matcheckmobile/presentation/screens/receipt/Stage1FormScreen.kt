@@ -175,6 +175,7 @@ fun Stage1FormScreen(
                         MaterialsField(
                             value = state.materials,
                             onValueChange = vm::setMaterials,
+                            readOnly = true,
                         )
 
                         ModalTextField(
