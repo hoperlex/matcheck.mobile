@@ -193,6 +193,8 @@ fun Stage1FormScreen(
                                 onValueChange = vm::setLicensePlate,
                                 label = "Введите Госномер",
                                 isError = state.showPlateError,
+                                compact = true,
+                                forceUppercase = true,
                                 modifier = Modifier.weight(0.35f),
                             )
                         }

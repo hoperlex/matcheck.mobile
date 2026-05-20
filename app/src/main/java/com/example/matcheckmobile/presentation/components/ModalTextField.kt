@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -49,6 +50,8 @@ fun ModalTextField(
     modifier: Modifier = Modifier,
     placeholder: String = "Нажмите для ввода",
     isError: Boolean = false,
+    compact: Boolean = false,
+    forceUppercase: Boolean = false,
 ) {
     var dialogVisible by remember { mutableStateOf(false) }
 
@@ -79,6 +82,8 @@ fun ModalTextField(
         ModalTextFieldDialog(
             initialValue = value,
             label = label,
+            compact = compact,
+            forceUppercase = forceUppercase,
             onDismiss = { result ->
                 onValueChange(result)
                 dialogVisible = false
@@ -92,6 +97,8 @@ private fun ModalTextFieldDialog(
     initialValue: String,
     label: String,
     onDismiss: (resultText: String) -> Unit,
+    compact: Boolean = false,
+    forceUppercase: Boolean = false,
 ) {
     var draft by remember { mutableStateOf(initialValue) }
     val focusRequester = remember { FocusRequester() }
@@ -101,28 +108,43 @@ private fun ModalTextFieldDialog(
         properties = DialogProperties(
             dismissOnClickOutside = true,
             dismissOnBackPress = true,
+            usePlatformDefaultWidth = !compact,
         ),
     ) {
         Card(
             shape = RoundedCornerShape(20.dp),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = if (compact) {
+                Modifier.widthIn(max = 360.dp)
+            } else {
+                Modifier.fillMaxWidth()
+            },
         ) {
             Column(
-                modifier = Modifier.padding(20.dp),
+                modifier = Modifier.padding(if (compact) 16.dp else 20.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(
                     text = label,
-                    style = MaterialTheme.typography.titleLarge,
+                    style = if (compact) MaterialTheme.typography.titleMedium
+                    else MaterialTheme.typography.titleLarge,
                 )
                 OutlinedTextField(
                     value = draft,
-                    onValueChange = { draft = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 160.dp)
-                        .focusRequester(focusRequester),
-                    minLines = 5,
+                    onValueChange = { input ->
+                        draft = if (forceUppercase) input.uppercase() else input
+                    },
+                    modifier = if (compact) {
+                        Modifier
+                            .fillMaxWidth()
+                            .focusRequester(focusRequester)
+                    } else {
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 160.dp)
+                            .focusRequester(focusRequester)
+                    },
+                    singleLine = compact,
+                    minLines = if (compact) 1 else 5,
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
