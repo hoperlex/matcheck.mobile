@@ -1,13 +1,16 @@
 package com.example.matcheckmobile.presentation.components
 
+import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import com.example.matcheckmobile.media.PhotoStorage
 import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
@@ -52,7 +55,7 @@ fun rememberDocumentScanner(
         }
     }
 
-    return {
+    val startScan = {
         val activity = context.findActivity()
         if (activity == null) {
             onError("Нет активити для запуска сканера")
@@ -71,6 +74,31 @@ fun rememberDocumentScanner(
                 .addOnFailureListener { e ->
                     onError(e.message ?: "Не удалось открыть сканер документов")
                 }
+        }
+    }
+
+    // Сканер сам разруливает CAMERA-permission; нам нужно только LOCATION
+    // для последующего проставления координат в водяной знак.
+    val locationLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions(),
+    ) { _ -> startScan() }
+
+    return {
+        val locationGranted = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.ACCESS_FINE_LOCATION,
+        ) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(
+                context, Manifest.permission.ACCESS_COARSE_LOCATION,
+            ) == PackageManager.PERMISSION_GRANTED
+        if (locationGranted) {
+            startScan()
+        } else {
+            locationLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION,
+                ),
+            )
         }
     }
 }

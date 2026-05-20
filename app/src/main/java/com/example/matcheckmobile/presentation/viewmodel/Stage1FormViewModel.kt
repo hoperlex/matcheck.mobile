@@ -8,6 +8,8 @@ import com.example.matcheckmobile.di.AppContainer
 import com.example.matcheckmobile.presentation.components.MaterialDraft
 import com.example.matcheckmobile.presentation.navigation.Routes
 import com.example.matcheckmobile.sync.MatcheckSyncScheduler
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -52,10 +54,38 @@ class Stage1FormViewModel(
                 }
             }
         }
+        viewModelScope.launch { resolveSiteName() }
+    }
+
+    /**
+     * Тянет название объекта для штампа: сперва из выбранной УПД (поле siteName
+     * из RemoteSourceDocument), иначе — из таблицы сайтов по siteId сессии.
+     * Если ничего не нашлось — оставляем null, штамп напишет «Объект: —».
+     */
+    private suspend fun resolveSiteName() {
+        val fromUpd = updId?.let { id ->
+            runCatching {
+                container.database.remoteSourceDocumentDao().findById(id)?.siteName
+            }.getOrNull()
+        }?.takeIf { it.isNotBlank() }
+
+        val resolved = fromUpd ?: run {
+            val siteId = container.tokenStorage.state.value.siteId ?: return@run null
+            runCatching {
+                container.database.remoteSiteDao().findById(siteId)?.name
+            }.getOrNull()?.takeIf { it.isNotBlank() }
+        }
+
+        if (resolved != null) {
+            _state.update { it.copy(siteName = resolved) }
+        }
     }
 
     fun onDocumentPhotoTaken(path: String) {
-        _state.update { it.copy(documentPhotoPaths = it.documentPhotoPaths + path) }
+        viewModelScope.launch {
+            stampWatermark(path)
+            _state.update { it.copy(documentPhotoPaths = it.documentPhotoPaths + path) }
+        }
     }
 
     fun removeDocumentPhoto(path: String) {
@@ -63,11 +93,30 @@ class Stage1FormViewModel(
     }
 
     fun onCargoPhotoTaken(path: String) {
-        _state.update { it.copy(cargoPhotoPaths = it.cargoPhotoPaths + path) }
+        viewModelScope.launch {
+            stampWatermark(path)
+            _state.update { it.copy(cargoPhotoPaths = it.cargoPhotoPaths + path) }
+        }
     }
 
     fun removeCargoPhoto(path: String) {
         _state.update { it.copy(cargoPhotoPaths = it.cargoPhotoPaths - path) }
+    }
+
+    /**
+     * Накладывает на JPEG штамп с GPS / временем / siteId. Координаты пытаемся
+     * взять «последние известные» из FusedLocationProviderClient — без свежего
+     * fix-а, чтобы юзер не ждал GPS. Если разрешения нет / GPS пуст — штамп
+     * напишет «GPS: нет».
+     */
+    private suspend fun stampWatermark(path: String) {
+        runCatching {
+            val coords = container.locationProvider.fetchCurrent()
+            val siteName = _state.value.siteName
+            withContext(Dispatchers.IO) {
+                container.metadataWatermark.applyTo(File(path), coords, siteName)
+            }
+        }
     }
 
     fun selectVehicle(code: String?) {
@@ -157,6 +206,7 @@ class Stage1FormViewModel(
 
 data class Stage1FormUiState(
     val updId: String? = null,
+    val siteName: String? = null,
     val documentPhotoPaths: List<String> = emptyList(),
     val cargoPhotoPaths: List<String> = emptyList(),
     val vehicleTypeCode: String? = null,

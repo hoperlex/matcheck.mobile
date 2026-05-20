@@ -49,17 +49,42 @@ fun rememberPhotoCapture(
         }
     }
 
+    // Просим CAMERA (обязательное) и LOCATION (опциональное — для водяного
+    // знака на фото). Если LOCATION отказали — снимок всё равно делаем, штамп
+    // позже напишет «GPS: нет».
     val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        if (granted) launchCamera() else onError("Нет доступа к камере")
+        contract = ActivityResultContracts.RequestMultiplePermissions(),
+    ) { grants ->
+        val cameraGranted = grants[Manifest.permission.CAMERA] == true
+        if (cameraGranted) launchCamera() else onError("Нет доступа к камере")
     }
 
     return {
-        val granted = ContextCompat.checkSelfPermission(
+        val cameraGranted = ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.CAMERA,
         ) == PackageManager.PERMISSION_GRANTED
-        if (granted) launchCamera() else permissionLauncher.launch(Manifest.permission.CAMERA)
+        val fineGranted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+        ) == PackageManager.PERMISSION_GRANTED
+        val coarseGranted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+        ) == PackageManager.PERMISSION_GRANTED
+        val locationGranted = fineGranted || coarseGranted
+
+        if (cameraGranted && locationGranted) {
+            launchCamera()
+        } else {
+            val toRequest = buildList {
+                if (!cameraGranted) add(Manifest.permission.CAMERA)
+                if (!locationGranted) {
+                    add(Manifest.permission.ACCESS_FINE_LOCATION)
+                    add(Manifest.permission.ACCESS_COARSE_LOCATION)
+                }
+            }.toTypedArray()
+            permissionLauncher.launch(toRequest)
+        }
     }
 }

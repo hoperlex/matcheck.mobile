@@ -28,6 +28,8 @@ import com.example.matcheckmobile.data.repository.ShipmentRepository
 import com.example.matcheckmobile.data.repository.SourceDocumentRepository
 import com.example.matcheckmobile.data.repository.SyncRepository
 import com.example.matcheckmobile.data.settings.DeviceSettings
+import com.example.matcheckmobile.media.LocationProvider
+import com.example.matcheckmobile.media.MetadataWatermark
 import com.example.matcheckmobile.media.PhotoStorage
 import com.example.matcheckmobile.media.RemotePhotoStorage
 
@@ -129,6 +131,10 @@ class AppContainer(val appContext: Context) {
     val apiService: ApiService = MockApiService()
 
     val photoStorage: PhotoStorage = PhotoStorage(appContext)
+
+    val locationProvider: LocationProvider = LocationProvider(appContext)
+
+    val metadataWatermark: MetadataWatermark = MetadataWatermark()
 
     val operationRepository: OperationRepository = OperationRepository(
         operationDao = database.materialOperationDao(),

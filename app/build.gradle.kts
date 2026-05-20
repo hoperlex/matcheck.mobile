@@ -86,6 +86,7 @@ dependencies {
     implementation(libs.okhttp.sse)
 
     implementation(libs.mlkit.document.scanner)
+    implementation(libs.play.services.location)
 
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
