@@ -49,22 +49,29 @@ class Stage1FormViewModel(
                 if (items.isNotEmpty()) {
                     val drafts = items.map { MaterialDraft(name = it.nameRaw, qty = it.qty) }
                     // На веб-портале volumeM3 и massKg у позиции УПД хранятся
-                    // ПО ЕДИНИЦЕ материала — поэтому суммируем как qty * value
-                    // (см. apps/web/src/pages/kpp/VehicleFillGauge.tsx).
-                    val totalVolume = items.sumOf { item ->
-                        val perUnit = item.volumeM3?.toDoubleOrNull() ?: 0.0
+                    // ПО ЕДИНИЦЕ материала — поэтому суммируем как qty * value.
+                    // Отдельно трекаем hasVolume/hasMass: если ни у одной
+                    // позиции нет данных, ставим null, и gauge нарисуется как
+                    // «нет данных» (см. apps/web/.../VehicleFillGauge.tsx).
+                    var volume = 0.0
+                    var massKg = 0.0
+                    var hasVolume = false
+                    var hasMass = false
+                    for (item in items) {
                         val qty = item.qty.toDoubleOrNull() ?: 0.0
-                        perUnit * qty
+                        item.volumeM3?.toDoubleOrNull()?.let {
+                            volume += it * qty
+                            hasVolume = true
+                        }
+                        item.massKg?.toDoubleOrNull()?.let {
+                            massKg += it * qty
+                            hasMass = true
+                        }
                     }
-                    val totalMassKg = items.sumOf { item ->
-                        val perUnit = item.massKg?.toDoubleOrNull() ?: 0.0
-                        val qty = item.qty.toDoubleOrNull() ?: 0.0
-                        perUnit * qty
-                    }
-                    val totalMassT = totalMassKg / 1000.0
-                    val gauge = if (totalVolume > 0.0 || totalMassT > 0.0)
-                        VehicleLoadInfo(totalVolume, totalMassT)
-                    else null
+                    val gauge = if (hasVolume || hasMass) VehicleLoadInfo(
+                        totalVolumeM3 = if (hasVolume) volume else null,
+                        totalMassT = if (hasMass) massKg / 1000.0 else null,
+                    ) else null
                     _state.update { current ->
                         val withMaterials = if (current.materials.isEmpty())
                             current.copy(materials = drafts)

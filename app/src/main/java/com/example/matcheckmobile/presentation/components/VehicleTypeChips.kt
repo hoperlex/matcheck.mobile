@@ -37,13 +37,12 @@ import com.example.matcheckmobile.domain.model.VehicleType
 
 /**
  * Суммарная загрузка по материалам выбранной УПД: объём в м³ и масса в тоннах.
- * Подсчитывается во ViewModel из items УПД и передаётся в [VehicleTypeChips],
- * где каждая карточка показывает столбики заполненности относительно своей
- * вместимости.
+ * null означает, что у позиций УПД нет соответствующих данных — gauge
+ * нарисуется как «нет данных», а не как 0.
  */
 data class VehicleLoadInfo(
-    val totalVolumeM3: Double,
-    val totalMassT: Double,
+    val totalVolumeM3: Double?,
+    val totalMassT: Double?,
 )
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -237,11 +236,50 @@ private fun LoadGauge(
 @Composable
 private fun LoadColumn(
     title: String,
-    used: Double,
+    used: Double?,
     capacity: Double,
     unit: String,
     modifier: Modifier = Modifier,
 ) {
+    val muted = Color(0xFFBFBFBF)
+    if (used == null) {
+        // Нет данных по этой характеристике в позициях УПД — рисуем пустой
+        // серый бар и подпись «нет данных», чтобы не вводить в заблуждение
+        // нулём.
+        Column(
+            modifier = modifier,
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = "—",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = muted,
+            )
+            Box(
+                modifier = Modifier
+                    .width(14.dp)
+                    .height(52.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.6f)),
+            )
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+            )
+            Text(
+                text = "нет данных",
+                style = MaterialTheme.typography.labelSmall,
+                color = muted,
+                maxLines = 1,
+            )
+        }
+        return
+    }
+
     val ratio = if (capacity > 0) (used / capacity).toFloat() else 0f
     val percent = (ratio * 100).toInt()
     // Пороги синхронизированы с web/VehicleFillGauge.tsx — pctColor().
