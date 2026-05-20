@@ -244,11 +244,13 @@ private fun LoadColumn(
 ) {
     val ratio = if (capacity > 0) (used / capacity).toFloat() else 0f
     val percent = (ratio * 100).toInt()
+    // Пороги синхронизированы с web/VehicleFillGauge.tsx — pctColor().
     val barColor = when {
-        ratio >= 1f -> Color(0xFFE53935)   // красный — перегруз
-        ratio >= 0.65f -> Color(0xFFFB8C00) // оранжевый — заполнено
-        ratio >= 0.35f -> Color(0xFF43A047) // зелёный — нормально
-        else -> Color(0xFF9E9E9E)           // серый — недогружено
+        percent > 100 -> Color(0xFFCF1322)  // красный — перегруз
+        percent >= 75 -> Color(0xFFFA8C16)  // оранжевый — почти полный
+        percent >= 50 -> Color(0xFF52C41A)  // зелёный — нормально
+        percent >= 25 -> Color(0xFF1677FF)  // синий — половинная загрузка
+        else -> Color(0xFFBFBFBF)            // серый — пустовато
     }
 
     Column(

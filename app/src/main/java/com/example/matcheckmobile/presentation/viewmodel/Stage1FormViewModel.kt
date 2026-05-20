@@ -48,8 +48,20 @@ class Stage1FormViewModel(
                 }.getOrDefault(emptyList())
                 if (items.isNotEmpty()) {
                     val drafts = items.map { MaterialDraft(name = it.nameRaw, qty = it.qty) }
-                    val totalVolume = items.sumOf { it.volumeM3?.toDoubleOrNull() ?: 0.0 }
-                    val totalMassT = items.sumOf { it.massKg?.toDoubleOrNull() ?: 0.0 } / 1000.0
+                    // На веб-портале volumeM3 и massKg у позиции УПД хранятся
+                    // ПО ЕДИНИЦЕ материала — поэтому суммируем как qty * value
+                    // (см. apps/web/src/pages/kpp/VehicleFillGauge.tsx).
+                    val totalVolume = items.sumOf { item ->
+                        val perUnit = item.volumeM3?.toDoubleOrNull() ?: 0.0
+                        val qty = item.qty.toDoubleOrNull() ?: 0.0
+                        perUnit * qty
+                    }
+                    val totalMassKg = items.sumOf { item ->
+                        val perUnit = item.massKg?.toDoubleOrNull() ?: 0.0
+                        val qty = item.qty.toDoubleOrNull() ?: 0.0
+                        perUnit * qty
+                    }
+                    val totalMassT = totalMassKg / 1000.0
                     val gauge = if (totalVolume > 0.0 || totalMassT > 0.0)
                         VehicleLoadInfo(totalVolume, totalMassT)
                     else null
