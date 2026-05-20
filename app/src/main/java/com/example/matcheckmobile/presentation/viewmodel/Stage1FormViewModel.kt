@@ -111,10 +111,9 @@ class Stage1FormViewModel(
     }
 
     fun onDocumentPhotoTaken(path: String) {
-        viewModelScope.launch {
-            stampWatermark(path)
-            _state.update { it.copy(documentPhotoPaths = it.documentPhotoPaths + path) }
-        }
+        // На фото документов штамп не накладываем: он перекрывал текст УПД
+        // в правом нижнем углу и мешал чтению.
+        _state.update { it.copy(documentPhotoPaths = it.documentPhotoPaths + path) }
     }
 
     fun removeDocumentPhoto(path: String) {
