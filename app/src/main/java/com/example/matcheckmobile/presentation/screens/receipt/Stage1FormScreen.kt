@@ -105,6 +105,7 @@ fun Stage1FormScreen(
             val sectionGap = if (isTablet) 20.dp else 14.dp
             val photoButtonHeight = if (isTablet) 96.dp else 72.dp
             val vehicleIconHeight = if (isTablet) 96.dp else 72.dp
+            val finalizeButtonHeight = if (isTablet) 80.dp else 64.dp
 
             Box(
                 modifier = Modifier
@@ -115,78 +116,90 @@ fun Stage1FormScreen(
                 Column(
                     modifier = Modifier
                         .widthIn(max = contentMaxWidth)
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(sectionGap),
+                        .fillMaxSize(),
                 ) {
-                    Button(
-                        onClick = takePhoto,
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(photoButtonHeight),
-                        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(sectionGap),
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.PhotoCamera,
-                            contentDescription = null,
-                            modifier = Modifier.padding(end = 12.dp),
-                        )
-                        Text(
-                            text = "Добавить фото",
-                            style = if (isTablet)
-                                MaterialTheme.typography.headlineSmall
-                            else
-                                MaterialTheme.typography.titleLarge,
-                        )
-                    }
-
-                    if (state.photoPaths.isNotEmpty()) {
-                        LazyRow(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            contentPadding = PaddingValues(vertical = 4.dp),
+                        Button(
+                            onClick = takePhoto,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(photoButtonHeight),
+                            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
                         ) {
-                            items(state.photoPaths, key = { it }) { path ->
-                                PhotoThumb(
-                                    filePath = path,
-                                    onRemove = { vm.removePhoto(path) },
-                                    onClick = { previewPath = path },
-                                )
+                            Icon(
+                                imageVector = Icons.Default.PhotoCamera,
+                                contentDescription = null,
+                                modifier = Modifier.padding(end = 12.dp),
+                            )
+                            Text(
+                                text = "Добавить фото",
+                                style = if (isTablet)
+                                    MaterialTheme.typography.headlineSmall
+                                else
+                                    MaterialTheme.typography.titleLarge,
+                            )
+                        }
+
+                        if (state.photoPaths.isNotEmpty()) {
+                            LazyRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                contentPadding = PaddingValues(vertical = 4.dp),
+                            ) {
+                                items(state.photoPaths, key = { it }) { path ->
+                                    PhotoThumb(
+                                        filePath = path,
+                                        onRemove = { vm.removePhoto(path) },
+                                        onClick = { previewPath = path },
+                                    )
+                                }
                             }
                         }
+
+                        VehicleTypeChips(
+                            selectedCode = state.vehicleTypeCode,
+                            onSelected = { vm.selectVehicle(it.code) },
+                            maxItemsInRow = 2,
+                            iconHeight = vehicleIconHeight,
+                            showSubtitle = false,
+                        )
+
+                        MaterialsField(
+                            value = state.materials,
+                            onValueChange = vm::setMaterials,
+                        )
+
+                        ModalTextField(
+                            value = state.commentText,
+                            onValueChange = vm::setComment,
+                            label = "Комментарий",
+                        )
                     }
 
-                    VehicleTypeChips(
-                        selectedCode = state.vehicleTypeCode,
-                        onSelected = { vm.selectVehicle(it.code) },
-                        maxItemsInRow = 2,
-                        iconHeight = vehicleIconHeight,
-                        showSubtitle = false,
-                    )
-
-                    MaterialsField(
-                        value = state.materials,
-                        onValueChange = vm::setMaterials,
-                    )
-
-                    ModalTextField(
-                        value = state.commentText,
-                        onValueChange = vm::setComment,
-                        label = "Комментарий",
-                    )
-
                     Box(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = sectionGap),
                         contentAlignment = Alignment.CenterEnd,
                     ) {
                         Button(
                             onClick = vm::finalizeStage1,
                             enabled = !state.isSaving && !state.finalized,
-                            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
+                            modifier = Modifier.height(finalizeButtonHeight),
+                            contentPadding = PaddingValues(horizontal = 32.dp, vertical = 16.dp),
                         ) {
                             Text(
                                 text = if (state.isSaving) "Сохранение..." else "Завершить 1 Этап",
-                                style = MaterialTheme.typography.titleMedium,
+                                style = if (isTablet)
+                                    MaterialTheme.typography.headlineSmall
+                                else
+                                    MaterialTheme.typography.titleLarge,
                             )
                         }
                     }
