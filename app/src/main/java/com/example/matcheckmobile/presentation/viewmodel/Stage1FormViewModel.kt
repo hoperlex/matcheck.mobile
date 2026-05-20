@@ -47,7 +47,9 @@ class Stage1FormViewModel(
                     container.database.remoteSourceDocumentDao().findItemsBySource(id)
                 }.getOrDefault(emptyList())
                 if (items.isNotEmpty()) {
-                    val drafts = items.map { MaterialDraft(name = it.nameRaw, qty = it.qty) }
+                    val drafts = items.map {
+                        MaterialDraft(name = it.nameRaw, qty = it.qty, unit = it.unit)
+                    }
                     // На веб-портале volumeM3 и massKg у позиции УПД хранятся
                     // ПО ЕДИНИЦЕ материала — поэтому суммируем как qty * value.
                     // Отдельно трекаем hasVolume/hasMass: если ни у одной

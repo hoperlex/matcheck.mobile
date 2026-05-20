@@ -51,6 +51,7 @@ class Stage2FormViewModel(
             MaterialDraft(
                 name = item.nameRaw,
                 qty = item.qtyActual ?: item.qtyPlanned.orEmpty(),
+                unit = item.unit,
             )
         }
         val vehicleTypeCode = container.deliveryRepository.getVehicleType(deliveryId)

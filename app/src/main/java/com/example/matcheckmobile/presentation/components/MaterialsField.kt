@@ -44,10 +44,11 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.text.KeyboardOptions
 
-/** Одна позиция материала: название + количество. */
+/** Одна позиция материала: название + количество + единица измерения. */
 data class MaterialDraft(
     val name: String,
     val qty: String,
+    val unit: String = "",
 )
 
 /**
@@ -194,14 +195,21 @@ private fun MaterialsEditorDialog(
                         text = "Название",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.weight(0.75f),
+                        modifier = Modifier.weight(0.65f),
                     )
                     Text(
-                        text = "Количество",
+                        text = "Кол-во",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
-                        modifier = Modifier.weight(0.25f),
+                        modifier = Modifier.weight(0.2f),
+                    )
+                    Text(
+                        text = "Ед.",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.weight(0.15f),
                     )
                 }
 
@@ -312,13 +320,19 @@ private fun MaterialRow(
             Text(
                 text = draft.name.ifBlank { "—" },
                 style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.weight(0.75f),
+                modifier = Modifier.weight(0.65f),
             )
             Text(
                 text = draft.qty.compactDecimal().ifBlank { "—" },
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.weight(0.25f),
+                modifier = Modifier.weight(0.2f),
+            )
+            Text(
+                text = draft.unit.ifBlank { "—" },
+                style = MaterialTheme.typography.bodyLarge,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.weight(0.15f),
             )
         }
     }
