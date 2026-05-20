@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.matcheckmobile.data.repository.DeliveryRepository
 import com.example.matcheckmobile.di.AppContainer
 import com.example.matcheckmobile.presentation.components.MaterialDraft
+import com.example.matcheckmobile.presentation.components.VehicleLoadInfo
 import com.example.matcheckmobile.presentation.navigation.Routes
 import com.example.matcheckmobile.sync.MatcheckSyncScheduler
 import kotlinx.coroutines.Dispatchers
@@ -47,9 +48,16 @@ class Stage1FormViewModel(
                 }.getOrDefault(emptyList())
                 if (items.isNotEmpty()) {
                     val drafts = items.map { MaterialDraft(name = it.nameRaw, qty = it.qty) }
+                    val totalVolume = items.sumOf { it.volumeM3?.toDoubleOrNull() ?: 0.0 }
+                    val totalMassT = items.sumOf { it.massKg?.toDoubleOrNull() ?: 0.0 } / 1000.0
+                    val gauge = if (totalVolume > 0.0 || totalMassT > 0.0)
+                        VehicleLoadInfo(totalVolume, totalMassT)
+                    else null
                     _state.update { current ->
-                        if (current.materials.isEmpty()) current.copy(materials = drafts)
+                        val withMaterials = if (current.materials.isEmpty())
+                            current.copy(materials = drafts)
                         else current
+                        withMaterials.copy(loadInfo = gauge)
                     }
                 }
             }
@@ -237,6 +245,7 @@ data class Stage1FormUiState(
     val commentText: String = "",
     val licensePlate: String = "",
     val showPlateError: Boolean = false,
+    val loadInfo: VehicleLoadInfo? = null,
     val isSaving: Boolean = false,
     val finalized: Boolean = false,
     val error: String? = null,

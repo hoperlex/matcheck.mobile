@@ -170,6 +170,7 @@ fun Stage1FormScreen(
                             maxItemsInRow = 2,
                             iconHeight = vehicleIconHeight,
                             showSubtitle = false,
+                            loadInfo = state.loadInfo,
                         )
 
                         MaterialsField(

@@ -2,6 +2,7 @@ package com.example.matcheckmobile.presentation.components
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -9,9 +10,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -20,6 +23,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -29,6 +34,17 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.matcheckmobile.domain.model.VEHICLE_TYPES
 import com.example.matcheckmobile.domain.model.VehicleType
+
+/**
+ * Суммарная загрузка по материалам выбранной УПД: объём в м³ и масса в тоннах.
+ * Подсчитывается во ViewModel из items УПД и передаётся в [VehicleTypeChips],
+ * где каждая карточка показывает столбики заполненности относительно своей
+ * вместимости.
+ */
+data class VehicleLoadInfo(
+    val totalVolumeM3: Double,
+    val totalMassT: Double,
+)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -40,6 +56,7 @@ fun VehicleTypeChips(
     maxItemsInRow: Int = VEHICLE_TYPES.size,
     iconHeight: Dp = 36.dp,
     showSubtitle: Boolean = true,
+    loadInfo: VehicleLoadInfo? = null,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         if (label != null) {
@@ -62,6 +79,7 @@ fun VehicleTypeChips(
                     onClick = { onSelected(type) },
                     iconHeight = iconHeight,
                     showSubtitle = showSubtitle,
+                    loadInfo = loadInfo,
                     modifier = Modifier.weight(1f, fill = true),
                 )
             }
@@ -76,6 +94,7 @@ private fun VehicleChip(
     onClick: () -> Unit,
     iconHeight: Dp,
     showSubtitle: Boolean,
+    loadInfo: VehicleLoadInfo?,
     modifier: Modifier = Modifier,
 ) {
     val container = if (selected)
@@ -98,50 +117,177 @@ private fun VehicleChip(
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         modifier = modifier.clickable(onClick = onClick),
     ) {
-        Column(
+        if (loadInfo != null) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(
+                    modifier = Modifier.weight(0.45f),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(iconHeight),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Image(
+                            painter = painterResource(id = type.iconRes),
+                            contentDescription = type.name,
+                            contentScale = ContentScale.Fit,
+                            colorFilter = ColorFilter.tint(onContainer.copy(alpha = 0.85f)),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    Text(
+                        text = type.name,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                    )
+                }
+                LoadGauge(
+                    type = type,
+                    info = loadInfo,
+                    modifier = Modifier.weight(0.55f),
+                )
+            }
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(iconHeight),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Image(
+                        painter = painterResource(id = type.iconRes),
+                        contentDescription = type.name,
+                        contentScale = ContentScale.Fit,
+                        colorFilter = ColorFilter.tint(onContainer.copy(alpha = 0.85f)),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                Text(
+                    text = type.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                )
+                if (showSubtitle) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            text = "${formatNum(type.volumeM3)} м³",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Text(
+                            text = "${formatNum(type.payloadTons)} т",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LoadGauge(
+    type: VehicleType,
+    info: VehicleLoadInfo,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        LoadColumn(
+            title = "Объём",
+            used = info.totalVolumeM3,
+            capacity = type.volumeM3,
+            unit = "м³",
+            modifier = Modifier.weight(1f),
+        )
+        LoadColumn(
+            title = "Масса",
+            used = info.totalMassT,
+            capacity = type.payloadTons,
+            unit = "т",
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun LoadColumn(
+    title: String,
+    used: Double,
+    capacity: Double,
+    unit: String,
+    modifier: Modifier = Modifier,
+) {
+    val ratio = if (capacity > 0) (used / capacity).toFloat() else 0f
+    val percent = (ratio * 100).toInt()
+    val barColor = when {
+        ratio >= 1f -> Color(0xFFE53935)   // красный — перегруз
+        ratio >= 0.65f -> Color(0xFFFB8C00) // оранжевый — заполнено
+        ratio >= 0.35f -> Color(0xFF43A047) // зелёный — нормально
+        else -> Color(0xFF9E9E9E)           // серый — недогружено
+    }
+
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(
+            text = "$percent%",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = barColor,
+        )
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+                .width(14.dp)
+                .height(52.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.6f)),
+            contentAlignment = Alignment.BottomCenter,
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(iconHeight),
-                contentAlignment = Alignment.Center,
-            ) {
-                Image(
-                    painter = painterResource(id = type.iconRes),
-                    contentDescription = type.name,
-                    contentScale = ContentScale.Fit,
-                    colorFilter = ColorFilter.tint(onContainer.copy(alpha = 0.85f)),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-            Text(
-                text = type.name,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
+                    .fillMaxHeight(ratio.coerceIn(0f, 1f))
+                    .background(barColor),
             )
-            if (showSubtitle) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(
-                        text = "${formatNum(type.volumeM3)} м³",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Text(
-                        text = "${formatNum(type.payloadTons)} т",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-            }
         }
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+        )
+        Text(
+            text = "${formatNum(used)}/${formatNum(capacity)} $unit",
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+        )
     }
 }
 
