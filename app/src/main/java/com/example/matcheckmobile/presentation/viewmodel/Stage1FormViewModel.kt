@@ -54,12 +54,20 @@ class Stage1FormViewModel(
         }
     }
 
-    fun onPhotoTaken(path: String) {
-        _state.update { it.copy(photoPaths = it.photoPaths + path) }
+    fun onDocumentPhotoTaken(path: String) {
+        _state.update { it.copy(documentPhotoPaths = it.documentPhotoPaths + path) }
     }
 
-    fun removePhoto(path: String) {
-        _state.update { it.copy(photoPaths = it.photoPaths - path) }
+    fun removeDocumentPhoto(path: String) {
+        _state.update { it.copy(documentPhotoPaths = it.documentPhotoPaths - path) }
+    }
+
+    fun onCargoPhotoTaken(path: String) {
+        _state.update { it.copy(cargoPhotoPaths = it.cargoPhotoPaths + path) }
+    }
+
+    fun removeCargoPhoto(path: String) {
+        _state.update { it.copy(cargoPhotoPaths = it.cargoPhotoPaths - path) }
     }
 
     fun selectVehicle(code: String?) {
@@ -115,7 +123,18 @@ class Stage1FormViewModel(
 
                 container.deliveryRepository.setVehicleType(deliveryId, cur.vehicleTypeCode)
 
-                cur.photoPaths.forEach { path ->
+                cur.documentPhotoPaths.forEach { path ->
+                    runCatching {
+                        val uri = container.photoStorage.toContentUri(File(path))
+                        container.photoRepository.captureForDelivery(
+                            deliveryId = deliveryId,
+                            kind = "document",
+                            sourceUri = uri,
+                        )
+                    }
+                }
+
+                cur.cargoPhotoPaths.forEach { path ->
                     runCatching {
                         val uri = container.photoStorage.toContentUri(File(path))
                         container.photoRepository.captureForDelivery(
@@ -138,7 +157,8 @@ class Stage1FormViewModel(
 
 data class Stage1FormUiState(
     val updId: String? = null,
-    val photoPaths: List<String> = emptyList(),
+    val documentPhotoPaths: List<String> = emptyList(),
+    val cargoPhotoPaths: List<String> = emptyList(),
     val vehicleTypeCode: String? = null,
     val materials: List<MaterialDraft> = emptyList(),
     val commentText: String = "",

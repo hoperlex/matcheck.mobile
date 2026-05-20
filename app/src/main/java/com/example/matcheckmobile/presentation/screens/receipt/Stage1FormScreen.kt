@@ -77,9 +77,13 @@ fun Stage1FormScreen(
         }
     }
 
-    val takePhoto = rememberPhotoCapture(
+    val takeDocumentPhoto = rememberPhotoCapture(
         photoStorage = container.photoStorage,
-        onPhotoTaken = vm::onPhotoTaken,
+        onPhotoTaken = vm::onDocumentPhotoTaken,
+    )
+    val takeCargoPhoto = rememberPhotoCapture(
+        photoStorage = container.photoStorage,
+        onPhotoTaken = vm::onCargoPhotoTaken,
     )
 
     Scaffold(
@@ -130,42 +134,25 @@ fun Stage1FormScreen(
                             .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(sectionGap),
                     ) {
-                        Button(
-                            onClick = takePhoto,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(photoButtonHeight),
-                            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.PhotoCamera,
-                                contentDescription = null,
-                                modifier = Modifier.padding(end = 12.dp),
-                            )
-                            Text(
-                                text = "Добавить фото",
-                                style = if (isTablet)
-                                    MaterialTheme.typography.headlineSmall
-                                else
-                                    MaterialTheme.typography.titleLarge,
-                            )
-                        }
+                        PhotoSection(
+                            buttonText = "Добавить фото документов",
+                            isTablet = isTablet,
+                            buttonHeight = photoButtonHeight,
+                            onTakePhoto = takeDocumentPhoto,
+                            photoPaths = state.documentPhotoPaths,
+                            onRemovePhoto = vm::removeDocumentPhoto,
+                            onPreviewPhoto = { previewPath = it },
+                        )
 
-                        if (state.photoPaths.isNotEmpty()) {
-                            LazyRow(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                contentPadding = PaddingValues(vertical = 4.dp),
-                            ) {
-                                items(state.photoPaths, key = { it }) { path ->
-                                    PhotoThumb(
-                                        filePath = path,
-                                        onRemove = { vm.removePhoto(path) },
-                                        onClick = { previewPath = path },
-                                    )
-                                }
-                            }
-                        }
+                        PhotoSection(
+                            buttonText = "Добавить фото груза и госномера",
+                            isTablet = isTablet,
+                            buttonHeight = photoButtonHeight,
+                            onTakePhoto = takeCargoPhoto,
+                            photoPaths = state.cargoPhotoPaths,
+                            onRemovePhoto = vm::removeCargoPhoto,
+                            onPreviewPhoto = { previewPath = it },
+                        )
 
                         VehicleTypeChips(
                             selectedCode = state.vehicleTypeCode,
@@ -217,6 +204,59 @@ fun Stage1FormScreen(
                 filePath = path,
                 onDismiss = { previewPath = null },
             )
+        }
+    }
+}
+
+@Composable
+private fun PhotoSection(
+    buttonText: String,
+    isTablet: Boolean,
+    buttonHeight: Dp,
+    onTakePhoto: () -> Unit,
+    photoPaths: List<String>,
+    onRemovePhoto: (String) -> Unit,
+    onPreviewPhoto: (String) -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Button(
+            onClick = onTakePhoto,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(buttonHeight),
+            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Default.PhotoCamera,
+                contentDescription = null,
+                modifier = Modifier.padding(end = 12.dp),
+            )
+            Text(
+                text = buttonText,
+                style = if (isTablet)
+                    MaterialTheme.typography.headlineSmall
+                else
+                    MaterialTheme.typography.titleLarge,
+            )
+        }
+
+        if (photoPaths.isNotEmpty()) {
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(vertical = 4.dp),
+            ) {
+                items(photoPaths, key = { it }) { path ->
+                    PhotoThumb(
+                        filePath = path,
+                        onRemove = { onRemovePhoto(path) },
+                        onClick = { onPreviewPhoto(path) },
+                    )
+                }
+            }
         }
     }
 }
