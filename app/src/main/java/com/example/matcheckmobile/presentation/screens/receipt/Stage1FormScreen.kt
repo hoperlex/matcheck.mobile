@@ -141,7 +141,7 @@ fun Stage1FormScreen(
                             horizontalArrangement = Arrangement.spacedBy(sectionGap),
                         ) {
                             PhotoSection(
-                                buttonText = "Добавить фото документов",
+                                buttonText = "Фото документов",
                                 isTablet = isTablet,
                                 buttonHeight = photoButtonHeight,
                                 onTakePhoto = takeDocumentPhoto,
@@ -152,7 +152,7 @@ fun Stage1FormScreen(
                             )
 
                             PhotoSection(
-                                buttonText = "Добавить фото груза и госномера",
+                                buttonText = "Фото груза, госномера",
                                 isTablet = isTablet,
                                 buttonHeight = photoButtonHeight,
                                 onTakePhoto = takeCargoPhoto,
