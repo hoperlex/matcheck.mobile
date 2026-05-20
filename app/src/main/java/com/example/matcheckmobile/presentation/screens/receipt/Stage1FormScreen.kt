@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -38,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -112,7 +114,7 @@ fun Stage1FormScreen(
             val contentMaxWidth: Dp = if (isTablet) 900.dp else maxWidth
             val outerPadding = if (isTablet) 24.dp else 16.dp
             val sectionGap = if (isTablet) 20.dp else 14.dp
-            val photoButtonHeight = if (isTablet) 96.dp else 72.dp
+            val photoButtonHeight = if (isTablet) 128.dp else 104.dp
             val vehicleIconHeight = if (isTablet) 96.dp else 72.dp
             val finalizeButtonHeight = if (isTablet) 80.dp else 64.dp
 
@@ -134,25 +136,32 @@ fun Stage1FormScreen(
                             .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(sectionGap),
                     ) {
-                        PhotoSection(
-                            buttonText = "Добавить фото документов",
-                            isTablet = isTablet,
-                            buttonHeight = photoButtonHeight,
-                            onTakePhoto = takeDocumentPhoto,
-                            photoPaths = state.documentPhotoPaths,
-                            onRemovePhoto = vm::removeDocumentPhoto,
-                            onPreviewPhoto = { previewPath = it },
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(sectionGap),
+                        ) {
+                            PhotoSection(
+                                buttonText = "Добавить фото документов",
+                                isTablet = isTablet,
+                                buttonHeight = photoButtonHeight,
+                                onTakePhoto = takeDocumentPhoto,
+                                photoPaths = state.documentPhotoPaths,
+                                onRemovePhoto = vm::removeDocumentPhoto,
+                                onPreviewPhoto = { previewPath = it },
+                                modifier = Modifier.weight(1f),
+                            )
 
-                        PhotoSection(
-                            buttonText = "Добавить фото груза и госномера",
-                            isTablet = isTablet,
-                            buttonHeight = photoButtonHeight,
-                            onTakePhoto = takeCargoPhoto,
-                            photoPaths = state.cargoPhotoPaths,
-                            onRemovePhoto = vm::removeCargoPhoto,
-                            onPreviewPhoto = { previewPath = it },
-                        )
+                            PhotoSection(
+                                buttonText = "Добавить фото груза и госномера",
+                                isTablet = isTablet,
+                                buttonHeight = photoButtonHeight,
+                                onTakePhoto = takeCargoPhoto,
+                                photoPaths = state.cargoPhotoPaths,
+                                onRemovePhoto = vm::removeCargoPhoto,
+                                onPreviewPhoto = { previewPath = it },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
 
                         VehicleTypeChips(
                             selectedCode = state.vehicleTypeCode,
@@ -217,9 +226,10 @@ private fun PhotoSection(
     photoPaths: List<String>,
     onRemovePhoto: (String) -> Unit,
     onPreviewPhoto: (String) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Button(
@@ -227,20 +237,27 @@ private fun PhotoSection(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(buttonHeight),
-            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
         ) {
-            Icon(
-                imageVector = Icons.Default.PhotoCamera,
-                contentDescription = null,
-                modifier = Modifier.padding(end = 12.dp),
-            )
-            Text(
-                text = buttonText,
-                style = if (isTablet)
-                    MaterialTheme.typography.headlineSmall
-                else
-                    MaterialTheme.typography.titleLarge,
-            )
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PhotoCamera,
+                    contentDescription = null,
+                    modifier = Modifier.size(if (isTablet) 32.dp else 26.dp),
+                )
+                Text(
+                    text = buttonText,
+                    style = if (isTablet)
+                        MaterialTheme.typography.titleMedium
+                    else
+                        MaterialTheme.typography.titleSmall,
+                    textAlign = TextAlign.Center,
+                )
+            }
         }
 
         if (photoPaths.isNotEmpty()) {
