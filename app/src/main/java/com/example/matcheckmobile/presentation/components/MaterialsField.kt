@@ -37,8 +37,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -75,6 +77,8 @@ fun MaterialsField(
     modifier: Modifier = Modifier,
     label: String = "Материалы",
     readOnly: Boolean = false,
+    buttonTextStyle: TextStyle? = null,
+    buttonMinHeight: Dp = 56.dp,
 ) {
     var dialogVisible by remember { mutableStateOf(false) }
 
@@ -85,11 +89,11 @@ fun MaterialsField(
             shape = RoundedCornerShape(12.dp),
             modifier = modifier
                 .fillMaxWidth()
-                .heightIn(min = 56.dp),
+                .heightIn(min = buttonMinHeight),
         ) {
             Text(
                 text = "$label  ($count)",
-                style = MaterialTheme.typography.titleMedium,
+                style = buttonTextStyle ?: MaterialTheme.typography.titleMedium,
             )
         }
     } else {

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -28,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -52,6 +54,8 @@ fun ModalTextField(
     isError: Boolean = false,
     compact: Boolean = false,
     forceUppercase: Boolean = false,
+    textStyle: TextStyle = LocalTextStyle.current,
+    labelStyle: TextStyle? = null,
 ) {
     var dialogVisible by remember { mutableStateOf(false) }
 
@@ -62,8 +66,13 @@ fun ModalTextField(
             readOnly = true,
             singleLine = true,
             isError = isError,
-            label = { Text(label) },
-            placeholder = { Text(placeholder) },
+            textStyle = textStyle,
+            label = {
+                if (labelStyle != null) Text(label, style = labelStyle) else Text(label)
+            },
+            placeholder = {
+                if (labelStyle != null) Text(placeholder, style = labelStyle) else Text(placeholder)
+            },
             modifier = Modifier.fillMaxWidth(),
         )
         // Прозрачная плёнка, чтобы тап не поднимал системную клавиатуру.

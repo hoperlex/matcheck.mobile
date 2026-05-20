@@ -92,7 +92,12 @@ fun Stage1FormScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Новая приёмка") },
+                title = {
+                    Text(
+                        text = "Новая приёмка",
+                        style = MaterialTheme.typography.headlineSmall,
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack, modifier = Modifier.size(72.dp)) {
                         Icon(
@@ -119,6 +124,31 @@ fun Stage1FormScreen(
             val vehicleIconHeight = if (isTablet) 96.dp else 72.dp
             val finalizeButtonHeight = if (isTablet) 80.dp else 64.dp
 
+            val inputTextStyle = if (isTablet)
+                MaterialTheme.typography.headlineSmall
+            else
+                MaterialTheme.typography.titleLarge
+            val inputLabelStyle = if (isTablet)
+                MaterialTheme.typography.titleLarge
+            else
+                MaterialTheme.typography.titleMedium
+            val photoButtonTextStyle = if (isTablet)
+                MaterialTheme.typography.headlineSmall
+            else
+                MaterialTheme.typography.titleLarge
+            val materialsButtonTextStyle = if (isTablet)
+                MaterialTheme.typography.headlineSmall
+            else
+                MaterialTheme.typography.titleLarge
+            val vehicleLabelStyle = if (isTablet)
+                MaterialTheme.typography.titleLarge
+            else
+                MaterialTheme.typography.titleMedium
+            val vehicleChipTitleStyle = if (isTablet)
+                MaterialTheme.typography.titleLarge
+            else
+                MaterialTheme.typography.titleMedium
+
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -143,6 +173,7 @@ fun Stage1FormScreen(
                         ) {
                             PhotoSection(
                                 buttonText = "Фото документов",
+                                buttonTextStyle = photoButtonTextStyle,
                                 isTablet = isTablet,
                                 buttonHeight = photoButtonHeight,
                                 onTakePhoto = takeDocumentPhoto,
@@ -154,6 +185,7 @@ fun Stage1FormScreen(
 
                             PhotoSection(
                                 buttonText = "Фото груза, госномера",
+                                buttonTextStyle = photoButtonTextStyle,
                                 isTablet = isTablet,
                                 buttonHeight = photoButtonHeight,
                                 onTakePhoto = takeCargoPhoto,
@@ -164,6 +196,27 @@ fun Stage1FormScreen(
                             )
                         }
 
+                        ModalTextField(
+                            value = state.licensePlate,
+                            onValueChange = vm::setLicensePlate,
+                            label = "Введите Госномер",
+                            isError = state.showPlateError,
+                            compact = true,
+                            forceUppercase = true,
+                            textStyle = inputTextStyle,
+                            labelStyle = inputLabelStyle,
+                        )
+
+                        if (state.updId == null) {
+                            ModalTextField(
+                                value = state.manualUpdText,
+                                onValueChange = vm::setManualUpd,
+                                label = "Введите УПД",
+                                textStyle = inputTextStyle,
+                                labelStyle = inputLabelStyle,
+                            )
+                        }
+
                         VehicleTypeChips(
                             selectedCode = state.vehicleTypeCode,
                             onSelected = { vm.selectVehicle(it.code) },
@@ -171,42 +224,25 @@ fun Stage1FormScreen(
                             iconHeight = vehicleIconHeight,
                             showSubtitle = false,
                             loadInfo = state.loadInfo,
+                            labelStyle = vehicleLabelStyle,
+                            chipTitleStyle = vehicleChipTitleStyle,
                         )
 
                         MaterialsField(
                             value = state.materials,
                             onValueChange = vm::setMaterials,
                             readOnly = true,
+                            buttonTextStyle = materialsButtonTextStyle,
+                            buttonMinHeight = if (isTablet) 72.dp else 64.dp,
                         )
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            ModalTextField(
-                                value = state.commentText,
-                                onValueChange = vm::setComment,
-                                label = "Комментарий",
-                                modifier = Modifier.weight(0.65f),
-                            )
-                            ModalTextField(
-                                value = state.licensePlate,
-                                onValueChange = vm::setLicensePlate,
-                                label = "Введите Госномер",
-                                isError = state.showPlateError,
-                                compact = true,
-                                forceUppercase = true,
-                                modifier = Modifier.weight(0.35f),
-                            )
-                        }
-
-                        if (state.updId == null) {
-                            ModalTextField(
-                                value = state.manualUpdText,
-                                onValueChange = vm::setManualUpd,
-                                label = "Введите УПД",
-                            )
-                        }
+                        ModalTextField(
+                            value = state.commentText,
+                            onValueChange = vm::setComment,
+                            label = "Комментарий",
+                            textStyle = inputTextStyle,
+                            labelStyle = inputLabelStyle,
+                        )
                     }
 
                     Box(
@@ -224,9 +260,9 @@ fun Stage1FormScreen(
                             Text(
                                 text = if (state.isSaving) "Сохранение..." else "Завершить 1 Этап",
                                 style = if (isTablet)
-                                    MaterialTheme.typography.headlineSmall
+                                    MaterialTheme.typography.headlineMedium
                                 else
-                                    MaterialTheme.typography.titleLarge,
+                                    MaterialTheme.typography.headlineSmall,
                             )
                         }
                     }
@@ -246,6 +282,7 @@ fun Stage1FormScreen(
 @Composable
 private fun PhotoSection(
     buttonText: String,
+    buttonTextStyle: androidx.compose.ui.text.TextStyle,
     isTablet: Boolean,
     buttonHeight: Dp,
     onTakePhoto: () -> Unit,
@@ -273,14 +310,11 @@ private fun PhotoSection(
                 Icon(
                     imageVector = Icons.Default.PhotoCamera,
                     contentDescription = null,
-                    modifier = Modifier.size(if (isTablet) 32.dp else 26.dp),
+                    modifier = Modifier.size(if (isTablet) 40.dp else 32.dp),
                 )
                 Text(
                     text = buttonText,
-                    style = if (isTablet)
-                        MaterialTheme.typography.titleMedium
-                    else
-                        MaterialTheme.typography.titleSmall,
+                    style = buttonTextStyle,
                     textAlign = TextAlign.Center,
                 )
             }

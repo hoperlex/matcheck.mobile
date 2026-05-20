@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -56,12 +57,14 @@ fun VehicleTypeChips(
     iconHeight: Dp = 36.dp,
     showSubtitle: Boolean = true,
     loadInfo: VehicleLoadInfo? = null,
+    labelStyle: TextStyle? = null,
+    chipTitleStyle: TextStyle? = null,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         if (label != null) {
             Text(
                 text = label,
-                style = MaterialTheme.typography.labelMedium,
+                style = labelStyle ?: MaterialTheme.typography.labelMedium,
                 modifier = Modifier.padding(bottom = 6.dp, start = 4.dp),
             )
         }
@@ -80,6 +83,7 @@ fun VehicleTypeChips(
                     iconHeight = iconHeight,
                     showSubtitle = showSubtitle,
                     loadInfo = if (isSelected) loadInfo else null,
+                    titleStyle = chipTitleStyle,
                     modifier = Modifier.weight(1f, fill = true),
                 )
             }
@@ -95,8 +99,10 @@ private fun VehicleChip(
     iconHeight: Dp,
     showSubtitle: Boolean,
     loadInfo: VehicleLoadInfo?,
+    titleStyle: TextStyle? = null,
     modifier: Modifier = Modifier,
 ) {
+    val effectiveTitleStyle = titleStyle ?: MaterialTheme.typography.titleSmall
     val container = if (selected)
         MaterialTheme.colorScheme.primaryContainer
     else
@@ -146,7 +152,7 @@ private fun VehicleChip(
                     }
                     Text(
                         text = type.name,
-                        style = MaterialTheme.typography.titleSmall,
+                        style = effectiveTitleStyle,
                         fontWeight = FontWeight.SemiBold,
                         textAlign = TextAlign.Center,
                         maxLines = 1,
