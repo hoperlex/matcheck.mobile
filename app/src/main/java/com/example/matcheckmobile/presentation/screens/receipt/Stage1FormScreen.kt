@@ -178,11 +178,25 @@ fun Stage1FormScreen(
                             readOnly = true,
                         )
 
-                        ModalTextField(
-                            value = state.commentText,
-                            onValueChange = vm::setComment,
-                            label = "Комментарий",
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            ModalTextField(
+                                value = state.commentText,
+                                onValueChange = vm::setComment,
+                                label = "Комментарий",
+                                modifier = Modifier.weight(0.65f),
+                            )
+                            ModalTextField(
+                                value = state.licensePlate,
+                                onValueChange = vm::setLicensePlate,
+                                label = "Госномер",
+                                placeholder = "Введите Госномер",
+                                isError = state.licensePlate.isBlank(),
+                                modifier = Modifier.weight(0.35f),
+                            )
+                        }
                     }
 
                     Box(
@@ -193,7 +207,7 @@ fun Stage1FormScreen(
                     ) {
                         Button(
                             onClick = vm::finalizeStage1,
-                            enabled = !state.isSaving && !state.finalized,
+                            enabled = !state.isSaving && !state.finalized && state.licensePlate.isNotBlank(),
                             modifier = Modifier.height(finalizeButtonHeight),
                             contentPadding = PaddingValues(horizontal = 32.dp, vertical = 16.dp),
                         ) {

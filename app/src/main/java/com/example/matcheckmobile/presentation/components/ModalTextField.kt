@@ -48,6 +48,7 @@ fun ModalTextField(
     label: String,
     modifier: Modifier = Modifier,
     placeholder: String = "Нажмите для ввода",
+    isError: Boolean = false,
 ) {
     var dialogVisible by remember { mutableStateOf(false) }
 
@@ -57,6 +58,7 @@ fun ModalTextField(
             onValueChange = {},
             readOnly = true,
             singleLine = true,
+            isError = isError,
             label = { Text(label) },
             placeholder = { Text(placeholder) },
             modifier = Modifier.fillMaxWidth(),

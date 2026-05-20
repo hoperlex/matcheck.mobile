@@ -131,6 +131,10 @@ class Stage1FormViewModel(
         _state.update { it.copy(commentText = text) }
     }
 
+    fun setLicensePlate(text: String) {
+        _state.update { it.copy(licensePlate = text) }
+    }
+
     fun dismissError() {
         _state.update { it.copy(error = null) }
     }
@@ -138,6 +142,11 @@ class Stage1FormViewModel(
     fun finalizeStage1() {
         val cur = _state.value
         if (cur.isSaving || cur.finalized) return
+
+        if (cur.licensePlate.isBlank()) {
+            _state.update { it.copy(error = "Введите госномер") }
+            return
+        }
 
         val siteId = container.tokenStorage.state.value.siteId
         if (siteId.isNullOrBlank()) {
@@ -160,11 +169,20 @@ class Stage1FormViewModel(
 
                 val sourceDocIds = cur.updId?.let { listOf(it) } ?: emptyList()
 
+                val plate = cur.licensePlate.trim()
+                val userComment = cur.commentText.trim()
+                val combinedComment = buildString {
+                    append("Госномер: ").append(plate)
+                    if (userComment.isNotEmpty()) {
+                        append('\n').append(userComment)
+                    }
+                }
+
                 val deliveryId = container.deliveryRepository.upsert(
                     DeliveryRepository.UpsertInput(
                         statusCode = "filled",
                         siteId = siteId,
-                        comment = cur.commentText.ifBlank { null },
+                        comment = combinedComment,
                         sourceDocumentIds = sourceDocIds,
                         items = items,
                     ),
@@ -212,6 +230,7 @@ data class Stage1FormUiState(
     val vehicleTypeCode: String? = null,
     val materials: List<MaterialDraft> = emptyList(),
     val commentText: String = "",
+    val licensePlate: String = "",
     val isSaving: Boolean = false,
     val finalized: Boolean = false,
     val error: String? = null,
