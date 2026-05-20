@@ -145,5 +145,7 @@ private fun VehicleChip(
     }
 }
 
-private fun formatNum(v: Double): String =
-    if (v % 1.0 == 0.0) v.toLong().toString() else "%.1f".format(v)
+private fun formatNum(v: Double): String {
+    if (v % 1.0 == 0.0) return v.toLong().toString()
+    return "%.2f".format(v).trimEnd('0').trimEnd('.', ',')
+}

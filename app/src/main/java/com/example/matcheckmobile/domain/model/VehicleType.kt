@@ -13,9 +13,9 @@ data class VehicleType(
 }
 
 val VEHICLE_TYPES: List<VehicleType> = listOf(
+    VehicleType("largus", "Ларгус", 2.35, 0.8, R.drawable.ic_vehicle_largus),
     VehicleType("light", "Газель", 12.0, 1.8, R.drawable.ic_vehicle_light),
     VehicleType("truck6m", "Грузовик 6м", 38.0, 5.0, R.drawable.ic_vehicle_truck6m),
-    VehicleType("semitrail", "Полуприцеп", 65.0, 12.0, R.drawable.ic_vehicle_semitrail),
     VehicleType("eurotruck", "Фура", 92.0, 22.0, R.drawable.ic_vehicle_eurotruck),
 )
 
