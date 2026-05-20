@@ -1,5 +1,6 @@
 package com.example.matcheckmobile
 
+import android.content.pm.ActivityInfo
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -11,6 +12,10 @@ import com.example.matcheckmobile.ui.theme.MatcheckmobileTheme
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // На Android 16 (targetSdk=36) система может игнорировать
+        // screenOrientation из манифеста на планшетах. Фиксируем portrait
+        // программно — это уважается ОС в большинстве случаев.
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         // Не даём экрану гаснуть, пока приложение на переднем плане — инспектор
         // на КПП работает в режиме «всё время видно». При уходе в фон флаг
         // автоматически перестаёт действовать.
