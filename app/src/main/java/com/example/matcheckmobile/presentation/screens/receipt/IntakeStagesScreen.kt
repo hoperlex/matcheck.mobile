@@ -21,21 +21,27 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -43,22 +49,20 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.matcheckmobile.presentation.viewmodel.IntakeStagesCounts
 import com.example.matcheckmobile.presentation.viewmodel.IntakeStagesViewModel
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
 import com.example.matcheckmobile.ui.theme.OpenSansFontFamily
 
 private val TabletBreakpoint = 600.dp
 
-// Палитра для бейджа активных УПД. Зелёные оттенки выровнены под Material green:
-// тёмная заливка дота читается на светло-зелёном фоне Surface, тёмно-зелёный
-// текст даёт достаточный контраст без визуального шума на белой карточке.
+// Зелёный дот-индикатор активности. Тёмный оттенок Material green читается
+// на белом фоне кнопки без визуального шума.
 private val ActiveDotColor = Color(0xFF2E7D32)
-private val ActiveBadgeBackground = Color(0xFFE8F5E9)
-private val ActiveBadgeBorder = Color(0xFF66BB6A)
-private val ActiveBadgeText = Color(0xFF1B5E20)
 
 /**
  * Стартовый экран приёмки: две большие кнопки выбора этапа.
@@ -117,7 +121,7 @@ fun IntakeStagesScreen(
                     StageButton(
                         title = "1 Этап",
                         description = "Описание: фотофиксация госномера, груза, документов",
-                        activeCount = counts.stage1Active,
+                        counts = counts,
                         onClick = onStage1,
                         isTablet = isTablet,
                         modifier = Modifier
@@ -127,7 +131,7 @@ fun IntakeStagesScreen(
                     StageButton(
                         title = "2 Этап",
                         description = "Описание: фотофиксация разгруженной машины, МОЛ, госномер",
-                        activeCount = counts.stage2Active,
+                        counts = counts,
                         onClick = onStage2,
                         isTablet = isTablet,
                         modifier = Modifier
@@ -144,11 +148,13 @@ fun IntakeStagesScreen(
 private fun StageButton(
     title: String,
     description: String,
-    activeCount: Int,
+    counts: IntakeStagesCounts,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     isTablet: Boolean,
 ) {
+    var infoDialogVisible by remember { mutableStateOf(false) }
+
     OutlinedButton(
         onClick = onClick,
         modifier = modifier,
@@ -175,34 +181,66 @@ private fun StageButton(
                     fontFamily = OpenSansFontFamily,
                     fontSize = if (isTablet) 68.sp else 54.sp,
                 )
-                // Описание ×2 от исходного bodyLarge/bodyMedium, слева снизу.
-                Text(
-                    text = description,
-                    fontFamily = OpenSansFontFamily,
-                    fontSize = if (isTablet) 32.sp else 28.sp,
-                    lineHeight = if (isTablet) 46.sp else 40.sp,
-                )
+                StageStats(counts = counts, isTablet = isTablet)
             }
-            if (activeCount > 0) {
-                ActiveCountBadge(
-                    count = activeCount,
-                    isTablet = isTablet,
-                    modifier = Modifier.align(Alignment.TopEnd),
+
+            // i-иконка в правом верхнем углу. Свой clickable IconButton'a
+            // ловит тап и не пробрасывает его на onClick кнопки этапа.
+            IconButton(
+                onClick = { infoDialogVisible = true },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = 12.dp, y = (-12).dp)
+                    .size(if (isTablet) 56.dp else 44.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Info,
+                    contentDescription = "Информация",
+                    tint = Color.Black,
+                    modifier = Modifier.size(if (isTablet) 40.dp else 32.dp),
                 )
             }
         }
     }
+
+    if (infoDialogVisible) {
+        AlertDialog(
+            onDismissRequest = { infoDialogVisible = false },
+            title = {
+                Text(
+                    text = title,
+                    fontFamily = OpenSansFontFamily,
+                    fontSize = if (isTablet) 28.sp else 24.sp,
+                )
+            },
+            text = {
+                Text(
+                    text = description,
+                    fontFamily = OpenSansFontFamily,
+                    fontSize = if (isTablet) 22.sp else 18.sp,
+                    lineHeight = if (isTablet) 30.sp else 26.sp,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { infoDialogVisible = false }) {
+                    Text(
+                        text = "Закрыть",
+                        fontSize = if (isTablet) 20.sp else 16.sp,
+                    )
+                }
+            },
+        )
+    }
 }
 
 @Composable
-private fun ActiveCountBadge(
-    count: Int,
+private fun StageStats(
+    counts: IntakeStagesCounts,
     isTablet: Boolean,
-    modifier: Modifier = Modifier,
 ) {
-    // Пульсация дота — затухание/возврат прозрачности, бесконечный цикл.
-    // Reverse + длительность ~1100мс даёт «живое» дыхание без отвлекающего мерцания.
-    val transition = rememberInfiniteTransition(label = "active-pulse")
+    // Общая пульсация для всех точек — затухание/возврат прозрачности.
+    // Один transition на все три ряда: точки мигают синхронно, без шума.
+    val transition = rememberInfiniteTransition(label = "stats-pulse")
     val dotAlpha by transition.animateFloat(
         initialValue = 0.35f,
         targetValue = 1f,
@@ -210,42 +248,64 @@ private fun ActiveCountBadge(
             animation = tween(durationMillis = 1100, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse,
         ),
-        label = "dot-alpha",
+        label = "stats-dot-alpha",
     )
 
+    val rowGap = if (isTablet) 6.dp else 4.dp
+    val fontSize = if (isTablet) 24.sp else 20.sp
     val dotSize = if (isTablet) 14.dp else 11.dp
-    val fontSize = if (isTablet) 22.sp else 18.sp
-    val horizontalPadding = if (isTablet) 14.dp else 10.dp
-    val verticalPadding = if (isTablet) 8.dp else 6.dp
     val spacing = if (isTablet) 10.dp else 7.dp
 
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(50),
-        color = ActiveBadgeBackground,
-        border = BorderStroke(1.dp, ActiveBadgeBorder),
-    ) {
-        Row(
-            modifier = Modifier.padding(
-                horizontal = horizontalPadding,
-                vertical = verticalPadding,
-            ),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(dotSize)
-                    .graphicsLayer { alpha = dotAlpha }
-                    .clip(CircleShape)
-                    .background(ActiveDotColor),
-            )
-            Spacer(Modifier.width(spacing))
-            Text(
-                text = "$count активн.",
-                fontFamily = OpenSansFontFamily,
-                fontSize = fontSize,
-                color = ActiveBadgeText,
-            )
-        }
+    Column(verticalArrangement = Arrangement.spacedBy(rowGap)) {
+        StatRow(
+            label = "Всего:",
+            value = counts.total,
+            fontSize = fontSize,
+            dotSize = dotSize,
+            spacing = spacing,
+            dotAlpha = dotAlpha,
+        )
+        StatRow(
+            label = "В разгрузке:",
+            value = counts.stage2Active,
+            fontSize = fontSize,
+            dotSize = dotSize,
+            spacing = spacing,
+            dotAlpha = dotAlpha,
+        )
+        StatRow(
+            label = "Разгрузка >2х часов:",
+            value = counts.overdueStage2,
+            fontSize = fontSize,
+            dotSize = dotSize,
+            spacing = spacing,
+            dotAlpha = dotAlpha,
+        )
+    }
+}
+
+@Composable
+private fun StatRow(
+    label: String,
+    value: Int,
+    fontSize: TextUnit,
+    dotSize: Dp,
+    spacing: Dp,
+    dotAlpha: Float,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = "$label $value",
+            fontFamily = OpenSansFontFamily,
+            fontSize = fontSize,
+        )
+        Spacer(Modifier.width(spacing))
+        Box(
+            modifier = Modifier
+                .size(dotSize)
+                .graphicsLayer { alpha = dotAlpha }
+                .clip(CircleShape)
+                .background(ActiveDotColor),
+        )
     }
 }

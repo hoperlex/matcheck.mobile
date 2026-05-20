@@ -4,11 +4,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.di.AppContainer
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
+import java.time.Instant
 
 /**
  * Счётчики «активных УПД» для стартового экрана приёмки.
@@ -18,10 +20,15 @@ import kotlinx.coroutines.flow.stateIn
  *   и исключаем id, привязанные локально через `remote_deliveries` и
  *   `remote_shipments` (сервер не присылает их в дельте после привязки).
  * - Stage 2: приёмки в статусе `filled` («Оформлена»), ожидающие подтверждения МОЛ.
+ * - overdueStage2: приёмки в статусе `filled`, у которых [updatedAt] (последнее
+ *   изменение, обычно — момент перехода в filled на финализации 1-го этапа)
+ *   старше 2 часов.
  */
 data class IntakeStagesCounts(
+    val total: Int = 0,
     val stage1Active: Int = 0,
     val stage2Active: Int = 0,
+    val overdueStage2: Int = 0,
 )
 
 class IntakeStagesViewModel(container: AppContainer) : ViewModel() {
@@ -30,18 +37,46 @@ class IntakeStagesViewModel(container: AppContainer) : ViewModel() {
         container.database.remoteSourceDocumentDao().observeAll(),
         container.database.remoteDeliveryDao().observeAttachedSourceDocumentIdsJson(),
         container.database.remoteShipmentDao().observeAttachedSourceDocumentIdsJson(),
-        container.deliveryRepository.observeByStatus("filled").map { it.size },
-    ) { docs, deliveryAttachedJsons, shipmentAttachedJsons, stage2Count ->
+        container.deliveryRepository.observeByStatus("filled"),
+        overdueTicker,
+    ) { docs, deliveryAttachedJsons, shipmentAttachedJsons, stage2Deliveries, nowMs ->
         val attachedIds: Set<String> = buildSet {
             (deliveryAttachedJsons + shipmentAttachedJsons).forEach { json ->
                 addAll(RemoteMappers.decodeIdList(json))
             }
         }
         val stage1Count = docs.count { it.id !in attachedIds }
-        IntakeStagesCounts(stage1Active = stage1Count, stage2Active = stage2Count)
+        val stage2Count = stage2Deliveries.size
+        val twoHoursAgoMs = nowMs - 2 * 60 * 60 * 1000L
+        val overdueCount = stage2Deliveries.count { d ->
+            val ts = parseIsoMillis(d.updatedAt)
+            ts != null && ts < twoHoursAgoMs
+        }
+        IntakeStagesCounts(
+            total = stage1Count + stage2Count,
+            stage1Active = stage1Count,
+            stage2Active = stage2Count,
+            overdueStage2 = overdueCount,
+        )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = IntakeStagesCounts(),
     )
+
+    private companion object {
+        /** Тикает раз в 30 секунд, чтобы счётчик «>2 часов» переезжал по мере старения. */
+        val overdueTicker = flow {
+            while (true) {
+                emit(System.currentTimeMillis())
+                delay(30_000L)
+            }
+        }
+
+        fun parseIsoMillis(s: String?): Long? = try {
+            if (s.isNullOrBlank()) null else Instant.parse(s).toEpochMilli()
+        } catch (_: Exception) {
+            null
+        }
+    }
 }
