@@ -63,6 +63,8 @@ private val TabletBreakpoint = 600.dp
 // Зелёный дот-индикатор активности. Тёмный оттенок Material green читается
 // на белом фоне кнопки без визуального шума.
 private val ActiveDotColor = Color(0xFF2E7D32)
+// Красный дот для просроченных строк (>2ч). Material red, читается на белом.
+private val OverdueDotColor = Color(0xFFD32F2F)
 
 /**
  * Стартовый экран приёмки: две большие кнопки выбора этапа.
@@ -122,6 +124,7 @@ fun IntakeStagesScreen(
                         title = "1 Этап",
                         description = "Описание: фотофиксация госномера, груза, документов",
                         counts = counts,
+                        showStats = true,
                         onClick = onStage1,
                         isTablet = isTablet,
                         modifier = Modifier
@@ -132,6 +135,7 @@ fun IntakeStagesScreen(
                         title = "2 Этап",
                         description = "Описание: фотофиксация разгруженной машины, МОЛ, госномер",
                         counts = counts,
+                        showStats = false,
                         onClick = onStage2,
                         isTablet = isTablet,
                         modifier = Modifier
@@ -149,6 +153,7 @@ private fun StageButton(
     title: String,
     description: String,
     counts: IntakeStagesCounts,
+    showStats: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     isTablet: Boolean,
@@ -181,7 +186,13 @@ private fun StageButton(
                     fontFamily = OpenSansFontFamily,
                     fontSize = if (isTablet) 68.sp else 54.sp,
                 )
-                StageStats(counts = counts, isTablet = isTablet)
+                if (showStats) {
+                    StageStats(counts = counts, isTablet = isTablet)
+                } else {
+                    // Заполнитель снизу — чтобы SpaceBetween не подтянул заголовок
+                    // к низу кнопки. Высота не важна, важно само присутствие.
+                    Spacer(Modifier.size(0.dp))
+                }
             }
 
             // i-иконка в правом верхнем углу. Свой clickable IconButton'a
@@ -280,6 +291,8 @@ private fun StageStats(
             dotSize = dotSize,
             spacing = spacing,
             dotAlpha = dotAlpha,
+            // Временно: красная точка всегда. Потом — динамически от значения.
+            dotColor = OverdueDotColor,
         )
     }
 }
@@ -292,6 +305,7 @@ private fun StatRow(
     dotSize: Dp,
     spacing: Dp,
     dotAlpha: Float,
+    dotColor: Color = ActiveDotColor,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
@@ -305,7 +319,7 @@ private fun StatRow(
                 .size(dotSize)
                 .graphicsLayer { alpha = dotAlpha }
                 .clip(CircleShape)
-                .background(ActiveDotColor),
+                .background(dotColor),
         )
     }
 }
