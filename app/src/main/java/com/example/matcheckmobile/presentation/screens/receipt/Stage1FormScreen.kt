@@ -49,6 +49,7 @@ import com.example.matcheckmobile.presentation.components.ModalTextField
 import com.example.matcheckmobile.presentation.components.PhotoPreviewDialog
 import com.example.matcheckmobile.presentation.components.PhotoThumb
 import com.example.matcheckmobile.presentation.components.VehicleTypeChips
+import com.example.matcheckmobile.presentation.components.rememberDocumentScanner
 import com.example.matcheckmobile.presentation.components.rememberPhotoCapture
 import com.example.matcheckmobile.presentation.viewmodel.Stage1FormViewModel
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
@@ -79,9 +80,9 @@ fun Stage1FormScreen(
         }
     }
 
-    val takeDocumentPhoto = rememberPhotoCapture(
+    val takeDocumentPhoto = rememberDocumentScanner(
         photoStorage = container.photoStorage,
-        onPhotoTaken = vm::onDocumentPhotoTaken,
+        onPageCaptured = vm::onDocumentPhotoTaken,
     )
     val takeCargoPhoto = rememberPhotoCapture(
         photoStorage = container.photoStorage,

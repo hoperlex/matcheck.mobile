@@ -22,4 +22,19 @@ class PhotoStorage(private val context: Context) {
         context.packageName + ".fileprovider",
         file,
     )
+
+    /**
+     * Копирует содержимое content-URI в новый файл в локальной директории фото.
+     * Используется для импорта результатов ML Kit Document Scanner — он отдаёт
+     * страницы как content-URI своего FileProvider, доступные только в рамках
+     * текущей сессии разрешений; чтобы дальше работать со стандартным pipeline,
+     * нужно перенести байты к себе.
+     */
+    fun importFromUri(uri: Uri, prefix: String = "doc"): File {
+        val dst = createTempFile(prefix = prefix)
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            dst.outputStream().use { output -> input.copyTo(output) }
+        } ?: error("Не удалось открыть поток для $uri")
+        return dst
+    }
 }
