@@ -191,9 +191,8 @@ fun Stage1FormScreen(
                             ModalTextField(
                                 value = state.licensePlate,
                                 onValueChange = vm::setLicensePlate,
-                                label = "Госномер",
-                                placeholder = "Введите Госномер",
-                                isError = state.licensePlate.isBlank(),
+                                label = "Введите Госномер",
+                                isError = state.showPlateError,
                                 modifier = Modifier.weight(0.35f),
                             )
                         }
@@ -207,7 +206,7 @@ fun Stage1FormScreen(
                     ) {
                         Button(
                             onClick = vm::finalizeStage1,
-                            enabled = !state.isSaving && !state.finalized && state.licensePlate.isNotBlank(),
+                            enabled = !state.isSaving && !state.finalized,
                             modifier = Modifier.height(finalizeButtonHeight),
                             contentPadding = PaddingValues(horizontal = 32.dp, vertical = 16.dp),
                         ) {

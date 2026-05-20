@@ -132,7 +132,7 @@ class Stage1FormViewModel(
     }
 
     fun setLicensePlate(text: String) {
-        _state.update { it.copy(licensePlate = text) }
+        _state.update { it.copy(licensePlate = text, showPlateError = false) }
     }
 
     fun dismissError() {
@@ -143,8 +143,13 @@ class Stage1FormViewModel(
         val cur = _state.value
         if (cur.isSaving || cur.finalized) return
 
-        if (cur.licensePlate.isBlank()) {
-            _state.update { it.copy(error = "Введите госномер") }
+        val plate = cur.licensePlate.trim()
+        if (plate.isBlank()) {
+            _state.update { it.copy(showPlateError = true, error = "Введите госномер") }
+            return
+        }
+        if (!isValidPlate(plate)) {
+            _state.update { it.copy(showPlateError = true, error = "Неверный формат госномера") }
             return
         }
 
@@ -231,7 +236,23 @@ data class Stage1FormUiState(
     val materials: List<MaterialDraft> = emptyList(),
     val commentText: String = "",
     val licensePlate: String = "",
+    val showPlateError: Boolean = false,
     val isSaving: Boolean = false,
     val finalized: Boolean = false,
     val error: String? = null,
 )
+
+/**
+ * Российский номерной знак легкового авто: 1 буква + 3 цифры + 2 буквы + 2-3 цифры региона.
+ * Допустимые буквы — только те, что есть и в кириллице, и в латинице (АВЕКМНОРСТУХ /
+ * ABEKMHOPCTYX). Пользователь может ввести буквы в любой раскладке.
+ * Пробелы внутри допускаются и игнорируются. Регистр любой.
+ */
+private val PLATE_REGEX = Regex(
+    "^[АВЕКМНОРСТУХABEKMHOPCTYX]\\d{3}[АВЕКМНОРСТУХABEKMHOPCTYX]{2}\\d{2,3}\$",
+)
+
+private fun isValidPlate(input: String): Boolean {
+    val cleaned = input.replace(Regex("\\s+"), "").uppercase()
+    return PLATE_REGEX.matches(cleaned)
+}
