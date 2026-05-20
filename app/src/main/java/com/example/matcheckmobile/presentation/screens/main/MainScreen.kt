@@ -1,14 +1,18 @@
 package com.example.matcheckmobile.presentation.screens.main
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,6 +26,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -31,7 +36,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -93,12 +98,6 @@ fun MainScreen(
                         .fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(gap),
                 ) {
-                    StatusBanner(
-                        pendingOps = status.pendingOperations,
-                        pendingSessions = status.pendingSessions,
-                        pendingAttachments = status.pendingAttachments,
-                    )
-
                     ActionButton(
                         text = "Приёмка",
                         onClick = onReceipt,
@@ -114,6 +113,11 @@ fun MainScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f),
+                    )
+                    PlanCard(
+                        todayValue = "—",
+                        futureValue = "—",
+                        isTablet = isTablet,
                     )
                 }
             }
@@ -178,32 +182,89 @@ fun MainScreen(
 }
 
 @Composable
-private fun StatusBanner(pendingOps: Int, pendingSessions: Int, pendingAttachments: Int) {
-    val total = pendingOps + pendingSessions + pendingAttachments
-    val container = if (total == 0)
-        MaterialTheme.colorScheme.primaryContainer
-    else
-        MaterialTheme.colorScheme.errorContainer
-    val onContainer = if (total == 0)
-        MaterialTheme.colorScheme.onPrimaryContainer
-    else
-        MaterialTheme.colorScheme.onErrorContainer
+private fun PlanCard(
+    todayValue: String,
+    futureValue: String,
+    isTablet: Boolean,
+) {
     Surface(
-        color = container,
-        contentColor = onContainer,
-        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        shape = RoundedCornerShape(20.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.fillMaxWidth(),
     ) {
+        Column(
+            modifier = Modifier.padding(
+                horizontal = if (isTablet) 24.dp else 18.dp,
+                vertical = if (isTablet) 18.dp else 14.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(if (isTablet) 14.dp else 10.dp),
+        ) {
+            Text(
+                text = "План",
+                style = if (isTablet)
+                    MaterialTheme.typography.headlineSmall
+                else
+                    MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Min),
+                horizontalArrangement = Arrangement.spacedBy(if (isTablet) 24.dp else 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                PlanCell(
+                    label = "Сегодня",
+                    value = todayValue,
+                    isTablet = isTablet,
+                    modifier = Modifier.weight(1f),
+                )
+                VerticalDivider(
+                    thickness = 1.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                )
+                PlanCell(
+                    label = "Будущие",
+                    value = futureValue,
+                    isTablet = isTablet,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlanCell(
+    label: String,
+    value: String,
+    isTablet: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(if (isTablet) 6.dp else 4.dp),
+    ) {
         Text(
-            text = if (total == 0)
-                "Все данные синхронизированы"
+            text = label,
+            style = if (isTablet)
+                MaterialTheme.typography.titleMedium
             else
-                "Ожидают отправки: приёмок $pendingSessions, операций $pendingOps, фото $pendingAttachments",
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            textAlign = TextAlign.Center,
+                MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = value,
+            style = if (isTablet)
+                MaterialTheme.typography.displaySmall
+            else
+                MaterialTheme.typography.headlineLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
         )
     }
 }
