@@ -143,6 +143,7 @@ private fun StageButton(
                 text = description,
                 fontFamily = OpenSansFontFamily,
                 fontSize = if (isTablet) 32.sp else 28.sp,
+                lineHeight = if (isTablet) 46.sp else 40.sp,
             )
         }
     }
