@@ -1,10 +1,17 @@
 package com.example.matcheckmobile.presentation.screens.receipt
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -13,11 +20,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -28,11 +36,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.matcheckmobile.presentation.viewmodel.IntakeUpdGroup
 import com.example.matcheckmobile.presentation.viewmodel.IntakeUpdRow
 import com.example.matcheckmobile.presentation.viewmodel.IntakeUpdSelectViewModel
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
@@ -48,6 +59,7 @@ fun IntakeUpdSelectScreen(
 ) {
     val vm: IntakeUpdSelectViewModel = matcheckViewModel()
     val groups by vm.groups.collectAsStateWithLifecycle()
+    val expandedMap = remember { mutableStateMapOf<String, Boolean>() }
 
     Scaffold(
         topBar = {
@@ -129,17 +141,40 @@ fun IntakeUpdSelectScreen(
                     } else {
                         LazyColumn(
                             modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             groups.forEach { group ->
-                                item(key = "header:${group.contractorName}") {
-                                    ContractorHeader(name = group.contractorName)
-                                }
-                                items(group.rows, key = { it.document.id }) { row ->
-                                    UpdRowCard(
-                                        row = row,
-                                        onClick = { onOpenWithUpd(row.document.id) },
-                                    )
+                                val expanded = expandedMap[group.contractorName] == true
+                                item(key = "group:${group.contractorName}") {
+                                    Column(modifier = Modifier.fillMaxWidth()) {
+                                        ContractorHeaderCard(
+                                            name = group.contractorName,
+                                            count = group.rows.size,
+                                            expanded = expanded,
+                                            onToggle = {
+                                                expandedMap[group.contractorName] = !expanded
+                                            },
+                                        )
+                                        AnimatedVisibility(
+                                            visible = expanded,
+                                            enter = expandVertically() + fadeIn(),
+                                            exit = shrinkVertically() + fadeOut(),
+                                        ) {
+                                            Column(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(start = 8.dp, top = 8.dp),
+                                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                            ) {
+                                                group.rows.forEach { row ->
+                                                    UpdRowCard(
+                                                        row = row,
+                                                        onClick = { onOpenWithUpd(row.document.id) },
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -151,14 +186,58 @@ fun IntakeUpdSelectScreen(
 }
 
 @Composable
-private fun ContractorHeader(name: String) {
-    Text(
-        text = name,
-        style = MaterialTheme.typography.titleLarge,
+private fun ContractorHeaderCard(
+    name: String,
+    count: Int,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+) {
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        label = "chevron-rotation",
+    )
+    Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 12.dp, bottom = 4.dp, start = 4.dp),
-    )
+            .clickable(onClick = onToggle),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        ),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = name,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+            )
+            Surface(
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.padding(end = 12.dp),
+            ) {
+                Text(
+                    text = count.toString(),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                )
+            }
+            Icon(
+                imageVector = Icons.Default.KeyboardArrowDown,
+                contentDescription = if (expanded) "Свернуть" else "Развернуть",
+                modifier = Modifier
+                    .size(28.dp)
+                    .rotate(chevronRotation),
+            )
+        }
+    }
 }
 
 @Composable
