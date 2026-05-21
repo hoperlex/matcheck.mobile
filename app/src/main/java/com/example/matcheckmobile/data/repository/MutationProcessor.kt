@@ -81,7 +81,17 @@ class MutationProcessor(
                     conflicts++
                 }
                 is Outcome.Drop -> {
-                    mutationDao.deleteById(m.id)
+                    // Раньше Drop тихо удалял мутацию — диагностика терялась.
+                    // Теперь сохраняем запись с lastError и conflictPending=true,
+                    // чтобы видеть причину в Очереди. Очистить можно кнопкой.
+                    mutationDao.upsert(
+                        m.copy(
+                            conflictPending = true,
+                            attempts = m.attempts + 1,
+                            lastError = outcome.reason,
+                        ),
+                    )
+                    blockedEntities += key
                     dropped++
                 }
                 is Outcome.Backoff -> {
@@ -112,7 +122,7 @@ class MutationProcessor(
         return when (m.entityType) {
             "delivery" -> dispatchDelivery(m)
             "shipment" -> dispatchShipment(m)
-            else -> Outcome.Drop // неизвестный тип — drop
+            else -> Outcome.Drop("unknown entityType ${m.entityType}")
         }
     }
 
@@ -121,7 +131,7 @@ class MutationProcessor(
             "upsert" -> {
                 val payload = m.payloadJson?.let {
                     json.decodeFromString(DeliveryUpsertRequest.serializer(), it)
-                } ?: return Outcome.Drop
+                } ?: return Outcome.Drop("payloadJson отсутствует")
                 val server = deliveriesApi.upsert(payload)
                 saveDeliveryFromServer(server)
                 return Outcome.Ok
@@ -144,7 +154,7 @@ class MutationProcessor(
                 saveDeliveryFromServer(server)
                 return Outcome.Ok
             }
-            else -> return Outcome.Drop
+            else -> return Outcome.Drop("unknown operation ${m.operation}")
         }
     }
 
@@ -153,7 +163,7 @@ class MutationProcessor(
             "upsert" -> {
                 val payload = m.payloadJson?.let {
                     json.decodeFromString(ShipmentUpsertRequest.serializer(), it)
-                } ?: return Outcome.Drop
+                } ?: return Outcome.Drop("payloadJson отсутствует")
                 val server = shipmentsApi.upsert(payload)
                 saveShipmentFromServer(server)
                 return Outcome.Ok
@@ -176,7 +186,7 @@ class MutationProcessor(
                 saveShipmentFromServer(server)
                 return Outcome.Ok
             }
-            else -> return Outcome.Drop
+            else -> return Outcome.Drop("unknown operation ${m.operation}")
         }
     }
 
@@ -204,17 +214,14 @@ class MutationProcessor(
         val raw = runCatching { error.response()?.errorBody()?.string() }.getOrNull()
         val failure = classifyMutationFailure(code, raw)
 
+        // Усекаем тело ответа, чтобы lastError не разрастался.
+        val rawSnippet = raw?.take(300)
         return when (failure) {
             is MutationFailure.Conflict -> {
-                // Идемпотентность create: baseVersion=0 + 409 значит, что
-                // первая попытка фактически создала запись на сервере, но
-                // мобайл не получил response (TLS/connection reset). Snapshot
-                // от сервера = успех, считаем мутацию выполненной и сохраняем
-                // entity БЕЗ conflictPending.
                 val isIdempotentCreate = m.operation == "upsert" && (m.baseVersion ?: 0) == 0
                 val applied = tryApplyOccSnapshot(m, raw, markConflictPending = !isIdempotentCreate)
                 when {
-                    !applied -> Outcome.Drop
+                    !applied -> Outcome.Drop("http 409 без snapshot: $rawSnippet")
                     isIdempotentCreate -> Outcome.Ok
                     else -> Outcome.Conflict(failure.tag)
                 }
@@ -222,23 +229,16 @@ class MutationProcessor(
             MutationFailure.PendingDeletion,
             MutationFailure.AlreadyPending,
             MutationFailure.NotPending -> {
-                // Локальная копия отстала: документ либо помечен на удаление,
-                // либо уже в нужном soft-delete-состоянии. Освежаем GET /:id —
-                // там придёт актуальный pendingDeletionAt/By/Reason.
                 tryRefreshFromServer(m)
-                Outcome.Drop
+                Outcome.Drop("http $code · ${failure}")
             }
             MutationFailure.MustMarkFirst,
             MutationFailure.CannotMarkStatus -> {
-                // Клиентская логика разошлась с серверной. Inspector_kpp не
-                // должен пытаться финальный DELETE (must_mark_first — это
-                // только admin) или mark по черновику (cannot_mark_status —
-                // надо было обычный DELETE). Drop с описательным lastError.
-                Outcome.Drop
+                Outcome.Drop("http $code · ${failure}")
             }
             is MutationFailure.Other -> {
-                if (code in 500..599) Outcome.Backoff("http $code")
-                else Outcome.Drop
+                if (code in 500..599) Outcome.Backoff("http $code · $rawSnippet")
+                else Outcome.Drop("http $code · $rawSnippet")
             }
         }
     }
@@ -384,7 +384,7 @@ class MutationProcessor(
     sealed interface Outcome {
         data object Ok : Outcome
         data class Conflict(val tag: String) : Outcome
-        data object Drop : Outcome
+        data class Drop(val reason: String) : Outcome
         data class Backoff(val error: String) : Outcome
     }
 
