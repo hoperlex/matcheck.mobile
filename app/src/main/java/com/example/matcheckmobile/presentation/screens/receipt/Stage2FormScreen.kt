@@ -131,69 +131,77 @@ fun Stage2FormScreen(
                 Column(
                     modifier = Modifier
                         .widthIn(max = contentMaxWidth)
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(sectionGap),
+                        .fillMaxSize(),
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(sectionGap),
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(sectionGap),
                     ) {
-                        PhotoCaptureSection(
-                            buttonText = "Фото документов",
-                            buttonTextStyle = photoButtonTextStyle,
-                            isTablet = isTablet,
-                            buttonHeight = photoButtonHeight,
-                            onTakePhoto = takeDocumentPhoto,
-                            photoPaths = state.documentPhotoPaths,
-                            onRemovePhoto = vm::removeDocumentPhoto,
-                            onPreviewPhoto = { previewPath = it },
-                            modifier = Modifier.weight(1f),
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(sectionGap),
+                        ) {
+                            PhotoCaptureSection(
+                                buttonText = "Фото документов",
+                                buttonTextStyle = photoButtonTextStyle,
+                                isTablet = isTablet,
+                                buttonHeight = photoButtonHeight,
+                                onTakePhoto = takeDocumentPhoto,
+                                photoPaths = state.documentPhotoPaths,
+                                onRemovePhoto = vm::removeDocumentPhoto,
+                                onPreviewPhoto = { previewPath = it },
+                                modifier = Modifier.weight(1f),
+                            )
+
+                            PhotoCaptureSection(
+                                buttonText = "Фото машины, госномера",
+                                buttonTextStyle = photoButtonTextStyle,
+                                isTablet = isTablet,
+                                buttonHeight = photoButtonHeight,
+                                onTakePhoto = takeVehiclePhoto,
+                                photoPaths = state.vehiclePhotoPaths,
+                                onRemovePhoto = vm::removeVehiclePhoto,
+                                onPreviewPhoto = { previewPath = it },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+
+                        // Госномер из приёмки — показываем заполненным, но без правки.
+                        // Стилистика совпадает с инпутами 1 Этапа (textStyle/labelStyle).
+                        OutlinedTextField(
+                            value = state.vehiclePlate.orEmpty(),
+                            onValueChange = {},
+                            readOnly = true,
+                            singleLine = true,
+                            textStyle = inputTextStyle,
+                            label = { Text("Госномер", style = inputLabelStyle) },
+                            modifier = Modifier.fillMaxWidth(),
                         )
 
-                        PhotoCaptureSection(
-                            buttonText = "Фото машины, госномера",
-                            buttonTextStyle = photoButtonTextStyle,
-                            isTablet = isTablet,
-                            buttonHeight = photoButtonHeight,
-                            onTakePhoto = takeVehiclePhoto,
-                            photoPaths = state.vehiclePhotoPaths,
-                            onRemovePhoto = vm::removeVehiclePhoto,
-                            onPreviewPhoto = { previewPath = it },
-                            modifier = Modifier.weight(1f),
+                        MaterialsInlineList(
+                            value = state.materials,
+                            headerStyle = if (isTablet)
+                                MaterialTheme.typography.titleMedium
+                            else
+                                MaterialTheme.typography.labelLarge,
+                        )
+
+                        ModalTextField(
+                            value = state.commentText,
+                            onValueChange = vm::setComment,
+                            label = "Комментарий",
+                            textStyle = inputTextStyle,
+                            labelStyle = inputLabelStyle,
                         )
                     }
 
-                    // Госномер из приёмки — показываем заполненным, но без правки.
-                    // Стилистика совпадает с инпутами 1 Этапа (textStyle/labelStyle).
-                    OutlinedTextField(
-                        value = state.vehiclePlate.orEmpty(),
-                        onValueChange = {},
-                        readOnly = true,
-                        singleLine = true,
-                        textStyle = inputTextStyle,
-                        label = { Text("Госномер", style = inputLabelStyle) },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-
-                    MaterialsInlineList(
-                        value = state.materials,
-                        headerStyle = if (isTablet)
-                            MaterialTheme.typography.titleMedium
-                        else
-                            MaterialTheme.typography.labelLarge,
-                    )
-
-                    ModalTextField(
-                        value = state.commentText,
-                        onValueChange = vm::setComment,
-                        label = "Комментарий",
-                        textStyle = inputTextStyle,
-                        labelStyle = inputLabelStyle,
-                    )
-
                     Box(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = sectionGap),
                         contentAlignment = Alignment.CenterEnd,
                     ) {
                         Button(
