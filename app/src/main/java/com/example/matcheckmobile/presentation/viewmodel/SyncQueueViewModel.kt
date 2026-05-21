@@ -14,6 +14,7 @@ import com.example.matcheckmobile.sync.MatcheckSyncScheduler
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 class SyncQueueViewModel(private val container: AppContainer) : ViewModel() {
     val pendingSessions: StateFlow<List<ReceiptSessionEntity>> =
@@ -76,11 +77,15 @@ class SyncQueueViewModel(private val container: AppContainer) : ViewModel() {
         )
 
     fun retryNow() {
-        // Раньше дёргали legacy SyncScheduler → OperationSyncWorker, который
-        // пушил остаточные ReceiptSession через api.sendSession() и сервер
-        // создавал мусорные приёмки со статусом not_filled. Теперь крутим
-        // только новый push-pull для Delivery/Shipment.
-        MatcheckSyncScheduler.requestImmediateSync(container.appContext)
+        viewModelScope.launch {
+            // Сначала чистим «зомби»-мутации с conflictPending от create-on-existing
+            // (network-glitch на первом push → 409 при повторе). Без этого
+            // 23 такие записи останутся в очереди навсегда и заблокируют push
+            // других мутаций с теми же entityId.
+            runCatching { container.mutationProcessor.resolveStaleCreateConflicts() }
+            // Затем общий push-pull для свежих приёмок/выездов.
+            MatcheckSyncScheduler.requestImmediateSync(container.appContext)
+        }
     }
 
     private companion object {

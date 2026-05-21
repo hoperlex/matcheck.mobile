@@ -206,10 +206,18 @@ class MutationProcessor(
 
         return when (failure) {
             is MutationFailure.Conflict -> {
-                // OCC: пишем server-snapshot в Room и ставим conflictPending.
-                // Ожидается UI разрешения через ConflictRepository.
-                if (tryApplyOccSnapshot(m, raw)) Outcome.Conflict(failure.tag)
-                else Outcome.Drop
+                // Идемпотентность create: baseVersion=0 + 409 значит, что
+                // первая попытка фактически создала запись на сервере, но
+                // мобайл не получил response (TLS/connection reset). Snapshot
+                // от сервера = успех, считаем мутацию выполненной и сохраняем
+                // entity БЕЗ conflictPending.
+                val isIdempotentCreate = m.operation == "upsert" && (m.baseVersion ?: 0) == 0
+                val applied = tryApplyOccSnapshot(m, raw, markConflictPending = !isIdempotentCreate)
+                when {
+                    !applied -> Outcome.Drop
+                    isIdempotentCreate -> Outcome.Ok
+                    else -> Outcome.Conflict(failure.tag)
+                }
             }
             MutationFailure.PendingDeletion,
             MutationFailure.AlreadyPending,
@@ -235,15 +243,19 @@ class MutationProcessor(
         }
     }
 
-    private suspend fun tryApplyOccSnapshot(m: MutationEntity, raw: String?): Boolean {
+    private suspend fun tryApplyOccSnapshot(
+        m: MutationEntity,
+        raw: String?,
+        markConflictPending: Boolean = true,
+    ): Boolean {
         if (raw.isNullOrBlank()) return false
         return when (m.entityType) {
             "delivery" -> runCatching {
                 val parsed = json.decodeFromString(DeliveryConflictResponse.serializer(), raw)
                 val entity = parsed.server.toEntity().copy(
-                    conflictPending = true,
-                    serverSnapshotJson = raw,
-                    lastSyncError = "conflict serverVersion=${parsed.serverVersion}",
+                    conflictPending = markConflictPending,
+                    serverSnapshotJson = if (markConflictPending) raw else null,
+                    lastSyncError = if (markConflictPending) "conflict serverVersion=${parsed.serverVersion}" else null,
                 )
                 deliveryDao.saveAggregate(
                     delivery = entity,
@@ -255,9 +267,9 @@ class MutationProcessor(
             "shipment" -> runCatching {
                 val parsed = json.decodeFromString(ShipmentConflictResponse.serializer(), raw)
                 val entity = parsed.server.toEntity().copy(
-                    conflictPending = true,
-                    serverSnapshotJson = raw,
-                    lastSyncError = "conflict serverVersion=${parsed.serverVersion}",
+                    conflictPending = markConflictPending,
+                    serverSnapshotJson = if (markConflictPending) raw else null,
+                    lastSyncError = if (markConflictPending) "conflict serverVersion=${parsed.serverVersion}" else null,
                 )
                 shipmentDao.saveAggregate(
                     shipment = entity,
@@ -277,6 +289,44 @@ class MutationProcessor(
                 "shipment" -> saveShipmentFromServer(shipmentsApi.get(m.entityId))
             }
         }
+    }
+
+    /**
+     * Лечит мутации, застрявшие в [conflictPending] из-за «create-on-existing»:
+     * клиент шлёт baseVersion=0 на повторе после network-glitch — сервер
+     * отвечает 409. Делает GET /:id → если сервер знает запись, считаем её
+     * успешно созданной, сбрасываем conflictPending и удаляем мутацию.
+     *
+     * Вызывается из «Запустить синхронизацию сейчас» — это разовый расход
+     * на ручной retry, не на каждом цикле sync.
+     */
+    suspend fun resolveStaleCreateConflicts(): Int {
+        val stale = mutationDao.listConflicts()
+            .filter { it.operation == "upsert" && (it.baseVersion ?: 0) == 0 }
+        var resolved = 0
+        for (m in stale) {
+            val ok = runCatching {
+                when (m.entityType) {
+                    "delivery" -> saveDeliveryFromServer(deliveriesApi.get(m.entityId))
+                    "shipment" -> saveShipmentFromServer(shipmentsApi.get(m.entityId))
+                    else -> return@runCatching
+                }
+                // Сбрасываем conflictPending у самой entity (saveAggregate
+                // мерджит фото upsert'ом, но статус conflict на parent —
+                // ставится отдельно через DAO).
+                when (m.entityType) {
+                    "delivery" -> deliveryDao.findById(m.entityId)?.let {
+                        deliveryDao.upsert(it.copy(conflictPending = false, serverSnapshotJson = null, lastSyncError = null))
+                    }
+                    "shipment" -> shipmentDao.findById(m.entityId)?.let {
+                        shipmentDao.upsert(it.copy(conflictPending = false, serverSnapshotJson = null, lastSyncError = null))
+                    }
+                }
+                mutationDao.deleteById(m.id)
+            }.isSuccess
+            if (ok) resolved++
+        }
+        return resolved
     }
 
     private fun backoffDelayMs(attempts: Int): Long {
