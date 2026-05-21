@@ -208,12 +208,16 @@ class Stage1FormViewModel(
 
                 val plate = cur.licensePlate.trim()
                 val userComment = cur.commentText.trim()
+                val manualUpd = cur.manualUpdText.trim()
                 // Госномер передаём отдельным полем vehiclePlate, в comment
-                // его не дублируем. Ручной номер УПД (manualUpdText) сейчас
-                // на сервер не уходит — в новой версии бэка ручную УПД
-                // создаёт диспетчер через LinkSourceDocumentModal, либо
-                // потребуется отдельный server-endpoint.
-                val commentForServer = userComment.ifEmpty { null }
+                // его не дублируем. Ручной номер УПД складываем в comment
+                // отдельной строкой «Примечание: …», чтобы диспетчер на
+                // портале видел его при ручной привязке УПД.
+                val commentParts = buildList {
+                    if (userComment.isNotEmpty()) add(userComment)
+                    if (manualUpd.isNotEmpty() && cur.updId == null) add("Примечание: $manualUpd")
+                }
+                val commentForServer = commentParts.joinToString("\n").ifEmpty { null }
 
                 val deliveryId = container.deliveryRepository.upsert(
                     DeliveryRepository.UpsertInput(
