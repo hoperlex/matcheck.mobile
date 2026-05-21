@@ -24,12 +24,14 @@ import {
   ArrowLeftOutlined,
   CameraOutlined,
   DeleteOutlined,
+  LinkOutlined,
   PlusOutlined,
   UndoOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   Counterparty,
+  ResponsiblePerson,
   Shipment,
   ShipmentKind,
   ShipmentPhoto,
@@ -52,6 +54,7 @@ import {
   unmarkDeletion as unmarkShipmentDeletion,
   upsertServerSnapshot,
 } from '../../services/shipments';
+import { AssetTag } from '../../shared/ui/AssetTag';
 import { PendingDeletionTag } from '../../shared/ui/PendingDeletionTag';
 import { runSync } from '../../services/sync';
 import { db, SYSTEM_SITE_ID } from '../../lib/db';
@@ -60,6 +63,7 @@ import { useBreakpoint } from '../../shared/hooks/useBreakpoint';
 import { PhotoGallery } from '../kpp/PhotoGallery';
 import { ShipmentsHistory } from './ShipmentsHistory';
 import { ExpectedOutbound } from './ExpectedOutbound';
+import { LinkSourceDocumentModal } from '../shared/LinkSourceDocumentModal';
 
 type DraftItem = {
   clientKey: string;
@@ -68,6 +72,13 @@ type DraftItem = {
   qtyActual: string | null;
   unit: string;
   materialId: string | null;
+  // Поддержка ОС в позициях: itemKind='asset' визуально отмечается стикером
+  // AssetTag. assetId/inventoryNumber/serialNumber — атрибуты конкретного
+  // экземпляра, заполняются для itemKind='asset'.
+  itemKind: 'material' | 'asset';
+  assetId: string | null;
+  inventoryNumber: string | null;
+  serialNumber: string | null;
 };
 
 const KIND_OPTIONS: { label: string; value: ShipmentKind }[] = [
@@ -110,6 +121,11 @@ export default function ShipmentPage() {
   // Дефолт — 'accepted' (не ломаем привычку: страница и раньше открывалась
   // на истории отгрузок). Вкладка 'expected' появляется только при явном tab=expected.
   const tab: ListTab = params.get('tab') === 'expected' ? 'expected' : 'accepted';
+  // Режим «новой несохранённой формы»: запись в IDB/БД ещё не создана.
+  // UUID лежит в shipmentId, флаг new=1 отключает shipmentQuery и активирует
+  // ветку creation в save-mutation (первый «Сохранить» создаёт документ shipped).
+  const isNew = params.get('new') === '1';
+  const updIdFromUrl = params.get('upd');
 
   // Для inspector_kpp объект-источник фиксирован значением из БД (selectбыл бы
   // disabled, а сервер всё равно перепишет siteId на user.siteId).
@@ -122,12 +138,16 @@ export default function ShipmentPage() {
   const [kind, setKind] = useState<ShipmentKind>('contractor');
   const [siteId, setSiteId] = useState<string | null>(inspectorSiteId);
   const [destSiteId, setDestSiteId] = useState<string | null>(null);
+  // Тип получателя для kind in ('contractor','transfer'): подрядчик из counterparties
+  // или МОЛ из responsible_persons. Для kind='return' принудительно 'counterparty'
+  // (возврат — только поставщику). receiverId хранит выбранный id выбранного типа.
+  const [receiverKind, setReceiverKind] = useState<'counterparty' | 'mol'>('counterparty');
   const [receiverId, setReceiverId] = useState<string | null>(null);
   const [plate, setPlate] = useState('');
   const [driverName, setDriverName] = useState('');
   const [comment, setComment] = useState('');
-  const [loadedShipment, setLoadedShipment] = useState<Shipment | null>(null);
-  const [creating, setCreating] = useState(false);
+  const [linkUpdOpen, setLinkUpdOpen] = useState(false);
+  const [linkUpdError, setLinkUpdError] = useState<string | null>(null);
 
   // ID отгрузки, для которой уже выполнили первичную гидратацию формы из server data.
   // Защищает локальные правки (plate/driverName/comment/items) от затирания при рефетче
@@ -140,11 +160,11 @@ export default function ShipmentPage() {
       setKind('contractor');
       setSiteId(inspectorSiteId);
       setDestSiteId(null);
+      setReceiverKind('counterparty');
       setReceiverId(null);
       setPlate('');
       setDriverName('');
       setComment('');
-      setLoadedShipment(null);
       hydratedIdRef.current = null;
     }
   }, [shipmentId, inspectorSiteId]);
@@ -158,11 +178,19 @@ export default function ShipmentPage() {
     queryFn: () =>
       api.get<{ items: Counterparty[]; total: number }>('/counterparties?limit=500'),
   });
+  const responsiblePersonsQuery = useQuery({
+    queryKey: ['responsible-persons', 'active'],
+    queryFn: () =>
+      api.get<{ items: ResponsiblePerson[]; total: number }>(
+        '/responsible-persons?activeOnly=true&limit=500',
+      ),
+  });
 
   const sites = sitesQuery.data?.items ?? [];
   const counterparties = counterpartiesQuery.data?.items ?? [];
+  const responsiblePersons = responsiblePersonsQuery.data?.items ?? [];
   // Для возврата фильтруем по supplier; для contractor — любые контрагенты.
-  const receiverOptions =
+  const counterpartyReceiverOptions =
     kind === 'return' ? counterparties.filter((c) => c.isSupplier) : counterparties;
 
   const shipmentQuery = useQuery({
@@ -180,7 +208,23 @@ export default function ShipmentPage() {
         throw err;
       }
     },
-    enabled: !!shipmentId,
+    // В режиме isNew записи на сервере и в IDB ещё нет — запрос дал бы 404
+    // и завис бы в isLoading. Форма работает только с локальным state.
+    enabled: !!shipmentId && !isNew,
+  });
+
+  // Детали УПД для преднаполнения формы в режиме isNew. Сначала IndexedDB
+  // (наполняется pullSync), при пустом кеше — серверный fallback.
+  const newFromUpdQuery = useQuery({
+    queryKey: ['source-document-detail', updIdFromUrl],
+    queryFn: async (): Promise<SourceDocumentDetail> => {
+      if (!updIdFromUrl) throw new Error('no upd id');
+      const dbi = await db();
+      const cached = await dbi.get('source_documents', updIdFromUrl);
+      if (cached) return cached;
+      return await api.get<SourceDocumentDetail>(`/source-documents/${updIdFromUrl}`);
+    },
+    enabled: isNew && !!updIdFromUrl,
   });
 
   // Локальные IDB-записи фото — параллельный источник к loadedShipment.photos.
@@ -211,7 +255,6 @@ export default function ShipmentPage() {
   useEffect(() => {
     const s = shipmentQuery.data;
     if (!s) return;
-    setLoadedShipment(s);
     if (hydratedIdRef.current !== s.id) {
       hydratedIdRef.current = s.id;
       setKind(s.kind);
@@ -221,7 +264,15 @@ export default function ShipmentPage() {
         setSiteId((prev) => prev ?? (s.siteId === SYSTEM_SITE_ID ? null : s.siteId));
       }
       setDestSiteId((prev) => prev ?? s.destSiteId ?? null);
-      setReceiverId((prev) => prev ?? s.receiverCounterpartyId ?? null);
+      // Восстанавливаем выбранный тип получателя из сервера: если есть
+      // receiverMolId — это МОЛ; иначе counterparty (даже если оба null).
+      if (s.receiverMolId) {
+        setReceiverKind('mol');
+        setReceiverId((prev) => prev ?? s.receiverMolId);
+      } else {
+        setReceiverKind('counterparty');
+        setReceiverId((prev) => prev ?? s.receiverCounterpartyId ?? null);
+      }
       setPlate(s.vehiclePlate ?? '');
       setDriverName(s.driverName ?? '');
       setComment(s.comment ?? '');
@@ -233,99 +284,127 @@ export default function ShipmentPage() {
           qtyActual: it.qtyActual ?? it.qtyPlanned,
           unit: it.unit,
           materialId: it.materialId,
+          itemKind: it.itemKind,
+          assetId: it.assetId,
+          inventoryNumber: it.inventoryNumber,
+          serialNumber: it.serialNumber,
         })),
       );
     }
   }, [shipmentQuery.data, isInspector, inspectorSiteId]);
 
-  const createBlank = async () => {
-    if (creating) return;
+  // В режиме isNew серверной записи ещё нет — собираем «виртуальный» Shipment
+  // из дефолтов, чтобы существующий JSX (status, photos, version и т. д.) работал
+  // без переписки. Фактические items/receiver/comment живут в локальном state формы.
+  const virtualShipment: Shipment | null = useMemo(() => {
+    if (!isNew || !shipmentId) return null;
+    // До первого «Сохранить» статус виртуальной отгрузки определяется по наличию
+    // updIdFromUrl: с УПД — обычный not_filled, без УПД — no_document.
+    const initialStatus: Status = updIdFromUrl
+      ? {
+          id: '',
+          entityType: 'shipment',
+          code: 'not_filled',
+          label: 'Не оформлена',
+          color: null,
+          sortOrder: 0,
+        }
+      : {
+          id: '',
+          entityType: 'shipment',
+          code: 'no_document',
+          label: 'Без документа',
+          color: 'gold',
+          sortOrder: 15,
+        };
+    return {
+      id: shipmentId,
+      status: initialStatus,
+      kind: 'contractor',
+      siteId: inspectorSiteId ?? SYSTEM_SITE_ID,
+      receiverCounterpartyId: null,
+      receiverMolId: null,
+      destSiteId: null,
+      vehiclePlate: null,
+      driverName: null,
+      shippedAt: null,
+      inspectorId: authUser?.id ?? null,
+      comment: null,
+      confirmedByMolUserId: null,
+      confirmedByMolUserEmail: null,
+      confirmedByMolAt: null,
+      pendingDeletionAt: null,
+      pendingDeletionByUserId: null,
+      pendingDeletionByUserEmail: null,
+      pendingDeletionReason: null,
+      version: 0,
+      sourceDocumentIds: updIdFromUrl ? [updIdFromUrl] : [],
+      items: [],
+      photos: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+  }, [isNew, shipmentId, inspectorSiteId, updIdFromUrl, authUser?.id]);
+
+  // Гидратация формы в режиме isNew по выбранному УПД. items/receiverId/siteId
+  // подставляются из SourceDocumentDetail один раз — далее редактирование идёт
+  // через локальный state. hydratedIdRef защищает от повторного затирания.
+  useEffect(() => {
+    if (!isNew || !shipmentId) return;
+    const detail = newFromUpdQuery.data;
+    if (!detail) return;
+    if (hydratedIdRef.current === shipmentId) return;
+    hydratedIdRef.current = shipmentId;
+    setKind('contractor');
+    if (!isInspector) {
+      setSiteId((prev) => prev ?? (detail.siteId === SYSTEM_SITE_ID ? null : detail.siteId));
+    }
+    setReceiverKind('counterparty');
+    setReceiverId((prev) => prev ?? detail.contractorId ?? null);
+    setItems(
+      detail.items.map((it, idx) => ({
+        clientKey: newKey(),
+        lineNo: idx + 1,
+        nameRaw: it.nameRaw,
+        qtyActual: it.qty,
+        unit: it.unit,
+        materialId: it.materialId ?? null,
+        itemKind: 'material' as const,
+        assetId: null,
+        inventoryNumber: null,
+        serialNumber: null,
+      })),
+    );
+  }, [isNew, shipmentId, newFromUpdQuery.data, isInspector]);
+
+  const loadedShipment: Shipment | null = virtualShipment ?? shipmentQuery.data ?? null;
+
+  /**
+   * Открывает форму новой пустой отгрузки. UUID кладётся в URL под флагом new=1.
+   * Запись в IndexedDB и на сервере появится только при первом нажатии «Сохранить» —
+   * до этого момента форма существует только как React state.
+   */
+  const createBlank = () => {
     if (inspectorWithoutSite) {
       message.error('Объект не назначен — обратитесь к администратору');
       return;
     }
-    setCreating(true);
-    try {
-      const id = crypto.randomUUID();
-      await applyLocalEdit(id, {
-        kind: 'contractor',
-        siteId: inspectorSiteId ?? SYSTEM_SITE_ID,
-      });
-      await enqueueMutation({
-        id: crypto.randomUUID(),
-        kind: 'shipment_upsert',
-        entityId: id,
-        baseVersion: 0,
-        payload: null,
-      });
-      void runSync();
-      navigate(`/shipments?shipment=${id}`);
-    } catch (err) {
-      message.error(`Не удалось создать отгрузку: ${(err as Error).message}`);
-    } finally {
-      setCreating(false);
-    }
+    const id = crypto.randomUUID();
+    navigate(`/shipments?shipment=${id}&new=1`);
   };
 
   /**
-   * Создаёт отгрузку по выбранному исходящему УПД. Аналог createFromUpd
-   * в KppPage, но строит Shipment: kind='contractor', получатель — contractorId
-   * из УПД (для outbound-документа это и есть получатель груза).
+   * Открывает форму новой отгрузки, преднаполненной из выбранного исходящего УПД.
+   * Детали УПД (items, receiverCounterpartyId) подгружаются уже внутри формы по
+   * флагу new=1 и updIdFromUrl. Черновик в IDB/БД до явного «Сохранить» не создаётся.
    */
-  const createFromUpd = async (upd: SourceDocument) => {
-    if (creating) return;
+  const createFromUpd = (upd: SourceDocument) => {
     if (inspectorWithoutSite) {
       message.error('Объект не назначен — обратитесь к администратору');
       return;
     }
-    setCreating(true);
-    try {
-      const dbi = await db();
-      let detail = await dbi.get('source_documents', upd.id);
-      if (!detail) {
-        try {
-          detail = await api.get<SourceDocumentDetail>(`/source-documents/${upd.id}`);
-        } catch {
-          message.error('Нет связи и детали УПД ещё не загружены — попробуйте позже');
-          return;
-        }
-      }
-      const id = crypto.randomUUID();
-      const patch: Partial<Shipment> = {
-        kind: 'contractor',
-        siteId: inspectorSiteId ?? detail.siteId ?? SYSTEM_SITE_ID,
-        receiverCounterpartyId: detail.contractorId ?? null,
-        sourceDocumentIds: [upd.id],
-        items: detail.items.map((it, i) => ({
-          id: crypto.randomUUID(),
-          materialId: it.materialId ?? null,
-          nameRaw: it.nameRaw,
-          qtyPlanned: it.qty,
-          qtyActual: it.qty,
-          unit: it.unit,
-          comment: null,
-          lineNo: i + 1,
-          volumeM3: it.volumeM3 ?? null,
-          massKg: it.massKg ?? null,
-          volumeConfidence: it.volumeConfidence ?? null,
-          groupName: it.groupName ?? null,
-        })),
-      };
-      await applyLocalEdit(id, patch);
-      await enqueueMutation({
-        id: crypto.randomUUID(),
-        kind: 'shipment_upsert',
-        entityId: id,
-        baseVersion: 0,
-        payload: null,
-      });
-      void runSync();
-      navigate(`/shipments?shipment=${id}&from=list`);
-    } catch (err) {
-      message.error(`Не удалось открыть УПД: ${(err as Error).message}`);
-    } finally {
-      setCreating(false);
-    }
+    const id = crypto.randomUUID();
+    navigate(`/shipments?shipment=${id}&new=1&upd=${upd.id}&from=list`);
   };
 
   const photoProps: UploadProps = {
@@ -363,6 +442,10 @@ export default function ShipmentPage() {
         qtyActual: null,
         unit: 'шт',
         materialId: null,
+        itemKind: 'material',
+        assetId: null,
+        inventoryNumber: null,
+        serialNumber: null,
       },
     ]);
   };
@@ -381,7 +464,14 @@ export default function ShipmentPage() {
       kind,
       siteId: siteId ?? loadedShipment.siteId,
       receiverCounterpartyId:
-        kind === 'contractor' || kind === 'return' ? receiverId : null,
+        (kind === 'contractor' || kind === 'return' || kind === 'transfer') &&
+        receiverKind === 'counterparty'
+          ? receiverId
+          : null,
+      receiverMolId:
+        (kind === 'contractor' || kind === 'transfer') && receiverKind === 'mol'
+          ? receiverId
+          : null,
       destSiteId: kind === 'transfer' ? destSiteId : null,
       vehiclePlate: plate || null,
       driverName: driverName || null,
@@ -391,7 +481,11 @@ export default function ShipmentPage() {
         .filter((i) => i.nameRaw.trim().length > 0)
         .map((i) => ({
           id: crypto.randomUUID(),
-          materialId: i.materialId,
+          itemKind: i.itemKind,
+          materialId: i.itemKind === 'asset' ? null : i.materialId,
+          assetId: i.itemKind === 'asset' ? i.assetId : null,
+          inventoryNumber: i.inventoryNumber,
+          serialNumber: i.serialNumber,
           nameRaw: i.nameRaw,
           qtyPlanned: null,
           qtyActual: i.qtyActual,
@@ -422,9 +516,16 @@ export default function ShipmentPage() {
   const save = useMutation({
     mutationFn: async () => {
       if (!loadedShipment) throw new Error('Отгрузка ещё не загружена');
+      // Если УПД не привязана — статус «Без документа» (сервер всё равно
+      // нормализует, но локальный optimistic-state должен совпадать).
+      const hasUpd = loadedShipment.sourceDocumentIds.length > 0;
       const currentCode = loadedShipment.status.code as ShipmentStatusCode;
       const nextCode: ShipmentStatusCode =
-        currentCode === 'confirmed_mol' ? 'confirmed_mol' : 'shipped';
+        currentCode === 'confirmed_mol'
+          ? 'confirmed_mol'
+          : hasUpd
+            ? 'shipped'
+            : 'no_document';
       await persistStatus(nextCode);
     },
     onSuccess: () => {
@@ -445,6 +546,44 @@ export default function ShipmentPage() {
       navigate('/shipments');
     },
     onError: (err: Error) => message.error(err.message),
+  });
+
+  // Ручная привязка УПД к отгрузке «Без документа» на портале (только admin/manager).
+  // Симметрично linkUpd в KppPage.tsx.
+  const linkUpd = useMutation({
+    mutationFn: async (upd: SourceDocument): Promise<Shipment> => {
+      if (!loadedShipment) throw new Error('Отгрузка ещё не загружена');
+      const payload = {
+        id: loadedShipment.id,
+        statusCode: 'not_filled' as ShipmentStatusCode,
+        kind: loadedShipment.kind,
+        siteId: loadedShipment.siteId,
+        receiverCounterpartyId: loadedShipment.receiverCounterpartyId,
+        receiverMolId: loadedShipment.receiverMolId,
+        destSiteId: loadedShipment.destSiteId,
+        vehiclePlate: loadedShipment.vehiclePlate,
+        driverName: loadedShipment.driverName,
+        shippedAt: loadedShipment.shippedAt,
+        comment: loadedShipment.comment,
+        sourceDocumentIds: [upd.id],
+        items: [],
+        baseVersion: loadedShipment.version,
+      };
+      return await api.post<Shipment>('/shipments', payload);
+    },
+    onSuccess: async (dto) => {
+      await upsertServerSnapshot([dto]);
+      message.success('УПД привязана');
+      setLinkUpdOpen(false);
+      setLinkUpdError(null);
+      hydratedIdRef.current = null;
+      void queryClient.invalidateQueries({ queryKey: ['shipments', shipmentId] });
+      void queryClient.invalidateQueries({ queryKey: ['shipments'] });
+      void queryClient.invalidateQueries({ queryKey: ['source-documents'] });
+    },
+    onError: (err: Error) => {
+      setLinkUpdError(err.message);
+    },
   });
 
   const markDel = useMutation({
@@ -510,10 +649,18 @@ export default function ShipmentPage() {
     if (kind === 'transfer') {
       if (!destSiteId) reasons.push('Выберите объект «Куда»');
       else if (destSiteId === siteId) reasons.push('Объект-приёмник должен отличаться от источника');
+      if (!receiverId) reasons.push('Выберите получателя на новом объекте');
     }
     if (!plate.trim()) reasons.push('Заполните госномер');
     if (photosCount === 0) reasons.push('Сделайте хотя бы одно фото');
-    if (items.filter((it) => it.nameRaw.trim().length > 0).length === 0)
+    // Позиции обязательны только если привязана УПД. Отгрузка без УПД
+    // оформляется одними фото — позиции подтянутся позже при ручной
+    // привязке УПД на портале (см. updateShipment на сервере).
+    const hasUpdNow = (loadedShipment?.sourceDocumentIds.length ?? 0) > 0;
+    if (
+      hasUpdNow &&
+      items.filter((it) => it.nameRaw.trim().length > 0).length === 0
+    )
       reasons.push('Добавьте хотя бы одну позицию');
     return reasons.length ? reasons.join(' · ') : null;
   })();
@@ -526,12 +673,29 @@ export default function ShipmentPage() {
         title: 'Название',
         dataIndex: 'nameRaw',
         render: (_: unknown, r: DraftItem) => (
-          <Input.TextArea
-            autoSize={{ minRows: 1, maxRows: 4 }}
-            value={r.nameRaw}
-            placeholder="Наименование"
-            onChange={(e) => updateField(r.clientKey, { nameRaw: e.target.value })}
-          />
+          <Space.Compact direction="vertical" style={{ width: '100%' }}>
+            {r.itemKind === 'asset' && (
+              <Space size={4} style={{ marginBottom: 4 }}>
+                <AssetTag />
+                {r.inventoryNumber && (
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    Инв. № {r.inventoryNumber}
+                  </Typography.Text>
+                )}
+                {r.serialNumber && (
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    SN {r.serialNumber}
+                  </Typography.Text>
+                )}
+              </Space>
+            )}
+            <Input.TextArea
+              autoSize={{ minRows: 1, maxRows: 4 }}
+              value={r.nameRaw}
+              placeholder="Наименование"
+              onChange={(e) => updateField(r.clientKey, { nameRaw: e.target.value })}
+            />
+          </Space.Compact>
         ),
       },
       {
@@ -594,6 +758,21 @@ export default function ShipmentPage() {
           <Button size="small" danger icon={<DeleteOutlined />} />
         </Popconfirm>
       </Space>
+      {r.itemKind === 'asset' && (
+        <Space size={4} style={{ marginTop: 4 }} wrap>
+          <AssetTag />
+          {r.inventoryNumber && (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              Инв. № {r.inventoryNumber}
+            </Typography.Text>
+          )}
+          {r.serialNumber && (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              SN {r.serialNumber}
+            </Typography.Text>
+          )}
+        </Space>
+      )}
       <Input.TextArea
         autoSize={{ minRows: 1, maxRows: 4 }}
         value={r.nameRaw}
@@ -657,7 +836,7 @@ export default function ShipmentPage() {
             />
           )}
           <Typography.Title level={3} style={{ margin: 0 }}>
-            Отгрузка
+            {isNew ? 'Новая отгрузка' : 'Отгрузка'}
           </Typography.Title>
           {isPending && loadedShipment && (
             <PendingDeletionTag
@@ -716,6 +895,46 @@ export default function ShipmentPage() {
           />
         )}
 
+        {loadedShipment?.status.code === 'no_document' && !isNew && (
+          <Alert
+            type="info"
+            showIcon
+            message="Отгрузка без УПД"
+            description={
+              <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                <Typography.Text>
+                  Этот документ был оформлен инспектором без выбранной УПД
+                  (только с фото). Когда УПД появится на портале, привяжите
+                  её — позиции подтянутся автоматически.
+                </Typography.Text>
+                {!isInspector && (
+                  <Button
+                    icon={<LinkOutlined />}
+                    onClick={() => {
+                      setLinkUpdError(null);
+                      setLinkUpdOpen(true);
+                    }}
+                  >
+                    Привязать УПД
+                  </Button>
+                )}
+              </Space>
+            }
+          />
+        )}
+
+        <LinkSourceDocumentModal
+          open={linkUpdOpen}
+          onCancel={() => {
+            if (!linkUpd.isPending) setLinkUpdOpen(false);
+          }}
+          onPick={(upd) => linkUpd.mutate(upd)}
+          direction="outbound"
+          siteId={loadedShipment?.siteId === SYSTEM_SITE_ID ? null : loadedShipment?.siteId ?? null}
+          busy={linkUpd.isPending}
+          error={linkUpdError}
+        />
+
         <Card size="small" title="Вид отгрузки" styles={{ body: { padding: 12 } }}>
           <Segmented
             block
@@ -724,12 +943,18 @@ export default function ShipmentPage() {
             onChange={(v) => {
               const next = v as ShipmentKind;
               setKind(next);
-              if (next === 'transfer') setReceiverId(null);
-              else setDestSiteId(null);
+              if (next !== 'transfer') setDestSiteId(null);
               if (next === 'writeoff') {
                 setReceiverId(null);
                 setDestSiteId(null);
               }
+              if (next === 'return') {
+                // Возврат — только counterparty (поставщик).
+                setReceiverKind('counterparty');
+              }
+              // Между сменой kind сбрасываем выбранный id: подрядчики и МОЛ
+              // имеют разные id-пространства, чтобы не отправить чужой.
+              setReceiverId(null);
             }}
           />
         </Card>
@@ -786,7 +1011,7 @@ export default function ShipmentPage() {
               </Card>
             </Col>
           )}
-          {(kind === 'contractor' || kind === 'return') && (
+          {(kind === 'contractor' || kind === 'return' || kind === 'transfer') && (
             <Col xs={24} sm={12} md={6}>
               <Card
                 size="small"
@@ -797,17 +1022,51 @@ export default function ShipmentPage() {
                 }
                 styles={{ body: { padding: 12 } }}
               >
-                <Select<string>
-                  size="large"
-                  style={{ width: '100%' }}
-                  placeholder={kind === 'return' ? 'Поставщик' : 'Контрагент'}
-                  value={receiverId ?? undefined}
-                  onChange={(v) => setReceiverId(v)}
-                  showSearch
-                  optionFilterProp="label"
-                  loading={counterpartiesQuery.isLoading}
-                  options={receiverOptions.map((c) => ({ value: c.id, label: c.name }))}
-                />
+                {/* Для return — только поставщик (counterparty), переключатель скрыт.
+                    Для contractor и transfer — выбор «Подрядчик / МОЛ». */}
+                {kind !== 'return' && (
+                  <Segmented
+                    block
+                    style={{ marginBottom: 8 }}
+                    options={[
+                      { label: 'Подрядчик', value: 'counterparty' },
+                      { label: 'МОЛ', value: 'mol' },
+                    ]}
+                    value={receiverKind}
+                    onChange={(v) => {
+                      setReceiverKind(v as 'counterparty' | 'mol');
+                      setReceiverId(null);
+                    }}
+                  />
+                )}
+                {receiverKind === 'counterparty' ? (
+                  <Select<string>
+                    size="large"
+                    style={{ width: '100%' }}
+                    placeholder={kind === 'return' ? 'Поставщик' : 'Контрагент'}
+                    value={receiverId ?? undefined}
+                    onChange={(v) => setReceiverId(v)}
+                    showSearch
+                    optionFilterProp="label"
+                    loading={counterpartiesQuery.isLoading}
+                    options={counterpartyReceiverOptions.map((c) => ({
+                      value: c.id,
+                      label: c.name,
+                    }))}
+                  />
+                ) : (
+                  <Select<string>
+                    size="large"
+                    style={{ width: '100%' }}
+                    placeholder="МОЛ"
+                    value={receiverId ?? undefined}
+                    onChange={(v) => setReceiverId(v)}
+                    showSearch
+                    optionFilterProp="label"
+                    loading={responsiblePersonsQuery.isLoading}
+                    options={responsiblePersons.map((m) => ({ value: m.id, label: m.fullName }))}
+                  />
+                )}
               </Card>
             </Col>
           )}
@@ -913,12 +1172,16 @@ export default function ShipmentPage() {
 
         {(() => {
           const isConfirmed = loadedShipment.status.code === 'confirmed_mol';
-          const confirmTooltip = isConfirmed
-            ? `Подтверждено: ${loadedShipment.confirmedByMolUserEmail ?? '—'}, ${formatMolDate(loadedShipment.confirmedByMolAt)}`
-            : (verifyReason ?? 'Подтвердить документ как МОЛ');
+          const confirmTooltip = isNew
+            ? 'Сначала сохраните отгрузку, затем можно подтверждать МОЛ'
+            : isConfirmed
+              ? `Подтверждено: ${loadedShipment.confirmedByMolUserEmail ?? '—'}, ${formatMolDate(loadedShipment.confirmedByMolAt)}`
+              : (verifyReason ?? 'Подтвердить документ как МОЛ');
           // Помеченный документ — read-only: блокируем Save и Подтвердить МОЛ.
           const saveDisabled = !!verifyReason || isPending;
-          const confirmDisabled = isConfirmed || !!verifyReason || isPending;
+          // В режиме isNew подтверждение МОЛ недоступно — сначала должна
+          // появиться сохранённая запись со статусом shipped.
+          const confirmDisabled = isNew || isConfirmed || !!verifyReason || isPending;
           const canMarkDeletion =
             !isPending &&
             (loadedShipment.status.code === 'shipped' ||
@@ -1068,7 +1331,6 @@ export default function ShipmentPage() {
           <Button
             type="primary"
             icon={<PlusOutlined />}
-            loading={creating}
             onClick={createBlank}
             disabled={inspectorWithoutSite}
           >

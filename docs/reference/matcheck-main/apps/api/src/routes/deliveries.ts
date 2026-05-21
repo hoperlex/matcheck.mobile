@@ -18,6 +18,9 @@ import {
   deliveryPhotos,
   deliverySources,
   entityDeletions,
+  shipments,
+  sites,
+  sourceDocumentItems,
   statuses,
   users,
 } from '../db/schema.js';
@@ -39,7 +42,9 @@ const ListQuerySchema = z.object({
 });
 
 // Статусы, при которых разрешён hard-delete без предварительной пометки.
-const HARD_DELETE_STATUSES = new Set(['draft', 'not_filled']);
+// 'no_document' — полу-черновик, созданный инспектором без УПД; нет смысла
+// гонять его через корзину.
+const HARD_DELETE_STATUSES = new Set(['draft', 'not_filled', 'no_document']);
 // Статусы, для которых соответственно требуется soft-delete (mark → admin hard).
 const SOFT_DELETE_STATUSES = new Set(['filled', 'confirmed_mol']);
 
@@ -79,6 +84,8 @@ const resolveStatusId = (app: any, code: string) =>
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function buildDeliveryDto(app: any, id: string) {
   // Два независимых join на users: один на МОЛ, другой на автора soft-delete пометки.
+  // Для парных приёмок (transfer) подтягиваем плоско дату отгрузки и
+  // объект-источник из связанного shipment + sites.
   const pendingUser = alias(users, 'pending_user');
   const rows = await app.db
     .select({
@@ -86,11 +93,16 @@ async function buildDeliveryDto(app: any, id: string) {
       s: statuses,
       molEmail: users.email,
       pendingEmail: pendingUser.email,
+      srcShippedAt: shipments.shippedAt,
+      srcSiteId: shipments.siteId,
+      srcSiteCode: sites.code,
     })
     .from(deliveries)
     .innerJoin(statuses, eq(deliveries.statusId, statuses.id))
     .leftJoin(users, eq(deliveries.confirmedByMolUserId, users.id))
     .leftJoin(pendingUser, eq(deliveries.pendingDeletionByUserId, pendingUser.id))
+    .leftJoin(shipments, eq(deliveries.sourceShipmentId, shipments.id))
+    .leftJoin(sites, eq(shipments.siteId, sites.id))
     .where(eq(deliveries.id, id))
     .limit(1);
   const r = rows[0] as
@@ -99,6 +111,9 @@ async function buildDeliveryDto(app: any, id: string) {
         s: StatusRow;
         molEmail: string | null;
         pendingEmail: string | null;
+        srcShippedAt: Date | null;
+        srcSiteId: string | null;
+        srcSiteCode: string | null;
       }
     | undefined;
   if (!r) return null;
@@ -130,6 +145,7 @@ async function buildDeliveryDto(app: any, id: string) {
     siteId: d.siteId,
     supplierId: d.supplierId,
     contractorId: d.contractorId,
+    recipientMolId: d.recipientMolId,
     vehiclePlate: d.vehiclePlate,
     driverName: d.driverName,
     arrivedAt: d.arrivedAt?.toISOString() ?? null,
@@ -144,9 +160,17 @@ async function buildDeliveryDto(app: any, id: string) {
     pendingDeletionReason: d.pendingDeletionReason,
     version: d.version,
     sourceDocumentIds: sources.map((x) => x.sourceDocumentId),
+    sourceShipmentId: d.sourceShipmentId,
+    sourceShipmentShippedAt: r.srcShippedAt?.toISOString() ?? null,
+    sourceShipmentSiteId: r.srcSiteId,
+    sourceShipmentSiteCode: r.srcSiteCode,
     items: items.map((i) => ({
       id: i.id,
+      itemKind: i.itemKind,
       materialId: i.materialId,
+      assetId: i.assetId,
+      inventoryNumber: i.inventoryNumber,
+      serialNumber: i.serialNumber,
       nameRaw: i.nameRaw,
       qtyPlanned: i.qtyPlanned,
       qtyActual: i.qtyActual,
@@ -285,7 +309,13 @@ export async function deliveryRoutes(rawApp: FastifyInstance): Promise<void> {
         input.siteId = req.user.siteId;
       }
 
-      const statusId = await resolveStatusId(app, input.statusCode);
+      // Нормализация статуса по пустоте sourceDocumentIds:
+      // если УПД не привязана — это «Без документа», что бы клиент ни прислал.
+      // Сервер — единственный источник истины, чтобы offline-клиенты, не успевшие
+      // обновить логику, не могли отправить, например, 'filled' без УПД.
+      const effectiveStatusCode =
+        input.sourceDocumentIds.length === 0 ? 'no_document' : input.statusCode;
+      const statusId = await resolveStatusId(app, effectiveStatusCode);
 
       try {
         // OCC update
@@ -582,6 +612,7 @@ async function createDelivery(
       siteId: input.siteId,
       supplierId: input.supplierId ?? null,
       contractorId: input.contractorId ?? null,
+      recipientMolId: input.recipientMolId ?? null,
       vehiclePlate: input.vehiclePlate ?? null,
       driverName: input.driverName ?? null,
       arrivedAt: input.arrivedAt ? new Date(input.arrivedAt) : null,
@@ -595,7 +626,11 @@ async function createDelivery(
     await app.db.insert(deliveryItems).values(
       input.items.map((i) => ({
         deliveryId: created.id,
-        materialId: i.materialId ?? null,
+        itemKind: i.itemKind,
+        materialId: i.itemKind === 'asset' ? null : (i.materialId ?? null),
+        assetId: i.itemKind === 'asset' ? (i.assetId ?? null) : null,
+        inventoryNumber: i.inventoryNumber ?? null,
+        serialNumber: i.serialNumber ?? null,
         nameRaw: i.nameRaw,
         qtyPlanned: i.qtyPlanned ?? null,
         qtyActual: i.qtyActual ?? null,
@@ -647,6 +682,34 @@ async function updateDelivery(
   // подтверждение не перезаписывает кто/когда).
   const isFirstConfirm =
     input.statusCode === 'confirmed_mol' && existing.confirmedByMolUserId === null;
+
+  // Ручная привязка УПД к приёмке «Без документа» на портале: клиент шлёт
+  // непустой sourceDocumentIds и пустой items — сервер подтягивает позиции
+  // из УПД (qtyPlanned из qty, qtyActual=null). Дальше оператор/инспектор
+  // доводит приёмку до filled штатным путём.
+  const itemsForInsert =
+    existingCode === 'no_document' &&
+    input.sourceDocumentIds.length > 0 &&
+    input.items.length === 0
+      ? await buildDeliveryItemsFromSources(app, input.sourceDocumentIds)
+      : input.items.map((i) => ({
+          itemKind: i.itemKind,
+          materialId: i.itemKind === 'asset' ? null : (i.materialId ?? null),
+          assetId: i.itemKind === 'asset' ? (i.assetId ?? null) : null,
+          inventoryNumber: i.inventoryNumber ?? null,
+          serialNumber: i.serialNumber ?? null,
+          nameRaw: i.nameRaw,
+          qtyPlanned: i.qtyPlanned ?? null,
+          qtyActual: i.qtyActual ?? null,
+          unit: i.unit,
+          comment: i.comment ?? null,
+          lineNo: i.lineNo,
+          volumeM3: i.volumeM3 ?? null,
+          massKg: i.massKg ?? null,
+          volumeConfidence: i.volumeConfidence ?? null,
+          groupName: i.groupName ?? null,
+        }));
+
   await app.db
     .update(deliveries)
     .set({
@@ -654,6 +717,7 @@ async function updateDelivery(
       siteId: input.siteId,
       supplierId: input.supplierId ?? null,
       contractorId: input.contractorId ?? null,
+      recipientMolId: input.recipientMolId ?? null,
       vehiclePlate: input.vehiclePlate ?? null,
       driverName: input.driverName ?? null,
       arrivedAt: input.arrivedAt ? new Date(input.arrivedAt) : null,
@@ -667,22 +731,9 @@ async function updateDelivery(
     })
     .where(eq(deliveries.id, id));
   await app.db.delete(deliveryItems).where(eq(deliveryItems.deliveryId, id));
-  if (input.items.length) {
+  if (itemsForInsert.length) {
     await app.db.insert(deliveryItems).values(
-      input.items.map((i) => ({
-        deliveryId: id,
-        materialId: i.materialId ?? null,
-        nameRaw: i.nameRaw,
-        qtyPlanned: i.qtyPlanned ?? null,
-        qtyActual: i.qtyActual ?? null,
-        unit: i.unit,
-        comment: i.comment ?? null,
-        lineNo: i.lineNo,
-        volumeM3: i.volumeM3 ?? null,
-        massKg: i.massKg ?? null,
-        volumeConfidence: i.volumeConfidence ?? null,
-        groupName: i.groupName ?? null,
-      })),
+      itemsForInsert.map((i) => ({ ...i, deliveryId: id })),
     );
   }
   if (input.sourceDocumentIds.length) {
@@ -709,4 +760,57 @@ function isSourceDocumentUniqueViolation(err: unknown): boolean {
   if (e.code !== '23505') return false;
   const name = e.constraint ?? e.constraint_name ?? '';
   return name.endsWith('_source_document_id_unique');
+}
+
+// Подтягивает позиции из привязываемых УПД в формате delivery_items.
+// Используется при ручной привязке УПД к приёмке «Без документа» на портале:
+// диспетчер указывает только sourceDocumentId, а сервер копирует позиции
+// (qtyPlanned из source_document_items.qty, qtyActual=null). lineNo пересчитываем
+// сквозным образом, чтобы при нескольких УПД получился непрерывный список.
+async function buildDeliveryItemsFromSources(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  app: any,
+  sourceDocumentIds: string[],
+): Promise<
+  Array<{
+    itemKind: 'material';
+    materialId: string | null;
+    assetId: null;
+    inventoryNumber: null;
+    serialNumber: null;
+    nameRaw: string;
+    qtyPlanned: string | null;
+    qtyActual: null;
+    unit: string;
+    comment: null;
+    lineNo: number;
+    volumeM3: string | null;
+    massKg: string | null;
+    volumeConfidence: 'low' | 'medium' | 'high' | null;
+    groupName: string | null;
+  }>
+> {
+  if (!sourceDocumentIds.length) return [];
+  const rows: (typeof sourceDocumentItems.$inferSelect)[] = await app.db
+    .select()
+    .from(sourceDocumentItems)
+    .where(inArray(sourceDocumentItems.sourceDocumentId, sourceDocumentIds))
+    .orderBy(sourceDocumentItems.lineNo);
+  return rows.map((r, idx) => ({
+    itemKind: 'material' as const,
+    materialId: r.materialId,
+    assetId: null,
+    inventoryNumber: null,
+    serialNumber: null,
+    nameRaw: r.nameRaw,
+    qtyPlanned: r.qty,
+    qtyActual: null,
+    unit: r.unit,
+    comment: null,
+    lineNo: idx + 1,
+    volumeM3: r.volumeM3,
+    massKg: r.massKg,
+    volumeConfidence: r.volumeConfidence as 'low' | 'medium' | 'high' | null,
+    groupName: r.groupName,
+  }));
 }

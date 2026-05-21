@@ -31,6 +31,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   Counterparty,
+  ResponsiblePerson,
   Delivery,
   DeliveryPhoto,
   DeliveryStatusCode,
@@ -63,6 +64,8 @@ import { ExpectedUpds } from './ExpectedUpds';
 import { PhotoGallery } from './PhotoGallery';
 import { VehicleFillGauge } from './VehicleFillGauge';
 import { GroupedItemsList } from './grouping/GroupedItemsList';
+import { LinkSourceDocumentModal } from '../shared/LinkSourceDocumentModal';
+import { LinkOutlined } from '@ant-design/icons';
 
 type DraftItem = {
   clientKey: string;
@@ -72,6 +75,11 @@ type DraftItem = {
   qtyActual: string | null;
   unit: string;
   materialId: string | null;
+  // Поддержка ОС в позициях; стикер AssetTag отображается при itemKind='asset'.
+  itemKind: 'material' | 'asset';
+  assetId: string | null;
+  inventoryNumber: string | null;
+  serialNumber: string | null;
   volumeM3: string | null;
   massKg: string | null;
   volumeConfidence: 'low' | 'medium' | 'high' | null;
@@ -109,6 +117,11 @@ export default function KppPage() {
   const deliveryId = params.get('delivery');
   const fromAccepted = params.get('from') === 'accepted';
   const tab: ListTab = params.get('tab') === 'accepted' ? 'accepted' : 'expected';
+  // Режим «новой несохранённой формы»: запись в IDB/БД ещё не создана.
+  // UUID лежит в deliveryId, а флаг new=1 отключает deliveryQuery и активирует
+  // ветку creation в save-mutation (первый «Сохранить» создаёт документ filled).
+  const isNew = params.get('new') === '1';
+  const updIdFromUrl = params.get('upd');
 
   // Для inspector_kpp объект фиксирован значением из БД; селект блокируется,
   // а сервер всё равно перепишет siteId в запросе на сохранение.
@@ -121,9 +134,14 @@ export default function KppPage() {
   const [plate, setPlate] = useState('');
   const [comment, setComment] = useState('');
   const [siteId, setSiteId] = useState<string | null>(inspectorSiteId);
+  // Получатель приёмки: подрядчик ИЛИ МОЛ собственной бригады. CHECK на сервере
+  // не позволяет заполнить оба одновременно. Переключатель — Segmented в карточке.
+  const [recipientKind, setRecipientKind] = useState<'counterparty' | 'mol'>('counterparty');
   const [contractorId, setContractorId] = useState<string | null>(null);
+  const [recipientMolId, setRecipientMolId] = useState<string | null>(null);
   const [selectedUpd, setSelectedUpd] = useState<SourceDocument | null>(null);
-  const [creating, setCreating] = useState(false);
+  const [linkUpdOpen, setLinkUpdOpen] = useState(false);
+  const [linkUpdError, setLinkUpdError] = useState<string | null>(null);
 
   // ID приёмки, для которой уже выполнили первичную гидратацию формы из server data.
   // Защищает локальные правки (plate/comment/items) от затирания при рефетче
@@ -138,7 +156,9 @@ export default function KppPage() {
       setPlate('');
       setComment('');
       setSiteId(inspectorSiteId);
+      setRecipientKind('counterparty');
       setContractorId(null);
+      setRecipientMolId(null);
       setSelectedUpd(null);
       hydratedIdRef.current = null;
     }
@@ -156,9 +176,17 @@ export default function KppPage() {
         '/counterparties?limit=500&role=contractor',
       ),
   });
+  const responsiblePersonsQuery = useQuery({
+    queryKey: ['responsible-persons', 'active'],
+    queryFn: () =>
+      api.get<{ items: ResponsiblePerson[]; total: number }>(
+        '/responsible-persons?activeOnly=true&limit=500',
+      ),
+  });
 
   const sites = sitesQuery.data?.items ?? [];
   const counterparties = counterpartiesQuery.data?.items ?? [];
+  const responsiblePersons = responsiblePersonsQuery.data?.items ?? [];
 
   const deliveryQuery = useQuery({
     queryKey: ['deliveries', deliveryId],
@@ -176,13 +204,85 @@ export default function KppPage() {
         throw err;
       }
     },
-    enabled: !!deliveryId,
+    // В режиме isNew записи на сервере и в IDB ещё нет — запрос дал бы 404
+    // и завис бы в isLoading. Форма работает только с локальным state.
+    enabled: !!deliveryId && !isNew,
+  });
+
+  // Детали УПД для преднаполнения формы в режиме isNew. Сначала пробуем IndexedDB
+  // (его наполняет pullSync), при пустом кеше — серверный fallback. Грузится один
+  // раз на updIdFromUrl, после чего гидратация заполняет items/contractor/site.
+  const newFromUpdQuery = useQuery({
+    queryKey: ['source-document-detail', updIdFromUrl],
+    queryFn: async (): Promise<SourceDocumentDetail> => {
+      if (!updIdFromUrl) throw new Error('no upd id');
+      const dbi = await db();
+      const cached = await dbi.get('source_documents', updIdFromUrl);
+      if (cached) return cached;
+      return await api.get<SourceDocumentDetail>(`/source-documents/${updIdFromUrl}`);
+    },
+    enabled: isNew && !!updIdFromUrl,
   });
 
   // Производное значение: react-query — единственный источник истины для
   // загруженной приёмки. Использование useState + setLoadedDelivery в useEffect
   // приводило к гонке рендера (data уже есть, isLoading=false, но state ещё null).
-  const loadedDelivery: Delivery | null = deliveryQuery.data ?? null;
+  // В режиме isNew серверной записи ещё нет — собираем «виртуальный» Delivery
+  // из дефолтов, чтобы существующий JSX (status, photos, version и т. д.) работал
+  // без переписки. Фактические items/plate/comment живут в локальном state формы.
+  const virtualDelivery: Delivery | null = useMemo(() => {
+    if (!isNew || !deliveryId) return null;
+    // До первого «Сохранить» статус виртуальной приёмки определяется по наличию
+    // updIdFromUrl: с УПД — обычный not_filled, без УПД — no_document.
+    const initialStatus: Status = updIdFromUrl
+      ? {
+          id: '',
+          entityType: 'delivery',
+          code: 'not_filled',
+          label: 'Не оформлена',
+          color: null,
+          sortOrder: 0,
+        }
+      : {
+          id: '',
+          entityType: 'delivery',
+          code: 'no_document',
+          label: 'Без документа',
+          color: 'gold',
+          sortOrder: 15,
+        };
+    return {
+      id: deliveryId,
+      status: initialStatus,
+      siteId: inspectorSiteId ?? SYSTEM_SITE_ID,
+      supplierId: null,
+      contractorId: null,
+      recipientMolId: null,
+      vehiclePlate: null,
+      driverName: null,
+      arrivedAt: null,
+      inspectorId: authUser?.id ?? null,
+      comment: null,
+      confirmedByMolUserId: null,
+      confirmedByMolUserEmail: null,
+      confirmedByMolAt: null,
+      pendingDeletionAt: null,
+      pendingDeletionByUserId: null,
+      pendingDeletionByUserEmail: null,
+      pendingDeletionReason: null,
+      version: 0,
+      sourceDocumentIds: updIdFromUrl ? [updIdFromUrl] : [],
+      sourceShipmentId: null,
+      sourceShipmentShippedAt: null,
+      sourceShipmentSiteId: null,
+      sourceShipmentSiteCode: null,
+      items: [],
+      photos: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+  }, [isNew, deliveryId, inspectorSiteId, updIdFromUrl, authUser?.id]);
+  const loadedDelivery: Delivery | null = virtualDelivery ?? deliveryQuery.data ?? null;
 
   // Локальные IDB-записи фото для приёмки. Параллельно с серверным delivery.photos:
   // свежеснятое фото появляется в IDB немедленно (через capturePhoto), а в delivery.photos —
@@ -226,7 +326,17 @@ export default function KppPage() {
       } else {
         setSiteId((prev) => prev ?? (d.siteId === SYSTEM_SITE_ID ? null : d.siteId));
       }
-      setContractorId((prev) => prev ?? d.contractorId ?? null);
+      // Восстановление получателя: если в БД заполнен recipientMolId — это МОЛ,
+      // иначе counterparty (даже если contractorId = null).
+      if (d.recipientMolId) {
+        setRecipientKind('mol');
+        setRecipientMolId((prev) => prev ?? d.recipientMolId);
+        setContractorId(null);
+      } else {
+        setRecipientKind('counterparty');
+        setContractorId((prev) => prev ?? d.contractorId ?? null);
+        setRecipientMolId(null);
+      }
       setItems(
         d.items.map((it, idx) => ({
           clientKey: newKey(),
@@ -236,6 +346,10 @@ export default function KppPage() {
           qtyActual: it.qtyActual,
           unit: it.unit,
           materialId: it.materialId,
+          itemKind: it.itemKind,
+          assetId: it.assetId,
+          inventoryNumber: it.inventoryNumber,
+          serialNumber: it.serialNumber,
           volumeM3: it.volumeM3 ?? null,
           massKg: it.massKg ?? null,
           volumeConfidence: it.volumeConfidence ?? null,
@@ -254,101 +368,68 @@ export default function KppPage() {
     }
   }, [deliveryQuery.data, selectedUpd, isInspector, inspectorSiteId]);
 
+  // Гидратация формы в режиме isNew по выбранному УПД. items/contractorId/siteId
+  // подставляются из SourceDocumentDetail один раз — далее редактирование идёт
+  // через локальный state. hydratedIdRef защищает от повторного затирания
+  // пользовательских правок при рефетче (тот же приём, что и для серверного d).
+  useEffect(() => {
+    if (!isNew || !deliveryId) return;
+    const detail = newFromUpdQuery.data;
+    if (!detail) return;
+    if (hydratedIdRef.current === deliveryId) return;
+    hydratedIdRef.current = deliveryId;
+    setSelectedUpd(detail);
+    if (!isInspector) {
+      setSiteId((prev) => prev ?? (detail.siteId === SYSTEM_SITE_ID ? null : detail.siteId));
+    }
+    setContractorId((prev) => prev ?? detail.contractorId ?? null);
+    setItems(
+      detail.items.map((it, idx) => ({
+        clientKey: newKey(),
+        lineNo: idx + 1,
+        nameRaw: it.nameRaw,
+        qtyPlanned: it.qty,
+        qtyActual: it.qty,
+        unit: it.unit,
+        materialId: it.materialId ?? null,
+        itemKind: 'material' as const,
+        assetId: null,
+        inventoryNumber: null,
+        serialNumber: null,
+        volumeM3: it.volumeM3 ?? null,
+        massKg: it.massKg ?? null,
+        volumeConfidence: it.volumeConfidence ?? null,
+        groupName: it.groupName ?? null,
+      })),
+    );
+  }, [isNew, deliveryId, newFromUpdQuery.data, isInspector]);
+
   /**
-   * Создаёт пустую приёмку. UUID генерируется на клиенте, запись сразу появляется
-   * в IndexedDB, а мутация уезжает на сервер через runSync (best-effort, может догнаться позже).
+   * Открывает форму новой пустой приёмки. UUID генерируется клиентом и кладётся в URL
+   * под флагом new=1. Запись в IndexedDB и на сервере появится только при первом
+   * нажатии «Сохранить» — до этого момента форма существует только как React state.
    */
-  const createBlank = async () => {
-    if (creating) return;
+  const createBlank = () => {
     if (inspectorWithoutSite) {
       message.error('Объект не назначен — обратитесь к администратору');
       return;
     }
-    setCreating(true);
-    try {
-      const id = crypto.randomUUID();
-      // siteId — обязателен на сервере. Для inspector_kpp сразу подставляем
-      // назначенный объект (сервер всё равно перезапишет). Для остальных —
-      // системный «Без объекта» как заглушку, чтобы черновик мог уехать
-      // на сервер (status='not_filled') и не зависал в pending-mutations.
-      const initialSiteId = inspectorSiteId ?? SYSTEM_SITE_ID;
-      await applyLocalEdit(id, { siteId: initialSiteId });
-      await enqueueMutation({
-        id: crypto.randomUUID(),
-        kind: 'delivery_upsert',
-        entityId: id,
-        baseVersion: 0,
-        payload: null,
-      });
-      void runSync();
-      navigate(`/kpp?delivery=${id}`);
-    } catch (err) {
-      message.error(`Не удалось создать приёмку: ${(err as Error).message}`);
-    } finally {
-      setCreating(false);
-    }
+    const id = crypto.randomUUID();
+    navigate(`/kpp?delivery=${id}&new=1`);
   };
 
   /**
-   * Создаёт приёмку по выбранному УПД. Детали УПД читаются из локального кеша (его наполняет
-   * pullSync); при offline и пустом кеше — ошибка. UUID клиентский, мутация уезжает асинхронно.
+   * Открывает форму новой приёмки, преднаполненной из выбранного УПД. Детали УПД
+   * (items, supplierId, contractorId) подгружаются уже внутри формы по флагу new=1
+   * и updIdFromUrl. Черновик в IDB/БД до явного «Сохранить» не создаётся.
    */
-  const createFromUpd = async (upd: SourceDocument) => {
-    if (creating) return;
+  const createFromUpd = (upd: SourceDocument) => {
     if (inspectorWithoutSite) {
       message.error('Объект не назначен — обратитесь к администратору');
       return;
     }
-    setCreating(true);
-    try {
-      const dbi = await db();
-      let detail = await dbi.get('source_documents', upd.id);
-      if (!detail) {
-        try {
-          detail = await api.get<SourceDocumentDetail>(`/source-documents/${upd.id}`);
-        } catch {
-          message.error('Нет связи и детали УПД ещё не загружены — попробуйте позже');
-          return;
-        }
-      }
-      const id = crypto.randomUUID();
-      // Для inspector_kpp siteId — назначенный объект инспектора (сервер всё равно
-      // перепишет). Для admin/manager — siteId из УПД, если он там есть.
-      const patch: Partial<Delivery> = {
-        siteId: inspectorSiteId ?? detail.siteId ?? SYSTEM_SITE_ID,
-        supplierId: detail.supplierId ?? null,
-        contractorId: detail.contractorId ?? null,
-        sourceDocumentIds: [upd.id],
-        items: detail.items.map((it, i) => ({
-          id: crypto.randomUUID(),
-          materialId: it.materialId ?? null,
-          nameRaw: it.nameRaw,
-          qtyPlanned: it.qty,
-          qtyActual: it.qty,
-          unit: it.unit,
-          comment: null,
-          lineNo: i + 1,
-          volumeM3: it.volumeM3 ?? null,
-          massKg: it.massKg ?? null,
-          volumeConfidence: it.volumeConfidence ?? null,
-          groupName: it.groupName ?? null,
-        })),
-      };
-      await applyLocalEdit(id, patch);
-      await enqueueMutation({
-        id: crypto.randomUUID(),
-        kind: 'delivery_upsert',
-        entityId: id,
-        baseVersion: 0,
-        payload: null,
-      });
-      void runSync();
-      navigate(`/kpp?delivery=${id}`);
-    } catch (err) {
-      message.error(`Не удалось открыть УПД: ${(err as Error).message}`);
-    } finally {
-      setCreating(false);
-    }
+    const id = crypto.randomUUID();
+    navigate(`/kpp?delivery=${id}&new=1&upd=${upd.id}`);
   };
 
   const photoProps: UploadProps = {
@@ -389,6 +470,10 @@ export default function KppPage() {
         qtyActual: null,
         unit: 'шт',
         materialId: null,
+        itemKind: 'material',
+        assetId: null,
+        inventoryNumber: null,
+        serialNumber: null,
         volumeM3: null,
         massKg: null,
         volumeConfidence: null,
@@ -404,7 +489,8 @@ export default function KppPage() {
       status: nextStatus,
       siteId: siteId ?? loadedDelivery.siteId,
       supplierId: selectedUpd?.supplierId ?? loadedDelivery.supplierId ?? null,
-      contractorId,
+      contractorId: recipientKind === 'counterparty' ? contractorId : null,
+      recipientMolId: recipientKind === 'mol' ? recipientMolId : null,
       vehiclePlate: plate || null,
       arrivedAt: loadedDelivery.arrivedAt ?? new Date().toISOString(),
       comment: comment || null,
@@ -415,7 +501,11 @@ export default function KppPage() {
         .filter((i) => i.nameRaw.trim().length > 0)
         .map((i) => ({
           id: crypto.randomUUID(),
-          materialId: i.materialId,
+          itemKind: i.itemKind,
+          materialId: i.itemKind === 'asset' ? null : i.materialId,
+          assetId: i.itemKind === 'asset' ? i.assetId : null,
+          inventoryNumber: i.inventoryNumber,
+          serialNumber: i.serialNumber,
           nameRaw: i.nameRaw,
           qtyPlanned: i.qtyPlanned,
           qtyActual: i.qtyActual,
@@ -446,11 +536,16 @@ export default function KppPage() {
   const save = useMutation({
     mutationFn: async () => {
       if (!loadedDelivery) throw new Error('Приёмка ещё не загружена');
-      // Обычное «Сохранить» не должно «понижать» подтверждённый документ —
-      // если он уже confirmed_mol, оставляем этот статус.
+      // Обычное «Сохранить» не должно «понижать» подтверждённый документ.
+      // Если УПД не выбрана — статус «Без документа» (сервер всё равно
+      // нормализует, но локальный optimistic-state должен совпадать).
       const currentCode = loadedDelivery.status.code as DeliveryStatusCode;
       const nextCode: DeliveryStatusCode =
-        currentCode === 'confirmed_mol' ? 'confirmed_mol' : 'filled';
+        currentCode === 'confirmed_mol'
+          ? 'confirmed_mol'
+          : selectedUpd
+            ? 'filled'
+            : 'no_document';
       await persistStatus(nextCode);
     },
     onSuccess: () => {
@@ -471,6 +566,46 @@ export default function KppPage() {
       navigate('/kpp?tab=accepted');
     },
     onError: (err: Error) => message.error(err.message),
+  });
+
+  // Ручная привязка УПД к приёмке «Без документа» на портале (только admin/manager).
+  // Шлём прямой POST /deliveries с непустым sourceDocumentIds и пустым items —
+  // сервер сам подтянет позиции из УПД и переведёт статус в not_filled. IDB не
+  // трогаем: эта операция выполняется на портале, локальный snapshot инспектора
+  // обновится при следующем pullSync.
+  const linkUpd = useMutation({
+    mutationFn: async (upd: SourceDocument): Promise<Delivery> => {
+      if (!loadedDelivery) throw new Error('Приёмка ещё не загружена');
+      const payload = {
+        id: loadedDelivery.id,
+        statusCode: 'not_filled' as DeliveryStatusCode,
+        siteId: loadedDelivery.siteId,
+        supplierId: upd.supplierId ?? loadedDelivery.supplierId ?? null,
+        contractorId: loadedDelivery.contractorId,
+        recipientMolId: loadedDelivery.recipientMolId,
+        vehiclePlate: loadedDelivery.vehiclePlate,
+        driverName: loadedDelivery.driverName,
+        arrivedAt: loadedDelivery.arrivedAt,
+        comment: loadedDelivery.comment,
+        sourceDocumentIds: [upd.id],
+        items: [],
+        baseVersion: loadedDelivery.version,
+      };
+      return await api.post<Delivery>('/deliveries', payload);
+    },
+    onSuccess: async (dto) => {
+      await upsertServerSnapshot([dto]);
+      message.success('УПД привязана');
+      setLinkUpdOpen(false);
+      setLinkUpdError(null);
+      hydratedIdRef.current = null;
+      void queryClient.invalidateQueries({ queryKey: ['deliveries', deliveryId] });
+      void queryClient.invalidateQueries({ queryKey: ['deliveries'] });
+      void queryClient.invalidateQueries({ queryKey: ['source-documents'] });
+    },
+    onError: (err: Error) => {
+      setLinkUpdError(err.message);
+    },
   });
 
   const markDel = useMutation({
@@ -676,7 +811,7 @@ export default function KppPage() {
             />
           )}
           <Typography.Title level={3} style={{ margin: 0 }}>
-            Приёмка
+            {isNew ? 'Новая приёмка' : 'Приёмка'}
           </Typography.Title>
           {isPending && loadedDelivery && (
             <PendingDeletionTag
@@ -767,27 +902,65 @@ export default function KppPage() {
             </Card>
           </Col>
           <Col xs={24} sm={12} md={6}>
-            <Card size="small" title="Подрядчик" styles={{ body: { padding: 12 } }}>
-              <Select<string>
-                size="large"
-                style={{ width: '100%' }}
-                placeholder="— не указан —"
-                value={contractorId ?? undefined}
-                onChange={(v) => setContractorId(v ?? null)}
-                allowClear
-                showSearch
-                optionFilterProp="label"
-                loading={counterpartiesQuery.isLoading}
-                options={counterparties.map((c) => ({
-                  value: c.id,
-                  label: c.name,
-                }))}
-                notFoundContent={
-                  <Typography.Text type="secondary">
-                    Нет контрагентов с ролью «Подрядчик» — отметьте их в Справочниках
-                  </Typography.Text>
-                }
+            <Card size="small" title="Получатель" styles={{ body: { padding: 12 } }}>
+              <Segmented
+                block
+                style={{ marginBottom: 8 }}
+                options={[
+                  { label: 'Подрядчик', value: 'counterparty' },
+                  { label: 'МОЛ', value: 'mol' },
+                ]}
+                value={recipientKind}
+                onChange={(v) => {
+                  const next = v as 'counterparty' | 'mol';
+                  setRecipientKind(next);
+                  if (next === 'counterparty') setRecipientMolId(null);
+                  else setContractorId(null);
+                }}
               />
+              {recipientKind === 'counterparty' ? (
+                <Select<string>
+                  size="large"
+                  style={{ width: '100%' }}
+                  placeholder="— не указан —"
+                  value={contractorId ?? undefined}
+                  onChange={(v) => setContractorId(v ?? null)}
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  loading={counterpartiesQuery.isLoading}
+                  options={counterparties.map((c) => ({
+                    value: c.id,
+                    label: c.name,
+                  }))}
+                  notFoundContent={
+                    <Typography.Text type="secondary">
+                      Нет контрагентов с ролью «Подрядчик» — отметьте их в Справочниках
+                    </Typography.Text>
+                  }
+                />
+              ) : (
+                <Select<string>
+                  size="large"
+                  style={{ width: '100%' }}
+                  placeholder="— не указан —"
+                  value={recipientMolId ?? undefined}
+                  onChange={(v) => setRecipientMolId(v ?? null)}
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  loading={responsiblePersonsQuery.isLoading}
+                  options={responsiblePersons.map((m) => ({
+                    value: m.id,
+                    label: m.fullName,
+                  }))}
+                  notFoundContent={
+                    <Typography.Text type="secondary">
+                      Заведите МОЛ в Справочниках
+                    </Typography.Text>
+                  }
+                />
+              )}
             </Card>
           </Col>
           <Col xs={24} sm={12} md={6}>
@@ -802,20 +975,70 @@ export default function KppPage() {
             </Card>
           </Col>
           <Col xs={24} sm={12} md={6}>
-            <Card size="small" title="УПД" styles={{ body: { padding: 12 } }}>
-              {selectedUpd ? (
-                <Space wrap>
-                  <Tag color="blue">{selectedUpd.docNumber ?? '— без номера —'}</Tag>
-                  <Typography.Text type="secondary">
-                    {selectedUpd.docDate ?? '—'} · {selectedUpd.totalSum ?? '—'} ₽
+            {loadedDelivery?.sourceShipmentId ? (
+              // Парная приёмка из transfer — вместо УПД показываем источник и
+              // обе фактические даты. Дата прибытия заполнится, как только
+              // инспектор destSite подтвердит приёмку.
+              <Card size="small" title="Перемещение" styles={{ body: { padding: 12 } }}>
+                <Space direction="vertical" size={2}>
+                  <Space wrap>
+                    <Tag color="geekblue">с объекта</Tag>
+                    <Typography.Text strong>
+                      {loadedDelivery.sourceShipmentSiteCode ?? '—'}
+                    </Typography.Text>
+                  </Space>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    Отгружено: {formatMolDate(loadedDelivery.sourceShipmentShippedAt)}
+                  </Typography.Text>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    Принято: {formatMolDate(loadedDelivery.arrivedAt)}
                   </Typography.Text>
                 </Space>
-              ) : (
-                <Typography.Text type="secondary">— без УПД —</Typography.Text>
-              )}
-            </Card>
+              </Card>
+            ) : (
+              <Card size="small" title="УПД" styles={{ body: { padding: 12 } }}>
+                {selectedUpd ? (
+                  <Space wrap>
+                    <Tag color="blue">{selectedUpd.docNumber ?? '— без номера —'}</Tag>
+                    <Typography.Text type="secondary">
+                      {selectedUpd.docDate ?? '—'} · {selectedUpd.totalSum ?? '—'} ₽
+                    </Typography.Text>
+                  </Space>
+                ) : (
+                  <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                    <Typography.Text type="secondary">— без УПД —</Typography.Text>
+                    {!isInspector &&
+                      loadedDelivery?.status.code === 'no_document' &&
+                      !isNew && (
+                        <Button
+                          size="small"
+                          icon={<LinkOutlined />}
+                          onClick={() => {
+                            setLinkUpdError(null);
+                            setLinkUpdOpen(true);
+                          }}
+                        >
+                          Привязать УПД
+                        </Button>
+                      )}
+                  </Space>
+                )}
+              </Card>
+            )}
           </Col>
         </Row>
+
+        <LinkSourceDocumentModal
+          open={linkUpdOpen}
+          onCancel={() => {
+            if (!linkUpd.isPending) setLinkUpdOpen(false);
+          }}
+          onPick={(upd) => linkUpd.mutate(upd)}
+          direction="inbound"
+          siteId={loadedDelivery?.siteId === SYSTEM_SITE_ID ? null : loadedDelivery?.siteId ?? null}
+          busy={linkUpd.isPending}
+          error={linkUpdError}
+        />
 
         <VehicleFillGauge
           items={items.map((it) => ({
@@ -917,12 +1140,16 @@ export default function KppPage() {
 
         {(() => {
           const isConfirmed = loadedDelivery.status.code === 'confirmed_mol';
-          const confirmTooltip = isConfirmed
-            ? `Подтверждено: ${loadedDelivery.confirmedByMolUserEmail ?? '—'}, ${formatMolDate(loadedDelivery.confirmedByMolAt)}`
-            : (verifyReason ?? 'Подтвердить документ как МОЛ');
+          const confirmTooltip = isNew
+            ? 'Сначала сохраните приёмку, затем можно подтверждать МОЛ'
+            : isConfirmed
+              ? `Подтверждено: ${loadedDelivery.confirmedByMolUserEmail ?? '—'}, ${formatMolDate(loadedDelivery.confirmedByMolAt)}`
+              : (verifyReason ?? 'Подтвердить документ как МОЛ');
           // Помеченный документ — read-only: блокируем Save и Подтвердить МОЛ.
           const saveDisabled = !!verifyReason || isPending;
-          const confirmDisabled = isConfirmed || !!verifyReason || isPending;
+          // В режиме isNew подтверждение МОЛ недоступно — сначала должна
+          // появиться сохранённая запись со статусом filled.
+          const confirmDisabled = isNew || isConfirmed || !!verifyReason || isPending;
           // Кнопка «Пометить на удаление» доступна для filled/confirmed_mol в активном режиме.
           const canMarkDeletion =
             !isPending &&
@@ -1075,7 +1302,6 @@ export default function KppPage() {
           <Button
             type="primary"
             icon={<PlusOutlined />}
-            loading={creating}
             onClick={createBlank}
             disabled={inspectorWithoutSite}
           >

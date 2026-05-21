@@ -16,3 +16,4 @@ local.properties
 
 # Reference web project extracted from ZIP
 /docs/reference/*.zip
+/.idea/
