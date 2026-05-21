@@ -170,22 +170,24 @@ fun Stage2FormScreen(
                             )
                         }
 
-                        // Госномер из приёмки — показываем заполненным, но без правки.
-                        // Стилистика совпадает с инпутами 1 Этапа. Цвета focused/
-                        // unfocused приравнены, чтобы рамка не мигала на тапе.
+                        // Госномер из приёмки — чистое отображение, без реакции
+                        // на тап (нет фокуса, курсора, тулбара). enabled=false
+                        // глушит обработку touch'ей, а disabled-цвета приведены
+                        // к виду обычного поля, чтобы рамка/текст не тускнели.
                         OutlinedTextField(
                             value = state.vehiclePlate.orEmpty(),
                             onValueChange = {},
+                            enabled = false,
                             readOnly = true,
                             singleLine = true,
                             textStyle = inputTextStyle,
                             label = { Text("Госномер", style = inputLabelStyle) },
                             modifier = Modifier.fillMaxWidth(),
                             colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = MaterialTheme.colorScheme.outline,
-                                unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-                                focusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                disabledBorderColor = MaterialTheme.colorScheme.outline,
+                                disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                                disabledContainerColor = MaterialTheme.colorScheme.surface,
                             ),
                         )
 
