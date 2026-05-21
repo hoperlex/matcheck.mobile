@@ -32,6 +32,9 @@ interface RemoteDeliveryDao {
     @Query("DELETE FROM remote_delivery_photos WHERE deliveryId = :deliveryId")
     suspend fun deletePhotosByDelivery(deliveryId: String)
 
+    @Query("DELETE FROM remote_delivery_photos WHERE uploadStatus = :status AND lastUploadError = :error")
+    suspend fun deletePhotosByStatusAndError(status: String, error: String): Int
+
     @androidx.room.Upsert
     suspend fun upsertPhoto(photo: RemoteDeliveryPhotoEntity)
 

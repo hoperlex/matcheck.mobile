@@ -76,14 +76,21 @@ class SyncQueueViewModel(private val container: AppContainer) : ViewModel() {
             initialValue = emptyList(),
         )
 
+    fun clearQueue() {
+        viewModelScope.launch {
+            runCatching { container.mutationProcessor.clearAll() }
+            runCatching { container.photoUploadProcessor.cleanupBrokenLocalBlobs() }
+        }
+    }
+
     fun retryNow() {
         viewModelScope.launch {
-            // Сначала чистим «зомби»-мутации с conflictPending от create-on-existing
-            // (network-glitch на первом push → 409 при повторе). Без этого
-            // 23 такие записи останутся в очереди навсегда и заблокируют push
-            // других мутаций с теми же entityId.
+            // 1. Чистим «зомби»-мутации с conflictPending от create-on-existing
+            // (network-glitch на первом push → 409 при повторе).
             runCatching { container.mutationProcessor.resolveStaleCreateConflicts() }
-            // Затем общий push-pull для свежих приёмок/выездов.
+            // 2. Удаляем фото с потерянными blob'ами — восстановить нечем.
+            runCatching { container.photoUploadProcessor.cleanupBrokenLocalBlobs() }
+            // 3. Общий push-pull для свежих приёмок/выездов и фото в очереди.
             MatcheckSyncScheduler.requestImmediateSync(container.appContext)
         }
     }

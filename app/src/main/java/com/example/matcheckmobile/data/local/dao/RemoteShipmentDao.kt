@@ -32,6 +32,9 @@ interface RemoteShipmentDao {
     @Query("DELETE FROM remote_shipment_photos WHERE shipmentId = :shipmentId")
     suspend fun deletePhotosByShipment(shipmentId: String)
 
+    @Query("DELETE FROM remote_shipment_photos WHERE uploadStatus = :status AND lastUploadError = :error")
+    suspend fun deletePhotosByStatusAndError(status: String, error: String): Int
+
     @androidx.room.Upsert
     suspend fun upsertPhoto(photo: RemoteShipmentPhotoEntity)
 

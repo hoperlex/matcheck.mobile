@@ -297,23 +297,53 @@ class MutationProcessor(
      * отвечает 409. Делает GET /:id → если сервер знает запись, считаем её
      * успешно созданной, сбрасываем conflictPending и удаляем мутацию.
      *
-     * Вызывается из «Запустить синхронизацию сейчас» — это разовый расход
-     * на ручной retry, не на каждом цикле sync.
+     * Если сервер вернул 404 на GET — приёмка реально не существует (могла
+     * быть удалена / другой siteId / другой инспектор); такую мутацию тоже
+     * удаляем — держать её в очереди бессмысленно. Прочие ошибки записываем
+     * в lastError, чтобы было видно в Очереди синхронизации.
      */
+    /**
+     * Полная очистка очереди мутаций. Удаляет все pending и conflictPending
+     * записи, снимает флаг conflictPending у локальных entity. Делает «hard
+     * reset» состояния push'а — нужен, когда зомби-мутации накопились и
+     * блокируют отправку свежих приёмок. Локальные delivery/shipment не
+     * удаляются: при следующем sync подтянутся актуальные с сервера.
+     */
+    suspend fun clearAll(): Int {
+        val all = mutationDao.listPending() + mutationDao.listConflicts()
+        for (m in all) {
+            mutationDao.deleteById(m.id)
+            when (m.entityType) {
+                "delivery" -> deliveryDao.findById(m.entityId)?.let {
+                    if (it.conflictPending) {
+                        deliveryDao.upsert(
+                            it.copy(conflictPending = false, serverSnapshotJson = null, lastSyncError = null),
+                        )
+                    }
+                }
+                "shipment" -> shipmentDao.findById(m.entityId)?.let {
+                    if (it.conflictPending) {
+                        shipmentDao.upsert(
+                            it.copy(conflictPending = false, serverSnapshotJson = null, lastSyncError = null),
+                        )
+                    }
+                }
+            }
+        }
+        return all.size
+    }
+
     suspend fun resolveStaleCreateConflicts(): Int {
         val stale = mutationDao.listConflicts()
             .filter { it.operation == "upsert" && (it.baseVersion ?: 0) == 0 }
         var resolved = 0
         for (m in stale) {
-            val ok = runCatching {
+            try {
                 when (m.entityType) {
                     "delivery" -> saveDeliveryFromServer(deliveriesApi.get(m.entityId))
                     "shipment" -> saveShipmentFromServer(shipmentsApi.get(m.entityId))
-                    else -> return@runCatching
+                    else -> continue
                 }
-                // Сбрасываем conflictPending у самой entity (saveAggregate
-                // мерджит фото upsert'ом, но статус conflict на parent —
-                // ставится отдельно через DAO).
                 when (m.entityType) {
                     "delivery" -> deliveryDao.findById(m.entityId)?.let {
                         deliveryDao.upsert(it.copy(conflictPending = false, serverSnapshotJson = null, lastSyncError = null))
@@ -323,8 +353,23 @@ class MutationProcessor(
                     }
                 }
                 mutationDao.deleteById(m.id)
-            }.isSuccess
-            if (ok) resolved++
+                resolved++
+            } catch (e: HttpException) {
+                if (e.code() == 404) {
+                    // Приёмки на сервере нет — нет смысла держать мутацию.
+                    // Также чистим локальную «остатки», чтобы UI не показывал.
+                    mutationDao.deleteById(m.id)
+                    when (m.entityType) {
+                        "delivery" -> deliveryDao.deleteByIds(listOf(m.entityId))
+                        "shipment" -> shipmentDao.deleteByIds(listOf(m.entityId))
+                    }
+                    resolved++
+                } else {
+                    mutationDao.upsert(m.copy(lastError = "resolve: http ${e.code()}"))
+                }
+            } catch (e: Throwable) {
+                mutationDao.upsert(m.copy(lastError = "resolve: ${e.message ?: e::class.simpleName}"))
+            }
         }
         return resolved
     }

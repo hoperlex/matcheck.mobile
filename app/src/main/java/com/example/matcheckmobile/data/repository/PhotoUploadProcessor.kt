@@ -45,6 +45,17 @@ class PhotoUploadProcessor(
         .writeTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
         .build()
 
+    /**
+     * Чистит фото с локально потерянными blob'ами (status=UPLOAD_ERROR +
+     * lastUploadError="blob missing"). Это «зомби» от старых попыток до
+     * фикса recycled-bitmap — восстановить нечем, держать в БД смысла нет.
+     */
+    suspend fun cleanupBrokenLocalBlobs(): Int {
+        val a = deliveryDao.deletePhotosByStatusAndError("UPLOAD_ERROR", "blob missing")
+        val b = shipmentDao.deletePhotosByStatusAndError("UPLOAD_ERROR", "blob missing")
+        return a + b
+    }
+
     suspend fun processAll(): PhotoUploadResult {
         var uploaded = 0
         var skipped = 0
