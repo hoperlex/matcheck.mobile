@@ -1,17 +1,14 @@
 package com.example.matcheckmobile.presentation.screens.receipt
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,10 +19,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -40,11 +34,10 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.matcheckmobile.presentation.viewmodel.IntakeUpdRow
+import com.example.matcheckmobile.presentation.components.ContractorHeaderCard
+import com.example.matcheckmobile.presentation.components.UpdSummaryCard
 import com.example.matcheckmobile.presentation.viewmodel.IntakeUpdSelectViewModel
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
 
@@ -167,8 +160,9 @@ fun IntakeUpdSelectScreen(
                                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                                             ) {
                                                 group.rows.forEach { row ->
-                                                    UpdRowCard(
-                                                        row = row,
+                                                    UpdSummaryCard(
+                                                        title = "УПД ${row.document.docNumber ?: "—"}",
+                                                        subtitle = "Поставщик: ${row.supplierName ?: "—"}",
                                                         onClick = { onOpenWithUpd(row.document.id) },
                                                     )
                                                 }
@@ -185,80 +179,3 @@ fun IntakeUpdSelectScreen(
     }
 }
 
-@Composable
-private fun ContractorHeaderCard(
-    name: String,
-    count: Int,
-    expanded: Boolean,
-    onToggle: () -> Unit,
-) {
-    val chevronRotation by animateFloatAsState(
-        targetValue = if (expanded) 180f else 0f,
-        label = "chevron-rotation",
-    )
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onToggle),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-        ),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = name,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.weight(1f),
-            )
-            Surface(
-                shape = MaterialTheme.shapes.small,
-                color = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier.padding(end = 12.dp),
-            ) {
-                Text(
-                    text = count.toString(),
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                )
-            }
-            Icon(
-                imageVector = Icons.Default.KeyboardArrowDown,
-                contentDescription = if (expanded) "Свернуть" else "Развернуть",
-                modifier = Modifier
-                    .size(28.dp)
-                    .rotate(chevronRotation),
-            )
-        }
-    }
-}
-
-@Composable
-private fun UpdRowCard(row: IntakeUpdRow, onClick: () -> Unit) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() },
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Text(
-                text = "УПД ${row.document.docNumber ?: "—"}",
-                style = MaterialTheme.typography.headlineSmall,
-            )
-            Text(
-                text = "Поставщик: ${row.supplierName ?: "—"}",
-                style = MaterialTheme.typography.titleMedium,
-            )
-        }
-    }
-}
