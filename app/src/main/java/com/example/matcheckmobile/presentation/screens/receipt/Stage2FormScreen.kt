@@ -129,68 +129,71 @@ fun Stage2FormScreen(
                     .padding(outerPadding),
                 contentAlignment = Alignment.TopCenter,
             ) {
+                // Sticky-зоны: фото + Госномер закреплены сверху, Комментарий +
+                // кнопка — снизу. Скроллится только средняя область со списком
+                // материалов (weight=1f + verticalScroll).
                 Column(
                     modifier = Modifier
                         .widthIn(max = contentMaxWidth)
                         .fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(sectionGap),
                 ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(sectionGap),
+                    ) {
+                        PhotoCaptureSection(
+                            buttonText = "Фото документов",
+                            buttonTextStyle = photoButtonTextStyle,
+                            isTablet = isTablet,
+                            buttonHeight = photoButtonHeight,
+                            onTakePhoto = takeDocumentPhoto,
+                            photoPaths = state.documentPhotoPaths,
+                            onRemovePhoto = vm::removeDocumentPhoto,
+                            onPreviewPhoto = { previewPath = it },
+                            modifier = Modifier.weight(1f),
+                        )
+
+                        PhotoCaptureSection(
+                            buttonText = "Фото машины, госномера",
+                            buttonTextStyle = photoButtonTextStyle,
+                            isTablet = isTablet,
+                            buttonHeight = photoButtonHeight,
+                            onTakePhoto = takeVehiclePhoto,
+                            photoPaths = state.vehiclePhotoPaths,
+                            onRemovePhoto = vm::removeVehiclePhoto,
+                            onPreviewPhoto = { previewPath = it },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+
+                    // Госномер из приёмки — чистое отображение, без реакции
+                    // на тап (нет фокуса, курсора, тулбара). enabled=false
+                    // глушит обработку touch'ей, а disabled-цвета приведены
+                    // к виду обычного поля, чтобы рамка/текст не тускнели.
+                    OutlinedTextField(
+                        value = state.vehiclePlate.orEmpty(),
+                        onValueChange = {},
+                        enabled = false,
+                        readOnly = true,
+                        singleLine = true,
+                        textStyle = inputTextStyle,
+                        label = { Text("Госномер", style = inputLabelStyle) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            disabledBorderColor = MaterialTheme.colorScheme.outline,
+                            disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                            disabledContainerColor = MaterialTheme.colorScheme.surface,
+                        ),
+                    )
+
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
                             .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(sectionGap),
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(sectionGap),
-                        ) {
-                            PhotoCaptureSection(
-                                buttonText = "Фото документов",
-                                buttonTextStyle = photoButtonTextStyle,
-                                isTablet = isTablet,
-                                buttonHeight = photoButtonHeight,
-                                onTakePhoto = takeDocumentPhoto,
-                                photoPaths = state.documentPhotoPaths,
-                                onRemovePhoto = vm::removeDocumentPhoto,
-                                onPreviewPhoto = { previewPath = it },
-                                modifier = Modifier.weight(1f),
-                            )
-
-                            PhotoCaptureSection(
-                                buttonText = "Фото машины, госномера",
-                                buttonTextStyle = photoButtonTextStyle,
-                                isTablet = isTablet,
-                                buttonHeight = photoButtonHeight,
-                                onTakePhoto = takeVehiclePhoto,
-                                photoPaths = state.vehiclePhotoPaths,
-                                onRemovePhoto = vm::removeVehiclePhoto,
-                                onPreviewPhoto = { previewPath = it },
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-
-                        // Госномер из приёмки — чистое отображение, без реакции
-                        // на тап (нет фокуса, курсора, тулбара). enabled=false
-                        // глушит обработку touch'ей, а disabled-цвета приведены
-                        // к виду обычного поля, чтобы рамка/текст не тускнели.
-                        OutlinedTextField(
-                            value = state.vehiclePlate.orEmpty(),
-                            onValueChange = {},
-                            enabled = false,
-                            readOnly = true,
-                            singleLine = true,
-                            textStyle = inputTextStyle,
-                            label = { Text("Госномер", style = inputLabelStyle) },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                disabledBorderColor = MaterialTheme.colorScheme.outline,
-                                disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                disabledTextColor = MaterialTheme.colorScheme.onSurface,
-                                disabledContainerColor = MaterialTheme.colorScheme.surface,
-                            ),
-                        )
-
                         MaterialsInlineList(
                             value = state.materials,
                             headerStyle = if (isTablet)
@@ -198,20 +201,18 @@ fun Stage2FormScreen(
                             else
                                 MaterialTheme.typography.labelLarge,
                         )
-
-                        ModalTextField(
-                            value = state.commentText,
-                            onValueChange = vm::setComment,
-                            label = "Комментарий",
-                            textStyle = inputTextStyle,
-                            labelStyle = inputLabelStyle,
-                        )
                     }
 
+                    ModalTextField(
+                        value = state.commentText,
+                        onValueChange = vm::setComment,
+                        label = "Комментарий",
+                        textStyle = inputTextStyle,
+                        labelStyle = inputLabelStyle,
+                    )
+
                     Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = sectionGap),
+                        modifier = Modifier.fillMaxWidth(),
                         contentAlignment = Alignment.CenterEnd,
                     ) {
                         Button(
