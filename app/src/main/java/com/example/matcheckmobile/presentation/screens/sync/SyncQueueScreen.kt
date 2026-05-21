@@ -44,6 +44,8 @@ fun SyncQueueScreen(onBack: () -> Unit, onOpenOperation: (String) -> Unit) {
     val sessions by vm.pendingSessions.collectAsStateWithLifecycle()
     val ops by vm.pendingOperations.collectAsStateWithLifecycle()
     val photos by vm.pendingAttachments.collectAsStateWithLifecycle()
+    val deliveryPhotos by vm.pendingDeliveryPhotos.collectAsStateWithLifecycle()
+    val shipmentPhotos by vm.pendingShipmentPhotos.collectAsStateWithLifecycle()
     val df = remember { SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()) }
 
     Scaffold(
@@ -171,6 +173,65 @@ fun SyncQueueScreen(onBack: () -> Unit, onOpenOperation: (String) -> Unit) {
                                     Text(
                                         p.uploadStatus.name +
                                             (p.lastUploadError?.let { " · $it" } ?: ""),
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Фото 1/2 Этапа (Delivery) — новый pipeline через
+                    // PhotoUploadProcessor. Показываем uploadStatus + lastUploadError,
+                    // чтобы видеть, на каком шаге зависает (presign / S3 PUT / confirm).
+                    item {
+                        Text(
+                            "Фото приёмок (${deliveryPhotos.size})",
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.padding(top = 12.dp),
+                        )
+                    }
+                    if (deliveryPhotos.isEmpty()) {
+                        item {
+                            Text("Нет фото приёмок в очереди", style = MaterialTheme.typography.bodyMedium)
+                        }
+                    } else {
+                        items(deliveryPhotos, key = { it.id }) { p ->
+                            Card(modifier = Modifier.fillMaxWidth()) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Text(
+                                        "${p.kind} · приёмка ${p.deliveryId.take(8)}",
+                                        style = MaterialTheme.typography.titleSmall,
+                                    )
+                                    Text(
+                                        p.uploadStatus + (p.lastUploadError?.let { " · $it" } ?: ""),
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    item {
+                        Text(
+                            "Фото выездов (${shipmentPhotos.size})",
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.padding(top = 12.dp),
+                        )
+                    }
+                    if (shipmentPhotos.isEmpty()) {
+                        item {
+                            Text("Нет фото выездов в очереди", style = MaterialTheme.typography.bodyMedium)
+                        }
+                    } else {
+                        items(shipmentPhotos, key = { it.id }) { p ->
+                            Card(modifier = Modifier.fillMaxWidth()) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Text(
+                                        "${p.kind} · выезд ${p.shipmentId.take(8)}",
+                                        style = MaterialTheme.typography.titleSmall,
+                                    )
+                                    Text(
+                                        p.uploadStatus + (p.lastUploadError?.let { " · $it" } ?: ""),
                                         style = MaterialTheme.typography.bodySmall,
                                     )
                                 }

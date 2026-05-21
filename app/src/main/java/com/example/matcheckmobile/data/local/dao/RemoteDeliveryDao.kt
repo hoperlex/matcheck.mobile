@@ -38,6 +38,9 @@ interface RemoteDeliveryDao {
     @Query("SELECT * FROM remote_delivery_photos WHERE uploadStatus IN (:statuses)")
     suspend fun findPhotosByStatus(statuses: List<String>): List<RemoteDeliveryPhotoEntity>
 
+    @Query("SELECT * FROM remote_delivery_photos WHERE uploadStatus IN (:statuses) ORDER BY takenAt DESC")
+    fun observePhotosByStatus(statuses: List<String>): Flow<List<RemoteDeliveryPhotoEntity>>
+
     @Query("SELECT * FROM remote_delivery_photos WHERE id = :id")
     suspend fun findPhotoById(id: String): RemoteDeliveryPhotoEntity?
 
