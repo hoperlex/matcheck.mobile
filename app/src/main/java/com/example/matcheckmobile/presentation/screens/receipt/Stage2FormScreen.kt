@@ -1,6 +1,5 @@
 package com.example.matcheckmobile.presentation.screens.receipt
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -9,10 +8,10 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -21,11 +20,11 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -41,11 +40,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.matcheckmobile.MatcheckApplication
-import com.example.matcheckmobile.presentation.components.MaterialsField
+import com.example.matcheckmobile.presentation.components.MaterialsInlineList
 import com.example.matcheckmobile.presentation.components.ModalTextField
 import com.example.matcheckmobile.presentation.components.PhotoCaptureSection
 import com.example.matcheckmobile.presentation.components.PhotoPreviewDialog
-import com.example.matcheckmobile.presentation.components.VehicleTypeChips
 import com.example.matcheckmobile.presentation.components.rememberDocumentScanner
 import com.example.matcheckmobile.presentation.components.rememberPhotoCapture
 import com.example.matcheckmobile.presentation.viewmodel.Stage2FormViewModel
@@ -109,7 +107,16 @@ fun Stage2FormScreen(
             val outerPadding = if (isTablet) 24.dp else 16.dp
             val sectionGap = if (isTablet) 20.dp else 14.dp
             val photoButtonHeight = if (isTablet) 128.dp else 104.dp
-            val vehicleIconHeight = if (isTablet) 96.dp else 72.dp
+            val finalizeButtonHeight = if (isTablet) 80.dp else 64.dp
+
+            val inputTextStyle = if (isTablet)
+                MaterialTheme.typography.headlineSmall
+            else
+                MaterialTheme.typography.titleLarge
+            val inputLabelStyle = if (isTablet)
+                MaterialTheme.typography.titleLarge
+            else
+                MaterialTheme.typography.titleMedium
             val photoButtonTextStyle = if (isTablet)
                 MaterialTheme.typography.headlineSmall
             else
@@ -128,12 +135,6 @@ fun Stage2FormScreen(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(sectionGap),
                 ) {
-                    DeliveryInfoCard(
-                        plate = state.vehiclePlate,
-                        updDisplay = state.updDisplay,
-                        isTablet = isTablet,
-                    )
-
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(sectionGap),
@@ -163,23 +164,32 @@ fun Stage2FormScreen(
                         )
                     }
 
-                    VehicleTypeChips(
-                        selectedCode = state.vehicleTypeCode,
-                        onSelected = { vm.selectVehicle(it.code) },
-                        maxItemsInRow = 2,
-                        iconHeight = vehicleIconHeight,
-                        showSubtitle = false,
+                    // Госномер из приёмки — показываем заполненным, но без правки.
+                    // Стилистика совпадает с инпутами 1 Этапа (textStyle/labelStyle).
+                    OutlinedTextField(
+                        value = state.vehiclePlate.orEmpty(),
+                        onValueChange = {},
+                        readOnly = true,
+                        singleLine = true,
+                        textStyle = inputTextStyle,
+                        label = { Text("Госномер", style = inputLabelStyle) },
+                        modifier = Modifier.fillMaxWidth(),
                     )
 
-                    MaterialsField(
+                    MaterialsInlineList(
                         value = state.materials,
-                        onValueChange = vm::setMaterials,
+                        headerStyle = if (isTablet)
+                            MaterialTheme.typography.titleMedium
+                        else
+                            MaterialTheme.typography.labelLarge,
                     )
 
                     ModalTextField(
                         value = state.commentText,
                         onValueChange = vm::setComment,
                         label = "Комментарий",
+                        textStyle = inputTextStyle,
+                        labelStyle = inputLabelStyle,
                     )
 
                     Box(
@@ -189,11 +199,15 @@ fun Stage2FormScreen(
                         Button(
                             onClick = vm::finalizeStage2,
                             enabled = state.loaded && !state.isSaving && !state.finalized,
-                            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
+                            modifier = Modifier.height(finalizeButtonHeight),
+                            contentPadding = PaddingValues(horizontal = 32.dp, vertical = 16.dp),
                         ) {
                             Text(
                                 text = if (state.isSaving) "Сохранение..." else "Завершить 2 Этап",
-                                style = MaterialTheme.typography.titleMedium,
+                                style = if (isTablet)
+                                    MaterialTheme.typography.headlineMedium
+                                else
+                                    MaterialTheme.typography.headlineSmall,
                             )
                         }
                     }
@@ -208,47 +222,4 @@ fun Stage2FormScreen(
             )
         }
     }
-}
-
-/**
- * Информационный блок сверху Stage 2 — read-only сводка по приёмке: госномер
- * и номер УПД. Нужен инспектору/МОЛ, чтобы сверить машину при подтверждении.
- */
-@Composable
-private fun DeliveryInfoCard(
-    plate: String?,
-    updDisplay: String?,
-    isTablet: Boolean,
-) {
-    val plateValue = plate?.takeIf { it.isNotBlank() } ?: "—"
-    val updValue = updDisplay?.takeIf { it.isNotBlank() } ?: "—"
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(
-            modifier = Modifier.padding(
-                horizontal = if (isTablet) 20.dp else 16.dp,
-                vertical = if (isTablet) 14.dp else 10.dp,
-            ),
-            verticalArrangement = Arrangement.spacedBy(if (isTablet) 6.dp else 4.dp),
-        ) {
-            InfoRow(label = "Госномер", value = plateValue, isTablet = isTablet)
-            InfoRow(label = "УПД", value = updValue, isTablet = isTablet)
-        }
-    }
-}
-
-@Composable
-private fun InfoRow(label: String, value: String, isTablet: Boolean) {
-    Text(
-        text = "$label: $value",
-        style = if (isTablet)
-            MaterialTheme.typography.titleLarge
-        else
-            MaterialTheme.typography.titleMedium,
-    )
 }

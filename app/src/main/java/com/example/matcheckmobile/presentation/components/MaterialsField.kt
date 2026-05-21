@@ -402,3 +402,68 @@ private fun EditableMaterialRow(
         nameFocus.requestFocus()
     }
 }
+
+/**
+ * Inline-таблица материалов — та же шапка и карточки, что в [MaterialsField]
+ * read-only диалоге, но прямо на экране, без обёртки в Card/Dialog и без
+ * редактирования. Используется на 2 Этапе для просмотра уже сохранённого
+ * списка.
+ */
+@Composable
+fun MaterialsInlineList(
+    value: List<MaterialDraft>,
+    modifier: Modifier = Modifier,
+    headerStyle: TextStyle? = null,
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 28.dp, end = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = "Название",
+                style = headerStyle ?: MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(0.65f),
+            )
+            Text(
+                text = "Кол-во",
+                style = headerStyle ?: MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.weight(0.2f),
+            )
+            Text(
+                text = "Ед.",
+                style = headerStyle ?: MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.weight(0.15f),
+            )
+        }
+        if (value.isEmpty()) {
+            Text(
+                text = "Список пуст",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp),
+                textAlign = TextAlign.Center,
+            )
+        } else {
+            value.forEachIndexed { index, draft ->
+                MaterialRow(
+                    number = index + 1,
+                    draft = draft,
+                    onClick = null,
+                )
+            }
+        }
+    }
+}
