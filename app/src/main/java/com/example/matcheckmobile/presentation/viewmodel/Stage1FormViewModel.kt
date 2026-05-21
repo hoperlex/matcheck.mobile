@@ -232,26 +232,46 @@ class Stage1FormViewModel(
 
                 container.deliveryRepository.setVehicleType(deliveryId, cur.vehicleTypeCode)
 
+                // Раньше тут было runCatching{}, и любая ошибка prepareFromUri
+                // (decode/read/missing file) уходила в /dev/null — фото
+                // не появлялись ни в БД, ни в очереди. Теперь аккумулируем
+                // и показываем пользователю.
+                val photoErrors = mutableListOf<String>()
                 cur.documentPhotoPaths.forEach { path ->
-                    runCatching {
+                    try {
                         val uri = container.photoStorage.toContentUri(File(path))
                         container.photoRepository.captureForDelivery(
                             deliveryId = deliveryId,
                             kind = "document",
                             sourceUri = uri,
                         )
+                    } catch (t: Throwable) {
+                        android.util.Log.e("Stage1", "document photo capture failed: $path", t)
+                        photoErrors += "док ${File(path).name}: ${t.message ?: t::class.simpleName}"
                     }
                 }
-
                 cur.cargoPhotoPaths.forEach { path ->
-                    runCatching {
+                    try {
                         val uri = container.photoStorage.toContentUri(File(path))
                         container.photoRepository.captureForDelivery(
                             deliveryId = deliveryId,
                             kind = "cargo",
                             sourceUri = uri,
                         )
+                    } catch (t: Throwable) {
+                        android.util.Log.e("Stage1", "cargo photo capture failed: $path", t)
+                        photoErrors += "груз ${File(path).name}: ${t.message ?: t::class.simpleName}"
                     }
+                }
+
+                if (photoErrors.isNotEmpty()) {
+                    _state.update {
+                        it.copy(
+                            isSaving = false,
+                            error = "Не сохранились фото: ${photoErrors.joinToString("; ")}",
+                        )
+                    }
+                    return@launch
                 }
 
                 MatcheckSyncScheduler.requestImmediateSync(container.appContext)

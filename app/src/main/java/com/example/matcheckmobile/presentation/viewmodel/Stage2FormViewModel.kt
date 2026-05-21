@@ -221,26 +221,42 @@ class Stage2FormViewModel(
 
                 container.deliveryRepository.setVehicleType(cur.deliveryId, cur.vehicleTypeCode)
 
+                val photoErrors = mutableListOf<String>()
                 cur.documentPhotoPaths.forEach { path ->
-                    runCatching {
+                    try {
                         val uri = container.photoStorage.toContentUri(File(path))
                         container.photoRepository.captureForDelivery(
                             deliveryId = cur.deliveryId,
                             kind = "document",
                             sourceUri = uri,
                         )
+                    } catch (t: Throwable) {
+                        android.util.Log.e("Stage2", "document photo capture failed: $path", t)
+                        photoErrors += "док ${File(path).name}: ${t.message ?: t::class.simpleName}"
                     }
                 }
-
                 cur.vehiclePhotoPaths.forEach { path ->
-                    runCatching {
+                    try {
                         val uri = container.photoStorage.toContentUri(File(path))
                         container.photoRepository.captureForDelivery(
                             deliveryId = cur.deliveryId,
                             kind = "vehicle",
                             sourceUri = uri,
                         )
+                    } catch (t: Throwable) {
+                        android.util.Log.e("Stage2", "vehicle photo capture failed: $path", t)
+                        photoErrors += "машина ${File(path).name}: ${t.message ?: t::class.simpleName}"
                     }
+                }
+
+                if (photoErrors.isNotEmpty()) {
+                    _state.update {
+                        it.copy(
+                            isSaving = false,
+                            error = "Не сохранились фото: ${photoErrors.joinToString("; ")}",
+                        )
+                    }
+                    return@launch
                 }
 
                 _state.update { it.copy(isSaving = false, finalized = true) }
