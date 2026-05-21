@@ -14,6 +14,8 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.PhotoCamera
@@ -26,6 +28,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -119,6 +122,12 @@ fun Stage2FormScreen(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(sectionGap),
                 ) {
+                    DeliveryInfoCard(
+                        plate = state.vehiclePlate,
+                        updDisplay = state.updDisplay,
+                        isTablet = isTablet,
+                    )
+
                     Button(
                         onClick = takePhoto,
                         modifier = Modifier
@@ -201,4 +210,47 @@ fun Stage2FormScreen(
             )
         }
     }
+}
+
+/**
+ * Информационный блок сверху Stage 2 — read-only сводка по приёмке: госномер
+ * и номер УПД. Нужен инспектору/МОЛ, чтобы сверить машину при подтверждении.
+ */
+@Composable
+private fun DeliveryInfoCard(
+    plate: String?,
+    updDisplay: String?,
+    isTablet: Boolean,
+) {
+    val plateValue = plate?.takeIf { it.isNotBlank() } ?: "—"
+    val updValue = updDisplay?.takeIf { it.isNotBlank() } ?: "—"
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(
+                horizontal = if (isTablet) 20.dp else 16.dp,
+                vertical = if (isTablet) 14.dp else 10.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(if (isTablet) 6.dp else 4.dp),
+        ) {
+            InfoRow(label = "Госномер", value = plateValue, isTablet = isTablet)
+            InfoRow(label = "УПД", value = updValue, isTablet = isTablet)
+        }
+    }
+}
+
+@Composable
+private fun InfoRow(label: String, value: String, isTablet: Boolean) {
+    Text(
+        text = "$label: $value",
+        style = if (isTablet)
+            MaterialTheme.typography.titleLarge
+        else
+            MaterialTheme.typography.titleMedium,
+    )
 }

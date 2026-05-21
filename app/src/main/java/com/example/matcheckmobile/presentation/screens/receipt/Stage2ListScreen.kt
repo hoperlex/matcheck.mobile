@@ -127,8 +127,8 @@ fun Stage2ListScreen(
                                             ) {
                                                 group.rows.forEach { row ->
                                                     UpdSummaryCard(
-                                                        title = "УПД ${row.updSummary}",
-                                                        subtitle = "Поставщик: ${row.supplierName ?: "—"}",
+                                                        title = row.titleText,
+                                                        subtitle = row.subtitleText,
                                                         onClick = { onOpenDelivery(row.delivery.id) },
                                                     )
                                                 }

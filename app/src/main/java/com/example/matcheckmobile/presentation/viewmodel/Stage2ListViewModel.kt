@@ -12,13 +12,16 @@ import kotlinx.coroutines.flow.stateIn
 
 /**
  * Одна строка в списке 2 Этапа — приёмка, ожидающая подтверждения МОЛ.
- * [updSummary] сводит номера всех привязанных УПД в короткую строку: одна
- * УПД → её номер, несколько → «№…, №…», много → «№…, №… +N».
+ *
+ * [titleText] — что показать крупно в карточке: «УПД №…» если номер удалось
+ * резолвить (по привязанной УПД либо по строке «УПД: …» в комментарии),
+ * иначе «Госномер …», иначе короткий id приёмки.
+ * [subtitleText] — мелкая строка под заголовком, обычно «Поставщик: …».
  */
 data class Stage2DeliveryRow(
     val delivery: RemoteDeliveryEntity,
-    val updSummary: String,
-    val supplierName: String?,
+    val titleText: String,
+    val subtitleText: String,
 )
 
 /** Группа приёмок по подрядчику — структура зеркалит [IntakeUpdGroup] на 1 Этапе. */
@@ -45,29 +48,44 @@ class Stage2ListViewModel(container: AppContainer) : ViewModel() {
         val cpById = counterparties.associateBy { it.id }
         val docById = sourceDocs.associateBy { it.id }
 
-        // Для каждой приёмки готовим row + имя подрядчика для группировки.
         val pairs = deliveries.map { d ->
             val attachedIds = RemoteMappers.decodeIdList(d.sourceDocumentIdsJson)
             val attachedDocs = attachedIds.mapNotNull { docById[it] }
 
-            val updSummary = buildUpdSummary(attachedDocs.mapNotNull { it.docNumber })
+            val updNumbers = attachedDocs.mapNotNull { it.docNumber?.takeIf { n -> n.isNotBlank() } }
+            // Fallback: УПД могла исчезнуть из remote_source_documents после
+            // привязки (сервер фильтрует «непривязанные»). Тогда тянем номер
+            // из комментария — Stage1FormViewModel пишет туда «УПД: …»
+            // при ручном вводе или просто как маркер.
+            val titleText = when {
+                updNumbers.isNotEmpty() -> "УПД ${buildUpdSummary(updNumbers)}"
+                else -> {
+                    val manualUpd = extractManualUpd(d.comment)
+                    when {
+                        !manualUpd.isNullOrBlank() -> "УПД $manualUpd"
+                        !d.vehiclePlate.isNullOrBlank() -> "Госномер ${d.vehiclePlate}"
+                        else -> "Приёмка #${d.id.take(8)}"
+                    }
+                }
+            }
+
             val supplierName = attachedDocs.firstOrNull()?.let { doc ->
                 doc.supplierName ?: doc.supplierId?.let { id -> cpById[id]?.name }
             } ?: d.supplierId?.let { cpById[it]?.name }
+            val subtitleText = "Поставщик: ${supplierName ?: "—"}"
 
             val contractorName = d.contractorId?.let { cpById[it]?.name }
                 ?: attachedDocs.firstOrNull()?.contractorName
 
             val row = Stage2DeliveryRow(
                 delivery = d,
-                updSummary = updSummary,
-                supplierName = supplierName,
+                titleText = titleText,
+                subtitleText = subtitleText,
             )
             val groupKey = contractorName?.takeIf { it.isNotBlank() } ?: UNKNOWN_CONTRACTOR_LABEL
             row to groupKey
         }
 
-        // Группируем + «Подрядчик не указан» сортируем в конец, остальные — по алфавиту.
         pairs.groupBy({ it.second }, { it.first })
             .toList()
             .sortedWith(
@@ -87,11 +105,18 @@ class Stage2ListViewModel(container: AppContainer) : ViewModel() {
         /** Лимит на «явные» номера в сводке, остальное прячем под «+N». */
         const val UPD_SUMMARY_MAX_INLINE = 2
 
+        /** Строка «УПД: <number>» внутри multi-line комментария приёмки. */
+        val MANUAL_UPD_REGEX = Regex("(?m)^УПД:\\s*(.+)$")
+
         fun buildUpdSummary(numbers: List<String>): String {
-            if (numbers.isEmpty()) return "—"
             if (numbers.size <= UPD_SUMMARY_MAX_INLINE) return numbers.joinToString(", ")
             val head = numbers.take(UPD_SUMMARY_MAX_INLINE).joinToString(", ")
             return "$head +${numbers.size - UPD_SUMMARY_MAX_INLINE}"
+        }
+
+        fun extractManualUpd(comment: String?): String? {
+            if (comment.isNullOrBlank()) return null
+            return MANUAL_UPD_REGEX.find(comment)?.groupValues?.getOrNull(1)?.trim()
         }
     }
 }

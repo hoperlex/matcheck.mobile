@@ -56,6 +56,7 @@ class Stage2FormViewModel(
         }
         val vehicleTypeCode = container.deliveryRepository.getVehicleType(deliveryId)
         val sourceDocIds = RemoteMappers.decodeIdList(delivery.sourceDocumentIdsJson)
+        val updDisplay = resolveUpdDisplay(sourceDocIds, delivery.comment)
 
         _state.update {
             it.copy(
@@ -64,9 +65,34 @@ class Stage2FormViewModel(
                 materials = materials,
                 commentText = delivery.comment.orEmpty(),
                 vehicleTypeCode = vehicleTypeCode,
+                vehiclePlate = delivery.vehiclePlate?.takeIf { p -> p.isNotBlank() },
+                updDisplay = updDisplay,
                 loaded = true,
             )
         }
+    }
+
+    /**
+     * Та же логика, что в [Stage2ListViewModel]: сначала ищем номера привязанных
+     * УПД в `remote_source_documents`, иначе вытаскиваем «УПД: …» из multiline-
+     * комментария приёмки.
+     */
+    private suspend fun resolveUpdDisplay(
+        sourceDocIds: List<String>,
+        comment: String?,
+    ): String? {
+        val docs = sourceDocIds.mapNotNull {
+            runCatching { container.database.remoteSourceDocumentDao().findById(it) }.getOrNull()
+        }
+        val numbers = docs.mapNotNull { it.docNumber?.takeIf { n -> n.isNotBlank() } }
+        if (numbers.isNotEmpty()) return numbers.joinToString(", ")
+        return comment
+            ?.let { MANUAL_UPD_REGEX.find(it)?.groupValues?.getOrNull(1)?.trim() }
+            ?.takeIf { it.isNotBlank() }
+    }
+
+    private companion object {
+        val MANUAL_UPD_REGEX = Regex("(?m)^УПД:\\s*(.+)$")
     }
 
     fun onPhotoTaken(path: String) {
@@ -156,6 +182,10 @@ data class Stage2FormUiState(
     val vehicleTypeCode: String? = null,
     val materials: List<MaterialDraft> = emptyList(),
     val commentText: String = "",
+    /** Госномер из приёмки — read-only сводка для информационного блока. */
+    val vehiclePlate: String? = null,
+    /** Номер(а) привязанной УПД для сводки, либо ручной номер из comment. */
+    val updDisplay: String? = null,
     val loaded: Boolean = false,
     val isSaving: Boolean = false,
     val finalized: Boolean = false,
