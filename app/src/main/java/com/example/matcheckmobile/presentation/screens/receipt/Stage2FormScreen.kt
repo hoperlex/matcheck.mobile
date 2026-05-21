@@ -21,6 +21,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
@@ -170,7 +171,8 @@ fun Stage2FormScreen(
                         }
 
                         // Госномер из приёмки — показываем заполненным, но без правки.
-                        // Стилистика совпадает с инпутами 1 Этапа (textStyle/labelStyle).
+                        // Стилистика совпадает с инпутами 1 Этапа. Цвета focused/
+                        // unfocused приравнены, чтобы рамка не мигала на тапе.
                         OutlinedTextField(
                             value = state.vehiclePlate.orEmpty(),
                             onValueChange = {},
@@ -179,6 +181,12 @@ fun Stage2FormScreen(
                             textStyle = inputTextStyle,
                             label = { Text("Госномер", style = inputLabelStyle) },
                             modifier = Modifier.fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MaterialTheme.colorScheme.outline,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                                focusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            ),
                         )
 
                         MaterialsInlineList(
