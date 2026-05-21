@@ -46,6 +46,7 @@ fun SyncQueueScreen(onBack: () -> Unit, onOpenOperation: (String) -> Unit) {
     val photos by vm.pendingAttachments.collectAsStateWithLifecycle()
     val deliveryPhotos by vm.pendingDeliveryPhotos.collectAsStateWithLifecycle()
     val shipmentPhotos by vm.pendingShipmentPhotos.collectAsStateWithLifecycle()
+    val mutations by vm.mutations.collectAsStateWithLifecycle()
     val df = remember { SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()) }
 
     Scaffold(
@@ -87,6 +88,40 @@ fun SyncQueueScreen(onBack: () -> Unit, onOpenOperation: (String) -> Unit) {
                                 "Запустить синхронизацию сейчас",
                                 style = MaterialTheme.typography.titleMedium,
                             )
+                        }
+                    }
+
+                    // Новые мутации (Delivery/Shipment upsert/mark-deletion).
+                    // Главный сигнал для диагностики: если приёмка только что
+                    // создана, но на портале её нет — должна быть тут запись
+                    // с lastError либо conflictPending.
+                    item {
+                        Text(
+                            "Мутации (${mutations.size})",
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.padding(top = 12.dp),
+                        )
+                    }
+                    if (mutations.isEmpty()) {
+                        item {
+                            Text("Нет мутаций в очереди", style = MaterialTheme.typography.bodyMedium)
+                        }
+                    } else {
+                        items(mutations, key = { it.id }) { m ->
+                            Card(modifier = Modifier.fillMaxWidth()) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Text(
+                                        "${m.entityType} ${m.operation} · ${m.entityId.take(8)}",
+                                        style = MaterialTheme.typography.titleSmall,
+                                    )
+                                    Text(
+                                        "попыток: ${m.attempts}" +
+                                            (if (m.conflictPending) " · конфликт" else "") +
+                                            (m.lastError?.let { " · $it" } ?: ""),
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                            }
                         }
                     }
                     item {

@@ -3,6 +3,7 @@ package com.example.matcheckmobile.presentation.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.matcheckmobile.data.local.entity.MaterialOperationEntity
+import com.example.matcheckmobile.data.local.entity.MutationEntity
 import com.example.matcheckmobile.data.local.entity.OperationAttachmentEntity
 import com.example.matcheckmobile.data.local.entity.ReceiptSessionEntity
 import com.example.matcheckmobile.data.local.entity.RemoteDeliveryPhotoEntity
@@ -60,6 +61,19 @@ class SyncQueueViewModel(private val container: AppContainer) : ViewModel() {
                 started = SharingStarted.WhileSubscribed(5_000),
                 initialValue = emptyList(),
             )
+
+    /**
+     * Все мутации (включая `delivery`/`shipment` upsert и mark-deletion).
+     * Показываем целиком — чтобы видеть и conflictPending, и lastError, и
+     * число attempts. Помогает понять, доехала ли свежесозданная приёмка
+     * до сервера и почему её там нет.
+     */
+    val mutations: StateFlow<List<MutationEntity>> =
+        container.database.mutationDao().observeAll().stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = emptyList(),
+        )
 
     fun retryNow() {
         // Раньше дёргали legacy SyncScheduler → OperationSyncWorker, который
