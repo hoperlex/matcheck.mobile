@@ -223,6 +223,7 @@ class Stage1FormViewModel(
                     DeliveryRepository.UpsertInput(
                         statusCode = "filled",
                         siteId = siteId,
+                        vehiclePlate = plate.ifEmpty { null },
                         comment = combinedComment,
                         sourceDocumentIds = sourceDocIds,
                         items = items,
