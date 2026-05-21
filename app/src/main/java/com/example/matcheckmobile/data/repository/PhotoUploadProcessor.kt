@@ -212,9 +212,11 @@ class PhotoUploadProcessor(
 
     private suspend fun confirmIfNeeded(photoId: String, presign: PhotoPresignResponse) {
         if (presign.alreadyExists) return // confirm для уже подтверждённого не нужен
-        runCatching { photosApi.confirm(photoId) }
-        // confirm-failure тоже не валит upload — cleanup-job сервера через час
-        // дозреет orphan по факту наличия объекта в S3.
+        // НЕ глушим: если confirm вернёт 404 `not_in_s3` (PUT прошёл, но файл
+        // потом исчез / lifecycle / eventual consistency), мы должны узнать
+        // об этом и пометить запись UPLOAD_ERROR, а не оставлять её
+        // «UPLOADED» с битой ссылкой на портале.
+        photosApi.confirm(photoId)
     }
 
     private enum class UploadOutcome { Uploaded, Skipped, Failed }
