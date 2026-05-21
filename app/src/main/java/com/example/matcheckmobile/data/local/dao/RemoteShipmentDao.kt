@@ -53,8 +53,10 @@ interface RemoteShipmentDao {
         upsert(shipment)
         deleteItemsByShipment(shipment.id)
         if (items.isNotEmpty()) replaceItems(items)
-        deletePhotosByShipment(shipment.id)
-        if (photos.isNotEmpty()) replacePhotos(photos)
+        // Photo живут своим pipeline и сервер на upsert их не возвращает —
+        // если делать deletePhotos+replace, локальные PENDING_UPLOAD стираются
+        // сразу после push мутации (см. комментарий в RemoteDeliveryDao).
+        for (p in photos) upsertPhoto(p)
     }
 
     @Query("SELECT * FROM remote_shipments WHERE id = :id")

@@ -53,8 +53,13 @@ interface RemoteDeliveryDao {
         upsert(delivery)
         deleteItemsByDelivery(delivery.id)
         if (items.isNotEmpty()) replaceItems(items)
-        deletePhotosByDelivery(delivery.id)
-        if (photos.isNotEmpty()) replacePhotos(photos)
+        // Photo живут своим pipeline (PhotoUploadProcessor: presign → S3 → confirm),
+        // и сервер на /deliveries upsert не возвращает их состояние (photos=[]).
+        // Поэтому ВНУТРИ saveAggregate НЕ удаляем локальные фото — иначе
+        // PENDING_UPLOAD-записи, только что созданные через captureForDelivery,
+        // потеряются сразу после push мутации. Серверные фото мерджим upsert'ом
+        // по id (merge без drop неприсланных).
+        for (p in photos) upsertPhoto(p)
     }
 
     @Query("SELECT * FROM remote_deliveries WHERE id = :id")
