@@ -32,15 +32,18 @@ class RemotePhotoStorage(private val context: Context) {
             ?: error("can't decode bitmap from $sourceUri")
         val orientedMain = applyExifRotation(sourceUri, mainBitmap)
 
-        val thumbBitmap = scaleToMaxSide(orientedMain, THUMB_MAX_SIDE)
-
+        // Порядок важен: сначала пишем main, потом делаем thumb. Если делать
+        // наоборот, scaleToMaxSide может зарекайклить orientedMain, и compress
+        // в JPEG упадёт с «Can't compress a recycled bitmap».
         val mainFile = File(photosDir, "$photoId.jpg")
-        val thumbFile = File(photosDir, "$photoId.thumb.jpg")
         val mainBytes = writeJpeg(orientedMain, mainFile, MAIN_QUALITY)
+
+        val thumbBitmap = scaleToMaxSide(orientedMain, THUMB_MAX_SIDE)
+        val thumbFile = File(photosDir, "$photoId.thumb.jpg")
         val thumbBytes = writeJpeg(thumbBitmap, thumbFile, THUMB_QUALITY)
 
-        orientedMain.recycle()
         if (thumbBitmap !== orientedMain) thumbBitmap.recycle()
+        if (!orientedMain.isRecycled) orientedMain.recycle()
 
         return PreparedPhoto(
             mainFile = mainFile,
