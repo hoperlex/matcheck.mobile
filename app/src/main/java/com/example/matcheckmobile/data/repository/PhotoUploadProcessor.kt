@@ -210,13 +210,19 @@ class PhotoUploadProcessor(
     )
 
     private fun doUpload(blob: File, thumb: File?, presign: PhotoPresignResponse, contentType: String) {
-        if (presign.alreadyExists) return // сервер уже видел этот contentHash — PUT не нужен
-
-        val uploadUrl = presign.uploadUrl ?: error("uploadUrl=null при alreadyExists=false")
+        // alreadyExists=true сервер возвращает по совпадению contentHash, но запись
+        // может быть orphan (uploadedAt=null — предыдущий PUT упал и не дошёл до S3).
+        // Если сервер всё-таки прислал uploadUrl — делаем PUT (overwrite безопасен),
+        // иначе пропускаем (файл уже в S3, повторно грузить нечего).
+        val uploadUrl = presign.uploadUrl
+        if (uploadUrl.isNullOrBlank()) {
+            if (!presign.alreadyExists) error("uploadUrl=null при alreadyExists=false")
+            return
+        }
         putToS3(uploadUrl, blob, contentType)
 
         val thumbUploadUrl = presign.thumbUploadUrl
-        if (thumb != null && thumb.exists() && thumbUploadUrl != null) {
+        if (thumb != null && thumb.exists() && !thumbUploadUrl.isNullOrBlank()) {
             runCatching { putToS3(thumbUploadUrl, thumb, contentType) }
             // thumb не критичен — ошибка не валит основной upload.
         }
@@ -229,17 +235,27 @@ class PhotoUploadProcessor(
             .build()
         rawS3Client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
-                throw IOException("S3 PUT failed: ${response.code}")
+                // Захватываем тело ответа S3: оно содержит XML с <Code>/<Message>
+                // (SignatureDoesNotMatch, AccessDenied, NoSuchBucket и т.п.).
+                // Без этого диагностировать неудачный PUT по одному HTTP-коду
+                // невозможно — особенно через прокси s3.cloud.ru, который
+                // может возвращать 403/400 по разным причинам.
+                val body = runCatching { response.body?.string()?.take(400) }.getOrNull()
+                val host = response.request.url.host
+                val msg = "S3 PUT $host failed: HTTP ${response.code}${body?.let { " · $it" } ?: ""}"
+                android.util.Log.e("PhotoUpload", msg)
+                throw IOException(msg)
             }
         }
     }
 
     private suspend fun confirmIfNeeded(photoId: String, presign: PhotoPresignResponse) {
-        if (presign.alreadyExists) return // confirm для уже подтверждённого не нужен
-        // НЕ глушим: если confirm вернёт 404 `not_in_s3` (PUT прошёл, но файл
-        // потом исчез / lifecycle / eventual consistency), мы должны узнать
-        // об этом и пометить запись UPLOAD_ERROR, а не оставлять её
-        // «UPLOADED» с битой ссылкой на портале.
+        // Confirm делаем всегда: сервер сам коротит на uploadedAt!=null и не лезет
+        // в S3, а для orphan-записи (uploadedAt=null) проверит HEAD и проставит
+        // uploadedAt=now() — иначе через час cleanup-job снесёт запись.
+        // Раньше при alreadyExists=true мобила скипала confirm, и записи с
+        // тем же contentHash, но без подтверждения, висели orphan'ами.
+        @Suppress("UNUSED_PARAMETER") val unused = presign
         photosApi.confirm(photoId)
     }
 
