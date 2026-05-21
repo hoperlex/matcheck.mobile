@@ -224,6 +224,10 @@ class Stage1FormViewModel(
                         statusCode = "filled",
                         siteId = siteId,
                         vehiclePlate = plate.ifEmpty { null },
+                        // arrivedAt = момент «Завершить 1 Этап». Без него на веб-портале
+                        // в колонке «Прибытие» висит «—»: сервер сам не подставляет default,
+                        // а веб-форма делает это только при создании из своего UI.
+                        arrivedAt = java.time.Instant.now().toString(),
                         comment = commentForServer,
                         sourceDocumentIds = sourceDocIds,
                         items = items,

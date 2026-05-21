@@ -47,6 +47,9 @@ interface RemoteDeliveryDao {
     @Query("SELECT * FROM remote_delivery_photos WHERE id = :id")
     suspend fun findPhotoById(id: String): RemoteDeliveryPhotoEntity?
 
+    @Query("DELETE FROM remote_delivery_photos WHERE id = :id")
+    suspend fun deletePhotoById(id: String)
+
     @Transaction
     suspend fun saveAggregate(
         delivery: RemoteDeliveryEntity,

@@ -105,16 +105,25 @@ class PhotoUploadProcessor(
         return runCatching {
             val presign = photosApi.presign(buildPresignRequest("delivery", photo.deliveryId, photo, blob))
             doUpload(blob = blob, thumb = photo.localThumbPath?.let(::File), presign = presign, contentType = photo.contentType)
-            confirmIfNeeded(photo.id, presign)
-            deliveryDao.upsertPhoto(
-                photo.copy(
-                    s3Key = presign.s3Key,
-                    thumbS3Key = presign.thumbS3Key,
-                    uploadStatus = "UPLOADED",
-                    uploadedAt = java.time.Instant.now().toString(),
-                    lastUploadError = null,
-                ),
+            // Сервер генерирует photoId сам (см. apps/api/.../photos.ts:167) — confirm
+            // и последующие /sync ожидают именно его. Используем мобильный id только до
+            // первого успешного presign, дальше — серверный, иначе confirm уйдёт в 404
+            // not_found и запись на сервере останется orphan (uploadedAt=null), а через
+            // час будет вычищена cleanup-job'ом.
+            confirmIfNeeded(presign.photoId, presign)
+            val updated = photo.copy(
+                id = presign.photoId,
+                s3Key = presign.s3Key,
+                thumbS3Key = presign.thumbS3Key,
+                uploadStatus = "UPLOADED",
+                uploadedAt = java.time.Instant.now().toString(),
+                lastUploadError = null,
             )
+            if (presign.photoId != photo.id) {
+                // Меняем PK — Room не умеет это через upsert, удаляем старую и вставляем новую.
+                deliveryDao.deletePhotoById(photo.id)
+            }
+            deliveryDao.upsertPhoto(updated)
             UploadOutcome.Uploaded
         }.getOrElse { error ->
             deliveryDao.upsertPhoto(
@@ -140,16 +149,20 @@ class PhotoUploadProcessor(
         return runCatching {
             val presign = photosApi.presign(buildPresignRequest("shipment", photo.shipmentId, photo, blob))
             doUpload(blob = blob, thumb = photo.localThumbPath?.let(::File), presign = presign, contentType = photo.contentType)
-            confirmIfNeeded(photo.id, presign)
-            shipmentDao.upsertPhoto(
-                photo.copy(
-                    s3Key = presign.s3Key,
-                    thumbS3Key = presign.thumbS3Key,
-                    uploadStatus = "UPLOADED",
-                    uploadedAt = java.time.Instant.now().toString(),
-                    lastUploadError = null,
-                ),
+            // См. комментарий в uploadDeliveryPhoto: confirm идёт по серверному photoId.
+            confirmIfNeeded(presign.photoId, presign)
+            val updated = photo.copy(
+                id = presign.photoId,
+                s3Key = presign.s3Key,
+                thumbS3Key = presign.thumbS3Key,
+                uploadStatus = "UPLOADED",
+                uploadedAt = java.time.Instant.now().toString(),
+                lastUploadError = null,
             )
+            if (presign.photoId != photo.id) {
+                shipmentDao.deletePhotoById(photo.id)
+            }
+            shipmentDao.upsertPhoto(updated)
             UploadOutcome.Uploaded
         }.getOrElse { error ->
             shipmentDao.upsertPhoto(
