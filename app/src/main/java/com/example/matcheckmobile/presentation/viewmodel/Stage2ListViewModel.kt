@@ -8,7 +8,11 @@ import com.example.matcheckmobile.di.AppContainer
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 /**
  * Одна строка в списке 2 Этапа — приёмка, ожидающая подтверждения МОЛ.
@@ -39,6 +43,21 @@ private const val UNKNOWN_CONTRACTOR_LABEL = "Подрядчик не указа
  * так же, как «Выбор УПД для приёмки» на 1 Этапе.
  */
 class Stage2ListViewModel(container: AppContainer) : ViewModel() {
+
+    init {
+        // /sync для inspector_kpp фильтрует УПД, привязанные к приёмке/отгрузке,
+        // поэтому для filled-приёмок их docNumber приходится дотягивать
+        // индивидуальными GET'ами. Подписка идёт пока ViewModel жив.
+        viewModelScope.launch {
+            container.deliveryRepository.observeByStatus("filled")
+                .map { list ->
+                    list.flatMap { RemoteMappers.decodeIdList(it.sourceDocumentIdsJson) }.toSet()
+                }
+                .distinctUntilChanged()
+                .onEach { ids -> container.sourceDocumentBackfillService.ensureCached(ids) }
+                .collect { }
+        }
+    }
 
     val groups: StateFlow<List<Stage2DeliveryGroup>> = combine(
         container.deliveryRepository.observeByStatus("filled"),

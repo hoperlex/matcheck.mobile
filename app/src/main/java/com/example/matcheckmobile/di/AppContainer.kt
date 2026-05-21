@@ -23,6 +23,7 @@ import com.example.matcheckmobile.data.repository.OperationRepository
 import com.example.matcheckmobile.data.repository.PhotoFetcher
 import com.example.matcheckmobile.data.repository.PhotoRepository
 import com.example.matcheckmobile.data.repository.PhotoUploadProcessor
+import com.example.matcheckmobile.data.repository.SourceDocumentBackfillService
 import com.example.matcheckmobile.data.repository.ReceiptSessionRepository
 import com.example.matcheckmobile.data.repository.ShipmentRepository
 import com.example.matcheckmobile.data.repository.SourceDocumentRepository
@@ -115,6 +116,11 @@ class AppContainer(val appContext: Context) {
         deliveryDao = database.remoteDeliveryDao(),
         mutationDao = database.mutationDao(),
         localMetaDao = database.deliveryLocalMetaDao(),
+    )
+
+    val sourceDocumentBackfillService: SourceDocumentBackfillService = SourceDocumentBackfillService(
+        api = sourceDocumentsApi,
+        dao = database.remoteSourceDocumentDao(),
     )
 
     val shipmentRepository: ShipmentRepository = ShipmentRepository(

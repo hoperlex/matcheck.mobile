@@ -59,6 +59,9 @@ class Stage2FormViewModel(
         }
         val vehicleTypeCode = container.deliveryRepository.getVehicleType(deliveryId)
         val sourceDocIds = RemoteMappers.decodeIdList(delivery.sourceDocumentIdsJson)
+        // УПД, привязанные к приёмке, /sync не отдаёт — дотягиваем индивидуально,
+        // чтобы [resolveUpdDisplay] увидел реальный docNumber в локальной БД.
+        container.sourceDocumentBackfillService.ensureCached(sourceDocIds)
         val updDisplay = resolveUpdDisplay(sourceDocIds, delivery.comment)
         val siteName = resolveSiteName(delivery.siteId)
 
