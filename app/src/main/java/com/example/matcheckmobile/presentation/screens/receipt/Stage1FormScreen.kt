@@ -12,13 +12,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -39,15 +36,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.matcheckmobile.MatcheckApplication
 import com.example.matcheckmobile.presentation.components.MaterialsField
 import com.example.matcheckmobile.presentation.components.ModalTextField
+import com.example.matcheckmobile.presentation.components.PhotoCaptureSection
 import com.example.matcheckmobile.presentation.components.PhotoPreviewDialog
-import com.example.matcheckmobile.presentation.components.PhotoThumb
 import com.example.matcheckmobile.presentation.components.VehicleTypeChips
 import com.example.matcheckmobile.presentation.components.rememberDocumentScanner
 import com.example.matcheckmobile.presentation.components.rememberPhotoCapture
@@ -171,7 +167,7 @@ fun Stage1FormScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(sectionGap),
                         ) {
-                            PhotoSection(
+                            PhotoCaptureSection(
                                 buttonText = "Фото документов",
                                 buttonTextStyle = photoButtonTextStyle,
                                 isTablet = isTablet,
@@ -183,7 +179,7 @@ fun Stage1FormScreen(
                                 modifier = Modifier.weight(1f),
                             )
 
-                            PhotoSection(
+                            PhotoCaptureSection(
                                 buttonText = "Фото груза, госномера",
                                 buttonTextStyle = photoButtonTextStyle,
                                 isTablet = isTablet,
@@ -279,61 +275,3 @@ fun Stage1FormScreen(
     }
 }
 
-@Composable
-private fun PhotoSection(
-    buttonText: String,
-    buttonTextStyle: androidx.compose.ui.text.TextStyle,
-    isTablet: Boolean,
-    buttonHeight: Dp,
-    onTakePhoto: () -> Unit,
-    photoPaths: List<String>,
-    onRemovePhoto: (String) -> Unit,
-    onPreviewPhoto: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Button(
-            onClick = onTakePhoto,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(buttonHeight),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
-        ) {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.PhotoCamera,
-                    contentDescription = null,
-                    modifier = Modifier.size(if (isTablet) 40.dp else 32.dp),
-                )
-                Text(
-                    text = buttonText,
-                    style = buttonTextStyle,
-                    textAlign = TextAlign.Center,
-                )
-            }
-        }
-
-        if (photoPaths.isNotEmpty()) {
-            LazyRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(vertical = 4.dp),
-            ) {
-                items(photoPaths, key = { it }) { path ->
-                    PhotoThumb(
-                        filePath = path,
-                        onRemove = { onRemovePhoto(path) },
-                        onClick = { onPreviewPhoto(path) },
-                    )
-                }
-            }
-        }
-    }
-}

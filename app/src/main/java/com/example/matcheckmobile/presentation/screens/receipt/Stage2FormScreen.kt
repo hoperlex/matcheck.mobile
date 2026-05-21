@@ -1,24 +1,21 @@
 package com.example.matcheckmobile.presentation.screens.receipt
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -46,9 +43,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.matcheckmobile.MatcheckApplication
 import com.example.matcheckmobile.presentation.components.MaterialsField
 import com.example.matcheckmobile.presentation.components.ModalTextField
+import com.example.matcheckmobile.presentation.components.PhotoCaptureSection
 import com.example.matcheckmobile.presentation.components.PhotoPreviewDialog
-import com.example.matcheckmobile.presentation.components.PhotoThumb
 import com.example.matcheckmobile.presentation.components.VehicleTypeChips
+import com.example.matcheckmobile.presentation.components.rememberDocumentScanner
 import com.example.matcheckmobile.presentation.components.rememberPhotoCapture
 import com.example.matcheckmobile.presentation.viewmodel.Stage2FormViewModel
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
@@ -79,9 +77,13 @@ fun Stage2FormScreen(
         }
     }
 
-    val takePhoto = rememberPhotoCapture(
+    val takeDocumentPhoto = rememberDocumentScanner(
         photoStorage = container.photoStorage,
-        onPhotoTaken = vm::onPhotoTaken,
+        onPageCaptured = vm::onDocumentPhotoTaken,
+    )
+    val takeVehiclePhoto = rememberPhotoCapture(
+        photoStorage = container.photoStorage,
+        onPhotoTaken = vm::onVehiclePhotoTaken,
     )
 
     Scaffold(
@@ -106,8 +108,12 @@ fun Stage2FormScreen(
             val contentMaxWidth: Dp = if (isTablet) 900.dp else maxWidth
             val outerPadding = if (isTablet) 24.dp else 16.dp
             val sectionGap = if (isTablet) 20.dp else 14.dp
-            val photoButtonHeight = if (isTablet) 96.dp else 72.dp
+            val photoButtonHeight = if (isTablet) 128.dp else 104.dp
             val vehicleIconHeight = if (isTablet) 96.dp else 72.dp
+            val photoButtonTextStyle = if (isTablet)
+                MaterialTheme.typography.headlineSmall
+            else
+                MaterialTheme.typography.titleLarge
 
             Box(
                 modifier = Modifier
@@ -128,41 +134,33 @@ fun Stage2FormScreen(
                         isTablet = isTablet,
                     )
 
-                    Button(
-                        onClick = takePhoto,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(photoButtonHeight),
-                        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(sectionGap),
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.PhotoCamera,
-                            contentDescription = null,
-                            modifier = Modifier.padding(end = 12.dp),
+                        PhotoCaptureSection(
+                            buttonText = "Фото документов",
+                            buttonTextStyle = photoButtonTextStyle,
+                            isTablet = isTablet,
+                            buttonHeight = photoButtonHeight,
+                            onTakePhoto = takeDocumentPhoto,
+                            photoPaths = state.documentPhotoPaths,
+                            onRemovePhoto = vm::removeDocumentPhoto,
+                            onPreviewPhoto = { previewPath = it },
+                            modifier = Modifier.weight(1f),
                         )
-                        Text(
-                            text = "Добавить фото",
-                            style = if (isTablet)
-                                MaterialTheme.typography.headlineSmall
-                            else
-                                MaterialTheme.typography.titleLarge,
-                        )
-                    }
 
-                    if (state.photoPaths.isNotEmpty()) {
-                        LazyRow(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            contentPadding = PaddingValues(vertical = 4.dp),
-                        ) {
-                            items(state.photoPaths, key = { it }) { path ->
-                                PhotoThumb(
-                                    filePath = path,
-                                    onRemove = { vm.removePhoto(path) },
-                                    onClick = { previewPath = path },
-                                )
-                            }
-                        }
+                        PhotoCaptureSection(
+                            buttonText = "Фото машины, госномера",
+                            buttonTextStyle = photoButtonTextStyle,
+                            isTablet = isTablet,
+                            buttonHeight = photoButtonHeight,
+                            onTakePhoto = takeVehiclePhoto,
+                            photoPaths = state.vehiclePhotoPaths,
+                            onRemovePhoto = vm::removeVehiclePhoto,
+                            onPreviewPhoto = { previewPath = it },
+                            modifier = Modifier.weight(1f),
+                        )
                     }
 
                     VehicleTypeChips(

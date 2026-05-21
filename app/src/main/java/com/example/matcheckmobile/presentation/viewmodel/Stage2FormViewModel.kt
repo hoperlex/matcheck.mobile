@@ -8,11 +8,13 @@ import com.example.matcheckmobile.data.repository.DeliveryRepository
 import com.example.matcheckmobile.di.AppContainer
 import com.example.matcheckmobile.presentation.components.MaterialDraft
 import com.example.matcheckmobile.presentation.navigation.Routes
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
@@ -20,9 +22,10 @@ import java.io.File
  * существующую Delivery по [Routes.ARG_DELIVERY_ID], предзаполняет поля и
  * на финализации переводит статус с `filled` на `confirmed_mol`.
  *
- * Локальные фото из state'а (новые) ставятся в очередь загрузки. Старые
- * фото остаются на сервере как есть — отображение в этом этапе пропущено,
- * редактирование старых фото — отдельная задача.
+ * Фото в этом этапе делятся на два потока, как и на 1 Этапе:
+ * - «Фото документов» — без штампа, через document scanner.
+ * - «Фото машины, госномера» — обычное фото с watermark (GPS / время / Объект).
+ * Старые фото с сервера в редакторе не показываются (это отдельная задача).
  */
 class Stage2FormViewModel(
     private val container: AppContainer,
@@ -57,10 +60,12 @@ class Stage2FormViewModel(
         val vehicleTypeCode = container.deliveryRepository.getVehicleType(deliveryId)
         val sourceDocIds = RemoteMappers.decodeIdList(delivery.sourceDocumentIdsJson)
         val updDisplay = resolveUpdDisplay(sourceDocIds, delivery.comment)
+        val siteName = resolveSiteName(delivery.siteId)
 
         _state.update {
             it.copy(
                 siteId = delivery.siteId,
+                siteName = siteName,
                 sourceDocumentIds = sourceDocIds,
                 materials = materials,
                 commentText = delivery.comment.orEmpty(),
@@ -91,16 +96,42 @@ class Stage2FormViewModel(
             ?.takeIf { it.isNotBlank() }
     }
 
-    private companion object {
-        val MANUAL_UPD_REGEX = Regex("(?m)^УПД:\\s*(.+)$")
+    /** Имя объекта для штампа фото машины. Если не нашли — штамп напишет «Объект: —». */
+    private suspend fun resolveSiteName(siteId: String): String? {
+        if (siteId.isBlank()) return null
+        return runCatching {
+            container.database.remoteSiteDao().findById(siteId)?.name
+        }.getOrNull()?.takeIf { it.isNotBlank() }
     }
 
-    fun onPhotoTaken(path: String) {
-        _state.update { it.copy(photoPaths = it.photoPaths + path) }
+    fun onDocumentPhotoTaken(path: String) {
+        // На фото документов штамп не накладываем — он перекрывал бы текст УПД.
+        _state.update { it.copy(documentPhotoPaths = it.documentPhotoPaths + path) }
     }
 
-    fun removePhoto(path: String) {
-        _state.update { it.copy(photoPaths = it.photoPaths - path) }
+    fun removeDocumentPhoto(path: String) {
+        _state.update { it.copy(documentPhotoPaths = it.documentPhotoPaths - path) }
+    }
+
+    fun onVehiclePhotoTaken(path: String) {
+        viewModelScope.launch {
+            stampWatermark(path)
+            _state.update { it.copy(vehiclePhotoPaths = it.vehiclePhotoPaths + path) }
+        }
+    }
+
+    fun removeVehiclePhoto(path: String) {
+        _state.update { it.copy(vehiclePhotoPaths = it.vehiclePhotoPaths - path) }
+    }
+
+    private suspend fun stampWatermark(path: String) {
+        runCatching {
+            val coords = container.locationProvider.fetchCurrent()
+            val siteName = _state.value.siteName
+            withContext(Dispatchers.IO) {
+                container.metadataWatermark.applyTo(File(path), coords, siteName)
+            }
+        }
     }
 
     fun selectVehicle(code: String?) {
@@ -155,12 +186,23 @@ class Stage2FormViewModel(
 
                 container.deliveryRepository.setVehicleType(cur.deliveryId, cur.vehicleTypeCode)
 
-                cur.photoPaths.forEach { path ->
+                cur.documentPhotoPaths.forEach { path ->
                     runCatching {
                         val uri = container.photoStorage.toContentUri(File(path))
                         container.photoRepository.captureForDelivery(
                             deliveryId = cur.deliveryId,
-                            kind = "cargo",
+                            kind = "document",
+                            sourceUri = uri,
+                        )
+                    }
+                }
+
+                cur.vehiclePhotoPaths.forEach { path ->
+                    runCatching {
+                        val uri = container.photoStorage.toContentUri(File(path))
+                        container.photoRepository.captureForDelivery(
+                            deliveryId = cur.deliveryId,
+                            kind = "vehicle",
                             sourceUri = uri,
                         )
                     }
@@ -172,13 +214,19 @@ class Stage2FormViewModel(
             }
         }
     }
+
+    private companion object {
+        val MANUAL_UPD_REGEX = Regex("(?m)^УПД:\\s*(.+)$")
+    }
 }
 
 data class Stage2FormUiState(
     val deliveryId: String,
     val siteId: String? = null,
+    val siteName: String? = null,
     val sourceDocumentIds: List<String> = emptyList(),
-    val photoPaths: List<String> = emptyList(),
+    val documentPhotoPaths: List<String> = emptyList(),
+    val vehiclePhotoPaths: List<String> = emptyList(),
     val vehicleTypeCode: String? = null,
     val materials: List<MaterialDraft> = emptyList(),
     val commentText: String = "",
