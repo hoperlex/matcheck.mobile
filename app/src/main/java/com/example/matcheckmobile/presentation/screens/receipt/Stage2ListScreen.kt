@@ -53,7 +53,7 @@ fun Stage2ListScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("2 Этап") },
+                title = { Text("Выбор УПД для приёмки") },
                 navigationIcon = {
                     IconButton(onClick = onBack, modifier = Modifier.size(72.dp)) {
                         Icon(

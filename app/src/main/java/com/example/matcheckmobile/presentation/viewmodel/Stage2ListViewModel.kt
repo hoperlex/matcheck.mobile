@@ -56,18 +56,13 @@ class Stage2ListViewModel(container: AppContainer) : ViewModel() {
             // Fallback: УПД могла исчезнуть из remote_source_documents после
             // привязки (сервер фильтрует «непривязанные»). Тогда тянем номер
             // из комментария — Stage1FormViewModel пишет туда «УПД: …»
-            // при ручном вводе или просто как маркер.
-            val titleText = when {
-                updNumbers.isNotEmpty() -> "УПД ${buildUpdSummary(updNumbers)}"
-                else -> {
-                    val manualUpd = extractManualUpd(d.comment)
-                    when {
-                        !manualUpd.isNullOrBlank() -> "УПД $manualUpd"
-                        !d.vehiclePlate.isNullOrBlank() -> "Госномер ${d.vehiclePlate}"
-                        else -> "Приёмка #${d.id.take(8)}"
-                    }
-                }
+            // при ручном вводе или просто как маркер. Заголовок всегда
+            // начинается с «УПД» — единый стиль с 1 Этапом.
+            val updNumberText = when {
+                updNumbers.isNotEmpty() -> buildUpdSummary(updNumbers)
+                else -> extractManualUpd(d.comment)?.takeIf { it.isNotBlank() } ?: "—"
             }
+            val titleText = "УПД $updNumberText"
 
             val supplierName = attachedDocs.firstOrNull()?.let { doc ->
                 doc.supplierName ?: doc.supplierId?.let { id -> cpById[id]?.name }
