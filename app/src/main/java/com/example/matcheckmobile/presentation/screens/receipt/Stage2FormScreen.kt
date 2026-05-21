@@ -41,7 +41,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.matcheckmobile.MatcheckApplication
-import com.example.matcheckmobile.presentation.components.MaterialsInlineList
+import com.example.matcheckmobile.presentation.components.EditableMaterialsInlineList
 import com.example.matcheckmobile.presentation.components.ModalTextField
 import com.example.matcheckmobile.presentation.components.PhotoCaptureSection
 import com.example.matcheckmobile.presentation.components.PhotoPreviewDialog
@@ -194,8 +194,11 @@ fun Stage2FormScreen(
                             .weight(1f)
                             .verticalScroll(rememberScrollState()),
                     ) {
-                        MaterialsInlineList(
+                        EditableMaterialsInlineList(
                             value = state.materials,
+                            editedIndexes = state.editedIndexes,
+                            onEdit = vm::updateMaterial,
+                            onDelete = vm::deleteMaterial,
                             headerStyle = if (isTablet)
                                 MaterialTheme.typography.titleMedium
                             else

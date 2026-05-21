@@ -142,6 +142,38 @@ class Stage2FormViewModel(
         _state.update { it.copy(materials = drafts) }
     }
 
+    /**
+     * Правка одного материала в списке. Добавляем индекс в [editedIndexes],
+     * чтобы UI знал, что строку нужно отметить перечёркнутым названием.
+     */
+    fun updateMaterial(index: Int, draft: MaterialDraft) {
+        _state.update { cur ->
+            if (index !in cur.materials.indices) return@update cur
+            val newMaterials = cur.materials.toMutableList().also { it[index] = draft }
+            cur.copy(
+                materials = newMaterials,
+                editedIndexes = cur.editedIndexes + index,
+            )
+        }
+    }
+
+    /**
+     * Удаление строки. После удаления индексы соседей справа сдвигаются на 1
+     * влево — пересчитываем [editedIndexes] соответствующим образом.
+     */
+    fun deleteMaterial(index: Int) {
+        _state.update { cur ->
+            if (index !in cur.materials.indices) return@update cur
+            val newMaterials = cur.materials.toMutableList().also { it.removeAt(index) }
+            val newEdited = cur.editedIndexes
+                .asSequence()
+                .filter { it != index }
+                .map { if (it > index) it - 1 else it }
+                .toSet()
+            cur.copy(materials = newMaterials, editedIndexes = newEdited)
+        }
+    }
+
     fun setComment(text: String) {
         _state.update { it.copy(commentText = text) }
     }
@@ -229,6 +261,8 @@ data class Stage2FormUiState(
     val vehiclePhotoPaths: List<String> = emptyList(),
     val vehicleTypeCode: String? = null,
     val materials: List<MaterialDraft> = emptyList(),
+    /** Индексы материалов, которые правил инспектор на 2 Этапе — UI отмечает их перечёркнутым названием. */
+    val editedIndexes: Set<Int> = emptySet(),
     val commentText: String = "",
     /** Госномер из приёмки — read-only сводка для информационного блока. */
     val vehiclePlate: String? = null,

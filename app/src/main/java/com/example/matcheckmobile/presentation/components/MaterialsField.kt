@@ -1,6 +1,7 @@
 package com.example.matcheckmobile.presentation.components
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -8,9 +9,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -18,17 +21,23 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -300,6 +309,7 @@ private fun MaterialRow(
     number: Int,
     draft: MaterialDraft,
     onClick: (() -> Unit)?,
+    strikethroughName: Boolean = false,
 ) {
     val baseModifier = Modifier.fillMaxWidth()
     val cardModifier = if (onClick != null) baseModifier.clickable(onClick = onClick) else baseModifier
@@ -323,7 +333,12 @@ private fun MaterialRow(
             )
             Text(
                 text = draft.name.ifBlank { "—" },
-                style = MaterialTheme.typography.bodyLarge,
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    textDecoration = if (strikethroughName)
+                        androidx.compose.ui.text.style.TextDecoration.LineThrough
+                    else
+                        null,
+                ),
                 modifier = Modifier.weight(0.65f),
             )
             Text(
@@ -465,5 +480,224 @@ fun MaterialsInlineList(
                 )
             }
         }
+    }
+}
+
+/**
+ * Inline-таблица материалов с редактированием. По тапу на строку открывается
+ * диалог правки (название + количество), свайп вправо удаляет строку.
+ * Изменённые строки (индекс ∈ [editedIndexes]) подсвечиваются перечёркнутым
+ * названием. Используется на 2 Этапе.
+ */
+@Composable
+fun EditableMaterialsInlineList(
+    value: List<MaterialDraft>,
+    editedIndexes: Set<Int>,
+    onEdit: (index: Int, draft: MaterialDraft) -> Unit,
+    onDelete: (index: Int) -> Unit,
+    modifier: Modifier = Modifier,
+    headerStyle: TextStyle? = null,
+) {
+    var editingIndex by remember { mutableStateOf<Int?>(null) }
+
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 28.dp, end = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = "Название",
+                style = headerStyle ?: MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(0.65f),
+            )
+            Text(
+                text = "Кол-во",
+                style = headerStyle ?: MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.weight(0.2f),
+            )
+            Text(
+                text = "Ед.",
+                style = headerStyle ?: MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.weight(0.15f),
+            )
+        }
+        if (value.isEmpty()) {
+            Text(
+                text = "Список пуст",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp),
+                textAlign = TextAlign.Center,
+            )
+        } else {
+            value.forEachIndexed { index, draft ->
+                // Ключ swipe-state — содержимое строки. После delete индексы
+                // сдвигаются, и привязка по index не пережила бы recomposition.
+                key(draft.name, draft.qty, draft.unit, index) {
+                    SwipeableMaterialRow(
+                        number = index + 1,
+                        draft = draft,
+                        strikethroughName = index in editedIndexes,
+                        onTap = { editingIndex = index },
+                        onSwipeDelete = { onDelete(index) },
+                    )
+                }
+            }
+        }
+    }
+
+    editingIndex?.let { idx ->
+        if (idx in value.indices) {
+            EditMaterialDialog(
+                initial = value[idx],
+                onDismiss = { editingIndex = null },
+                onSave = { newDraft ->
+                    onEdit(idx, newDraft)
+                    editingIndex = null
+                },
+            )
+        } else {
+            editingIndex = null
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SwipeableMaterialRow(
+    number: Int,
+    draft: MaterialDraft,
+    strikethroughName: Boolean,
+    onTap: () -> Unit,
+    onSwipeDelete: () -> Unit,
+) {
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value == SwipeToDismissBoxValue.StartToEnd) {
+                onSwipeDelete()
+                true
+            } else {
+                false
+            }
+        },
+    )
+    SwipeToDismissBox(
+        state = dismissState,
+        enableDismissFromStartToEnd = true,
+        enableDismissFromEndToStart = false,
+        backgroundContent = {
+            // Красный фон с иконкой корзины, выровненной слева — куда идёт свайп.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        MaterialTheme.colorScheme.errorContainer,
+                        RoundedCornerShape(12.dp),
+                    )
+                    .padding(horizontal = 20.dp),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = "Удалить",
+                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.size(28.dp),
+                )
+            }
+        },
+    ) {
+        MaterialRow(
+            number = number,
+            draft = draft,
+            onClick = onTap,
+            strikethroughName = strikethroughName,
+        )
+    }
+}
+
+@Composable
+private fun EditMaterialDialog(
+    initial: MaterialDraft,
+    onDismiss: () -> Unit,
+    onSave: (MaterialDraft) -> Unit,
+) {
+    var name by remember { mutableStateOf(initial.name) }
+    var qty by remember { mutableStateOf(initial.qty.compactDecimal()) }
+    val nameFocus = remember { FocusRequester() }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            dismissOnClickOutside = true,
+            dismissOnBackPress = true,
+        ),
+    ) {
+        Card(shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = "Редактировать материал",
+                    style = MaterialTheme.typography.titleLarge,
+                )
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Название") },
+                    singleLine = false,
+                    minLines = 1,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(nameFocus),
+                )
+                OutlinedTextField(
+                    value = qty,
+                    onValueChange = { qty = it },
+                    label = { Text("Количество") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
+                ) {
+                    OutlinedButton(onClick = onDismiss) {
+                        Text("Отмена")
+                    }
+                    Button(
+                        onClick = {
+                            onSave(
+                                MaterialDraft(
+                                    name = name.trim(),
+                                    qty = qty.trim(),
+                                    unit = initial.unit,
+                                )
+                            )
+                        },
+                        enabled = name.isNotBlank() || qty.isNotBlank(),
+                    ) {
+                        Text("Сохранить")
+                    }
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        nameFocus.requestFocus()
     }
 }
