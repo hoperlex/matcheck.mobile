@@ -21,8 +21,14 @@ class Stage1DraftRepository(private val dao: Stage1DraftDao) {
 
     suspend fun findByUpdId(updId: String): Stage1DraftEntity? = dao.findByUpdId(updId)
 
+    /**
+     * `createdAt` фиксируется на самой первой записи (= момент «Начато»,
+     * первое фото) и не меняется при последующих апдейтах state.
+     */
     suspend fun upsert(state: Stage1DraftState) {
-        dao.upsert(state.toEntity())
+        val existing = dao.findById(state.localDraftId)
+        val stable = if (existing != null) state.copy(createdAt = existing.createdAt) else state
+        dao.upsert(stable.toEntity())
     }
 
     suspend fun deleteById(id: String) {
@@ -39,6 +45,7 @@ class Stage1DraftRepository(private val dao: Stage1DraftDao) {
         commentText = entity.commentText,
         licensePlate = entity.licensePlate,
         manualUpdText = entity.manualUpdText,
+        createdAt = entity.createdAt,
         updatedAt = entity.updatedAt,
     )
 
@@ -52,6 +59,7 @@ class Stage1DraftRepository(private val dao: Stage1DraftDao) {
         commentText = commentText,
         licensePlate = licensePlate,
         manualUpdText = manualUpdText,
+        createdAt = createdAt,
         updatedAt = updatedAt,
     )
 
@@ -101,5 +109,6 @@ data class Stage1DraftState(
     val commentText: String,
     val licensePlate: String,
     val manualUpdText: String,
+    val createdAt: Long,
     val updatedAt: Long,
 )

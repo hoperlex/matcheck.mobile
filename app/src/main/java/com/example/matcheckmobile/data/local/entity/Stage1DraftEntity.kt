@@ -33,5 +33,7 @@ data class Stage1DraftEntity(
     val commentText: String,
     val licensePlate: String,
     val manualUpdText: String,
+    /** Момент создания draft = когда было добавлено первое фото («Начато»). */
+    val createdAt: Long,
     val updatedAt: Long,
 )

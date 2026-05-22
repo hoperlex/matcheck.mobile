@@ -160,18 +160,25 @@ class Stage1FormViewModel(
             }
     }
 
-    private fun Stage1FormUiState.toDraftState(): Stage1DraftState = Stage1DraftState(
-        localDraftId = draftLocalId,
-        updId = updId,
-        documentPhotoPaths = documentPhotoPaths,
-        cargoPhotoPaths = cargoPhotoPaths,
-        vehicleTypeCode = vehicleTypeCode,
-        materials = materials,
-        commentText = commentText,
-        licensePlate = licensePlate,
-        manualUpdText = manualUpdText,
-        updatedAt = System.currentTimeMillis(),
-    )
+    private fun Stage1FormUiState.toDraftState(): Stage1DraftState {
+        val now = System.currentTimeMillis()
+        // createdAt = now → используется только при первом upsert (когда строки
+        // ещё нет в БД); на последующих save Stage1DraftRepository.upsert сам
+        // подменит на сохранённый из БД, чтобы счётчик «>2ч» не сбрасывался.
+        return Stage1DraftState(
+            localDraftId = draftLocalId,
+            updId = updId,
+            documentPhotoPaths = documentPhotoPaths,
+            cargoPhotoPaths = cargoPhotoPaths,
+            vehicleTypeCode = vehicleTypeCode,
+            materials = materials,
+            commentText = commentText,
+            licensePlate = licensePlate,
+            manualUpdText = manualUpdText,
+            createdAt = now,
+            updatedAt = now,
+        )
+    }
 
     /**
      * Тянет название объекта для штампа: сперва из выбранной УПД (поле siteName

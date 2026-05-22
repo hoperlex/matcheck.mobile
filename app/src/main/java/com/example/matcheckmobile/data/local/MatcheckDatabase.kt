@@ -84,7 +84,7 @@ import com.example.matcheckmobile.data.local.entity.UserEntity
         MutationEntity::class,
         Stage1DraftEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)
@@ -123,7 +123,7 @@ abstract class MatcheckDatabase : RoomDatabase() {
                     MatcheckDatabase::class.java,
                     DB_NAME,
                 )
-                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9)
+                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
                     .also { INSTANCE = it }
@@ -176,6 +176,19 @@ abstract class MatcheckDatabase : RoomDatabase() {
                 )
                 db.execSQL(
                     "CREATE INDEX IF NOT EXISTS `index_stage1_drafts_updatedAt` ON `stage1_drafts` (`updatedAt`)",
+                )
+            }
+        }
+
+        // createdAt = момент «Начато» (первое фото). Для существующих drafts
+        // (в проде их пока быть не должно — миграция свежая) backfill = updatedAt.
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE `stage1_drafts` ADD COLUMN `createdAt` INTEGER NOT NULL DEFAULT 0",
+                )
+                db.execSQL(
+                    "UPDATE `stage1_drafts` SET `createdAt` = `updatedAt` WHERE `createdAt` = 0",
                 )
             }
         }
