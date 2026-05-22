@@ -115,8 +115,8 @@ fun MainScreen(
                             .weight(1f),
                     )
                     PlanCard(
-                        todayValue = "—",
-                        futureValue = "—",
+                        todayValue = status.expectedToday.toString(),
+                        futureValue = status.expectedFuture.toString(),
                         isTablet = isTablet,
                     )
                 }
