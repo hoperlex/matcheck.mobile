@@ -489,6 +489,61 @@ fun MaterialsInlineList(
  * Изменённые строки (индекс ∈ [editedIndexes]) подсвечиваются перечёркнутым
  * названием. Используется на 2 Этапе.
  */
+/**
+ * Шапка inline-таблицы материалов («Название / Кол-во / Ед.»). Вынесена,
+ * чтобы её можно было закрепить sticky-зоной над прокручиваемым списком —
+ * иначе при скролле списка наверх заголовки уезжают за рамки видимости.
+ */
+@Composable
+fun MaterialsTableHeader(
+    modifier: Modifier = Modifier,
+    headerStyle: TextStyle? = null,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = 28.dp, end = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = "Название",
+            style = headerStyle ?: MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(0.65f),
+        )
+        Text(
+            text = "Кол-во",
+            style = headerStyle ?: MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.weight(0.2f),
+        )
+        Text(
+            text = "Ед.",
+            style = headerStyle ?: MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.weight(0.15f),
+        )
+    }
+}
+
+/**
+ * Модалка ручного ввода материала (Название + Количество). На 2 Этапе её
+ * открывает кнопка «Добавить материал», на 1 Этапе — тап по существующей
+ * строке для правки. Для add-сценария отдаём пустой [initial], для edit —
+ * текущие значения строки.
+ */
+@Composable
+fun MaterialEditDialog(
+    initial: MaterialDraft,
+    onDismiss: () -> Unit,
+    onSave: (MaterialDraft) -> Unit,
+    title: String = "Редактировать материал",
+) {
+    EditMaterialDialog(initial = initial, onDismiss = onDismiss, onSave = onSave, title = title)
+}
+
 @Composable
 fun EditableMaterialsInlineList(
     value: List<MaterialDraft>,
@@ -497,6 +552,7 @@ fun EditableMaterialsInlineList(
     onDelete: (index: Int) -> Unit,
     modifier: Modifier = Modifier,
     headerStyle: TextStyle? = null,
+    showHeader: Boolean = true,
 ) {
     var editingIndex by remember { mutableStateOf<Int?>(null) }
 
@@ -504,32 +560,8 @@ fun EditableMaterialsInlineList(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 28.dp, end = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                text = "Название",
-                style = headerStyle ?: MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(0.65f),
-            )
-            Text(
-                text = "Кол-во",
-                style = headerStyle ?: MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.weight(0.2f),
-            )
-            Text(
-                text = "Ед.",
-                style = headerStyle ?: MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.weight(0.15f),
-            )
+        if (showHeader) {
+            MaterialsTableHeader(headerStyle = headerStyle)
         }
         if (value.isEmpty()) {
             Text(
@@ -632,6 +664,7 @@ private fun EditMaterialDialog(
     initial: MaterialDraft,
     onDismiss: () -> Unit,
     onSave: (MaterialDraft) -> Unit,
+    title: String = "Редактировать материал",
 ) {
     var name by remember { mutableStateOf(initial.name) }
     var qty by remember { mutableStateOf(initial.qty.compactDecimal()) }
@@ -650,7 +683,7 @@ private fun EditMaterialDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(
-                    text = "Редактировать материал",
+                    text = title,
                     style = MaterialTheme.typography.titleLarge,
                 )
                 OutlinedTextField(

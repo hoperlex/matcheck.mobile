@@ -16,7 +16,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -43,6 +45,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.matcheckmobile.MatcheckApplication
 import com.example.matcheckmobile.presentation.components.EditableMaterialsInlineList
+import com.example.matcheckmobile.presentation.components.MaterialDraft
+import com.example.matcheckmobile.presentation.components.MaterialEditDialog
+import com.example.matcheckmobile.presentation.components.MaterialsTableHeader
 import com.example.matcheckmobile.presentation.components.ModalTextField
 import com.example.matcheckmobile.presentation.components.PhotoCaptureSection
 import com.example.matcheckmobile.presentation.components.PhotoPreviewDialog
@@ -65,6 +70,7 @@ fun Stage2FormScreen(
     val state by vm.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var previewPath by remember { mutableStateOf<String?>(null) }
+    var addMaterialOpen by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.finalized) {
         if (state.finalized) onFinalized()
@@ -193,6 +199,36 @@ fun Stage2FormScreen(
                         ),
                     )
 
+                    // Шапка таблицы — sticky над скроллом, чтобы при пролистывании
+                    // списка наверх «Название / Кол-во / Ед.» оставались видны.
+                    // Раньше они были внутри прокручиваемого Column и уезжали за
+                    // поле «Госномер».
+                    MaterialsTableHeader(
+                        headerStyle = if (isTablet)
+                            MaterialTheme.typography.titleMedium
+                        else
+                            MaterialTheme.typography.labelLarge,
+                    )
+
+                    OutlinedButton(
+                        onClick = { addMaterialOpen = true },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = null,
+                            modifier = Modifier.size(if (isTablet) 24.dp else 20.dp),
+                        )
+                        Text(
+                            text = "Добавить материал",
+                            style = if (isTablet)
+                                MaterialTheme.typography.titleMedium
+                            else
+                                MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
+
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -204,10 +240,7 @@ fun Stage2FormScreen(
                             editedIndexes = state.editedIndexes,
                             onEdit = vm::updateMaterial,
                             onDelete = vm::deleteMaterial,
-                            headerStyle = if (isTablet)
-                                MaterialTheme.typography.titleMedium
-                            else
-                                MaterialTheme.typography.labelLarge,
+                            showHeader = false,
                         )
                     }
 
@@ -246,6 +279,18 @@ fun Stage2FormScreen(
             PhotoPreviewDialog(
                 filePath = path,
                 onDismiss = { previewPath = null },
+            )
+        }
+
+        if (addMaterialOpen) {
+            MaterialEditDialog(
+                initial = MaterialDraft(name = "", qty = "", unit = "шт"),
+                title = "Добавить материал",
+                onDismiss = { addMaterialOpen = false },
+                onSave = { draft ->
+                    vm.addMaterial(draft)
+                    addMaterialOpen = false
+                },
             )
         }
     }

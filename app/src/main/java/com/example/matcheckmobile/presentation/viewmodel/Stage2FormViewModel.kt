@@ -146,6 +146,22 @@ class Stage2FormViewModel(
     }
 
     /**
+     * Добавление строки материала вручную — на 2 Этапе инспектор может донабрать
+     * позицию, отсутствующую в серверной приёмке (typical для no_document). Новая
+     * строка сразу помечается «изменённой», чтобы UI показывал её перечёркнутым
+     * названием — единый стиль с правленными строками.
+     */
+    fun addMaterial(draft: MaterialDraft) {
+        _state.update { cur ->
+            val newMaterials = cur.materials + draft
+            cur.copy(
+                materials = newMaterials,
+                editedIndexes = cur.editedIndexes + (newMaterials.size - 1),
+            )
+        }
+    }
+
+    /**
      * Правка одного материала в списке. Добавляем индекс в [editedIndexes],
      * чтобы UI знал, что строку нужно отметить перечёркнутым названием.
      */
