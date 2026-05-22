@@ -55,6 +55,17 @@ data class IntakeUpdGroupsState(
 private const val UNKNOWN_CONTRACTOR_LABEL = "Подрядчик не указан"
 private const val MANUAL_GROUP_LABEL = "Созданы вручную"
 
+/**
+ * УПД считается «Будущим» если `expectedDate` — корректная дата строго
+ * больше сегодняшней (по локальной таймзоне). Пустое/прошлое/невалидное —
+ * Today (надо разобрать сейчас).
+ */
+internal fun isStrictlyFuture(expectedDate: String?, today: LocalDate): Boolean {
+    val raw = expectedDate?.takeIf { it.isNotBlank() } ?: return false
+    val parsed = runCatching { LocalDate.parse(raw) }.getOrNull() ?: return false
+    return parsed.isAfter(today)
+}
+
 class IntakeUpdSelectViewModel(container: AppContainer) : ViewModel() {
 
     val state: StateFlow<IntakeUpdGroupsState> = combine(
@@ -70,7 +81,7 @@ class IntakeUpdSelectViewModel(container: AppContainer) : ViewModel() {
             }
         }
         val byCounterpartyId = cps.associateBy { it.id }
-        val today = LocalDate.now().toString()
+        val today = LocalDate.now()
         // updId → draftId. По uniqueness индекса значение единственное.
         val draftsByUpdId: Map<String, String> = drafts
             .mapNotNull { d -> d.updId?.let { it to d.localDraftId } }
@@ -90,9 +101,11 @@ class IntakeUpdSelectViewModel(container: AppContainer) : ViewModel() {
                     ?: d.contractorId?.let { byCounterpartyId[it]?.name },
                 draftId = draftId,
             )
-            // Принудительно «Сегодня», если уже начата — пользователь работает
-            // с ней сейчас, неважно какая у УПД expectedDate.
-            val bucket = if (draftId != null || d.expectedDate == today) todayRows else futureRows
+            // Future — только expectedDate > сегодня. Всё прочее (сегодня,
+            // прошлое, null, есть draft) идёт в Today: пользователь работает
+            // с ним сейчас.
+            val bucket = if (draftId == null && isStrictlyFuture(d.expectedDate, today))
+                futureRows else todayRows
             bucket.add(row)
         }
         // Empty drafts (без УПД) показываем только в «Сегодня» — это активные

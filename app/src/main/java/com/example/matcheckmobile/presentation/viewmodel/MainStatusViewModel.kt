@@ -2,6 +2,7 @@ package com.example.matcheckmobile.presentation.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.data.repository.OperationRepository
 import com.example.matcheckmobile.di.AppContainer
 import kotlinx.coroutines.flow.SharingStarted
@@ -48,31 +49,49 @@ class MainStatusViewModel(container: AppContainer) : ViewModel() {
 
     private val expectedCounts = combine(
         container.database.remoteSourceDocumentDao().observeAll(),
+        container.database.remoteDeliveryDao().observeAttachedSourceDocumentIdsJson(),
+        container.database.remoteShipmentDao().observeAttachedSourceDocumentIdsJson(),
         container.stage1DraftRepository.observeAll(),
         container.database.remoteDeliveryDao().observeByStatus("filled"),
-    ) { docs, drafts, filledDeliveries ->
-        val today = LocalDate.now().toString()
+    ) { docs, deliveryAttachedJsons, shipmentAttachedJsons, drafts, filledDeliveries ->
+        val today = LocalDate.now()
+        val todayStr = today.toString()
 
-        // (a): неприкреплённые УПД из snapshot, разводим по expectedDate.
+        // Фильтр привязок — тот же, что в IntakeUpdSelectViewModel: иначе
+        // устаревший локальный кэш привязанных УПД задвоит счётчик «Будущие».
+        val attachedIds: Set<String> = buildSet {
+            (deliveryAttachedJsons + shipmentAttachedJsons).forEach { json ->
+                addAll(RemoteMappers.decodeIdList(json))
+            }
+        }
+        val updWithDraft: Set<String> = drafts.mapNotNull { it.updId }.toSet()
+
+        // Будущее = строго `expectedDate > сегодня`. Прочее (сегодня, прошлое,
+        // null, есть draft) — Today. Совпадает с вкладками на 1 Этапе.
         var todayUnattachedCount = 0
         var futureUnattachedCount = 0
         for (d in docs) {
-            if (d.expectedDate == today) todayUnattachedCount++ else futureUnattachedCount++
+            if (d.id in attachedIds) continue
+            if (d.id in updWithDraft) {
+                todayUnattachedCount++
+                continue
+            }
+            if (isStrictlyFuture(d.expectedDate, today)) futureUnattachedCount++
+            else todayUnattachedCount++
         }
 
-        // (b): только empty-drafts. УПД-drafts (с updId) уже учтены в (a),
-        // потому что у них пока нет delivery → УПД остаётся в snapshot.
+        // Empty-drafts (без УПД) — ручные приёмки, всегда Сегодня.
         val emptyDraftsCount = drafts.count { it.updId == null }
 
-        // (c): filled-deliveries с arrivedAt сегодня. Между этапами счётчик
-        // должен «нести» УПД, пропавшую из snapshot после Завершить 1 Этап.
-        val filledTodayCount = filledDeliveries.count { isToday(it.arrivedAt, today) }
+        // filled-deliveries с arrivedAt сегодня: «несут» УПД между 1 и 2 Этапом
+        // (после Завершить 1 Этап УПД пропадает из snapshot инспектора).
+        val filledTodayCount = filledDeliveries.count { isArrivedToday(it.arrivedAt, todayStr) }
 
         val todayCount = todayUnattachedCount + emptyDraftsCount + filledTodayCount
         todayCount to futureUnattachedCount
     }
 
-    private fun isToday(arrivedAt: String?, todayLocal: String): Boolean {
+    private fun isArrivedToday(arrivedAt: String?, todayLocal: String): Boolean {
         if (arrivedAt.isNullOrBlank()) return false
         return runCatching {
             Instant.parse(arrivedAt)
