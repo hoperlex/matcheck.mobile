@@ -119,12 +119,6 @@ fun Stage1FormScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                // imePadding на весь контент-Box: при подъёме клавиатуры низ
-                // области (вместе с кнопкой «Завершить 1 Этап») прижимается
-                // ровно к верху клавиатуры — без пустой белой полосы между
-                // ними. TopAppBar остаётся на месте (Scaffold его рисует над
-                // insets), скролл доводит до «Комментария».
-                .imePadding()
                 // Тап по «пустой» части экрана (мимо инпутов) гасит фокус и
                 // прячет клавиатуру. indication=null убирает ripple, тапы по
                 // OutlinedTextField/кнопкам идут к ним напрямую.
@@ -167,22 +161,45 @@ fun Stage1FormScreen(
             else
                 MaterialTheme.typography.titleMedium
 
+            // Layout-трюк, чтобы при поднятии клавиатуры:
+            // 1) скролл доходил до Комментария над клавиатурой,
+            // 2) кнопка «Завершить 1 Этап» оставалась внизу (клавиатура её
+            //    перекроет — поднимать её не надо),
+            // 3) между скроллом и клавиатурой не было видимой белой полосы.
+            //
+            // Решение: скролл-Column тянется на ВСЮ высоту (включая зону под
+            // клавиатурой) и имеет imePadding — empty-зона imePadding физически
+            // совпадает с зоной клавиатуры и не видна. Кнопка рендерится через
+            // Box.align(BottomEnd) поверх — она в нижнем правом углу окна
+            // независимо от ime. У скролла внизу — content-padding под кнопку,
+            // чтобы последний инпут не «уезжал» под неё при ime=0.
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(outerPadding),
+                    .padding(
+                        start = outerPadding,
+                        end = outerPadding,
+                        top = outerPadding,
+                        // bottom = 0 — иначе появляется белый зазор между
+                        // imePadding-зоной и низом экрана (= верхом клавиатуры).
+                        // Нижний отступ для кнопки даём в её Box.align ниже.
+                    ),
                 contentAlignment = Alignment.TopCenter,
             ) {
-                Column(
+                Box(
                     modifier = Modifier
                         .widthIn(max = contentMaxWidth)
                         .fillMaxSize(),
                 ) {
                     Column(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                            .verticalScroll(rememberScrollState()),
+                            .fillMaxSize()
+                            .imePadding()
+                            .verticalScroll(rememberScrollState())
+                            // Резерв снизу под кнопку + её внутренний gap +
+                            // outerPadding — чтобы последний инпут (Комментарий)
+                            // не упирался в кнопку, когда клавиатура закрыта.
+                            .padding(bottom = finalizeButtonHeight + sectionGap + outerPadding),
                         verticalArrangement = Arrangement.spacedBy(sectionGap),
                     ) {
                         Row(
@@ -277,11 +294,15 @@ fun Stage1FormScreen(
                         )
                     }
 
+                    // Кнопка «Завершить 1 Этап» прибита к низу окна через
+                    // Box.align(BottomEnd). Не входит в layout-chain scroll-Column,
+                    // поэтому imePadding скролла её не двигает — при подъёме
+                    // клавиатуры она остаётся в той же позиции (клавиатура её
+                    // перекрывает; для нажатия — сначала закрыть тапом мимо).
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = sectionGap),
-                        contentAlignment = Alignment.CenterEnd,
+                            .align(Alignment.BottomEnd)
+                            .padding(bottom = outerPadding),
                     ) {
                         Button(
                             onClick = vm::finalizeStage1,
