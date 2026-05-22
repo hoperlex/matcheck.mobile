@@ -54,8 +54,7 @@ class MainStatusViewModel(container: AppContainer) : ViewModel() {
         container.stage1DraftRepository.observeAll(),
         container.database.remoteDeliveryDao().observeByStatus("filled"),
     ) { docs, deliveryAttachedJsons, shipmentAttachedJsons, drafts, filledDeliveries ->
-        val today = LocalDate.now()
-        val todayStr = today.toString()
+        val today = LocalDate.now().toString()
 
         // Фильтр привязок — тот же, что в IntakeUpdSelectViewModel: иначе
         // устаревший локальный кэш привязанных УПД задвоит счётчик «Будущие».
@@ -66,8 +65,8 @@ class MainStatusViewModel(container: AppContainer) : ViewModel() {
         }
         val updWithDraft: Set<String> = drafts.mapNotNull { it.updId }.toSet()
 
-        // Будущее = строго `expectedDate > сегодня`. Прочее (сегодня, прошлое,
-        // null, есть draft) — Today. Совпадает с вкладками на 1 Этапе.
+        // Today — только `expectedDate == today`. Прочерк/null/любая другая
+        // дата — Future. УПД-drafts принудительно Today (с ними уже работают).
         var todayUnattachedCount = 0
         var futureUnattachedCount = 0
         for (d in docs) {
@@ -76,8 +75,7 @@ class MainStatusViewModel(container: AppContainer) : ViewModel() {
                 todayUnattachedCount++
                 continue
             }
-            if (isStrictlyFuture(d.expectedDate, today)) futureUnattachedCount++
-            else todayUnattachedCount++
+            if (d.expectedDate == today) todayUnattachedCount++ else futureUnattachedCount++
         }
 
         // Empty-drafts (без УПД) — ручные приёмки, всегда Сегодня.
@@ -85,7 +83,7 @@ class MainStatusViewModel(container: AppContainer) : ViewModel() {
 
         // filled-deliveries с arrivedAt сегодня: «несут» УПД между 1 и 2 Этапом
         // (после Завершить 1 Этап УПД пропадает из snapshot инспектора).
-        val filledTodayCount = filledDeliveries.count { isArrivedToday(it.arrivedAt, todayStr) }
+        val filledTodayCount = filledDeliveries.count { isArrivedToday(it.arrivedAt, today) }
 
         val todayCount = todayUnattachedCount + emptyDraftsCount + filledTodayCount
         todayCount to futureUnattachedCount
