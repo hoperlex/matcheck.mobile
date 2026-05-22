@@ -18,7 +18,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
@@ -493,24 +495,51 @@ fun MaterialsInlineList(
  * Шапка inline-таблицы материалов («Название / Кол-во / Ед.»). Вынесена,
  * чтобы её можно было закрепить sticky-зоной над прокручиваемым списком —
  * иначе при скролле списка наверх заголовки уезжают за рамки видимости.
+ *
+ * Опционально показывает компактную кнопку «+ Добавить» между «Название» и
+ * «Кол-во» — нужна на 2 Этапе, чтобы донабрать материал, отсутствующий в
+ * серверной приёмке. Если [onAddClick] не передан — кнопка не отрисовывается.
  */
 @Composable
 fun MaterialsTableHeader(
     modifier: Modifier = Modifier,
     headerStyle: TextStyle? = null,
+    onAddClick: (() -> Unit)? = null,
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
             .padding(start = 28.dp, end = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             text = "Название",
             style = headerStyle ?: MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(0.65f),
+            modifier = Modifier.weight(if (onAddClick != null) 0.4f else 0.65f),
         )
+        if (onAddClick != null) {
+            // Компактная кнопка между «Название» и «Кол-во». Текст укорочен до
+            // «Добавить», чтобы вписаться в одну строку с заголовками; на тапе
+            // открывается модалка с полным заголовком «Добавить материал».
+            OutlinedButton(
+                onClick = onAddClick,
+                modifier = Modifier.heightIn(min = 36.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "Добавить материал",
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    text = "Добавить",
+                    style = headerStyle ?: MaterialTheme.typography.labelMedium,
+                )
+            }
+        }
         Text(
             text = "Кол-во",
             style = headerStyle ?: MaterialTheme.typography.labelMedium,
@@ -668,6 +697,9 @@ private fun EditMaterialDialog(
 ) {
     var name by remember { mutableStateOf(initial.name) }
     var qty by remember { mutableStateOf(initial.qty.compactDecimal()) }
+    // Единицу измерения тоже редактируем — раньше она бралась из initial.unit
+    // как есть, и при ручном добавлении строки невозможно было указать «шт/м³/кг».
+    var unit by remember { mutableStateOf(initial.unit) }
     val nameFocus = remember { FocusRequester() }
 
     Dialog(
@@ -696,14 +728,26 @@ private fun EditMaterialDialog(
                         .fillMaxWidth()
                         .focusRequester(nameFocus),
                 )
-                OutlinedTextField(
-                    value = qty,
-                    onValueChange = { qty = it },
-                    label = { Text("Количество") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                )
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    OutlinedTextField(
+                        value = qty,
+                        onValueChange = { qty = it },
+                        label = { Text("Количество") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.weight(2f),
+                    )
+                    OutlinedTextField(
+                        value = unit,
+                        onValueChange = { unit = it },
+                        label = { Text("Ед.") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
@@ -717,7 +761,7 @@ private fun EditMaterialDialog(
                                 MaterialDraft(
                                     name = name.trim(),
                                     qty = qty.trim(),
-                                    unit = initial.unit,
+                                    unit = unit.trim(),
                                 )
                             )
                         },
