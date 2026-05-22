@@ -268,6 +268,13 @@ fun Stage2FormScreen(
                             onEdit = vm::updateMaterial,
                             onDelete = vm::deleteMaterial,
                             showHeader = false,
+                            // Снимок серверных значений — нужно UI для подсветки
+                            // правок (перечёркнутое имя / qty в формате old (new)).
+                            originalMaterials = state.originalMaterials,
+                            // Поле «Ед.» в модалке правки строки скрыто —
+                            // единицу инспектор не меняет. В диалоге «Добавить
+                            // материал» (отдельный MaterialEditDialog) оно есть.
+                            editingShowUnitField = false,
                         )
                     }
 

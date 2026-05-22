@@ -71,6 +71,11 @@ class Stage2FormViewModel(
                 siteName = siteName,
                 sourceDocumentIds = sourceDocIds,
                 materials = materials,
+                // Снимаем «снимок» серверного состояния — UI сравнивает текущие
+                // materials с originalMaterials и подсвечивает изменения:
+                // перечёркивает только реально изменённое название, qty
+                // показывает как «old (new)».
+                originalMaterials = materials,
                 commentText = delivery.comment.orEmpty(),
                 vehicleTypeCode = vehicleTypeCode,
                 vehiclePlate = delivery.vehiclePlate?.takeIf { p -> p.isNotBlank() },
@@ -172,8 +177,10 @@ class Stage2FormViewModel(
     }
 
     /**
-     * Удаление строки. После удаления индексы соседей справа сдвигаются на 1
-     * влево — пересчитываем [editedIndexes] соответствующим образом.
+     * Удаление строки. Индексы соседей справа сдвигаются на 1 влево —
+     * пересчитываем [editedIndexes] и [originalMaterials] соответствующим
+     * образом, чтобы подсветка остатков продолжала указывать на правильные
+     * серверные снимки.
      */
     fun deleteMaterial(index: Int) {
         _state.update { cur ->
@@ -184,7 +191,16 @@ class Stage2FormViewModel(
                 .filter { it != index }
                 .map { if (it > index) it - 1 else it }
                 .toSet()
-            cur.copy(materials = newMaterials, editedIndexes = newEdited)
+            val newOriginals = if (index in cur.originalMaterials.indices) {
+                cur.originalMaterials.toMutableList().also { it.removeAt(index) }
+            } else {
+                cur.originalMaterials
+            }
+            cur.copy(
+                materials = newMaterials,
+                editedIndexes = newEdited,
+                originalMaterials = newOriginals,
+            )
         }
     }
 
@@ -291,6 +307,14 @@ data class Stage2FormUiState(
     val vehiclePhotoPaths: List<String> = emptyList(),
     val vehicleTypeCode: String? = null,
     val materials: List<MaterialDraft> = emptyList(),
+    /**
+     * Серверный снимок materials на момент загрузки приёмки. UI сравнивает с
+     * текущим [materials] и подсвечивает разницу: перечёркнутое название
+     * (если name изменилось), qty в формате «old (new)» (если qty изменилось).
+     * Для строк, добавленных вручную через «+ Добавить материал», оригинала
+     * нет — индекс выходит за пределы [originalMaterials].
+     */
+    val originalMaterials: List<MaterialDraft> = emptyList(),
     /** Индексы материалов, которые правил инспектор на 2 Этапе — UI отмечает их перечёркнутым названием. */
     val editedIndexes: Set<Int> = emptySet(),
     val commentText: String = "",

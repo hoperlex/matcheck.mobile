@@ -48,9 +48,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -312,6 +315,10 @@ private fun MaterialRow(
     draft: MaterialDraft,
     onClick: (() -> Unit)?,
     strikethroughName: Boolean = false,
+    // Если задано — qty был отредактирован. Старое значение рендерится
+    // перечёркнутым, новое — в скобках рядом. Например: «2 (5)», где «2» —
+    // зачёркнутый original, «(5)» — текущее значение draft.qty.
+    originalQty: String? = null,
 ) {
     val baseModifier = Modifier.fillMaxWidth()
     val cardModifier = if (onClick != null) baseModifier.clickable(onClick = onClick) else baseModifier
@@ -343,10 +350,9 @@ private fun MaterialRow(
                 ),
                 modifier = Modifier.weight(0.65f),
             )
-            Text(
-                text = draft.qty.compactDecimal().ifBlank { "—" },
-                style = MaterialTheme.typography.bodyLarge,
-                textAlign = TextAlign.Center,
+            QtyCell(
+                currentQty = draft.qty,
+                originalQty = originalQty,
                 modifier = Modifier.weight(0.2f),
             )
             Text(
@@ -356,6 +362,46 @@ private fun MaterialRow(
                 modifier = Modifier.weight(0.15f),
             )
         }
+    }
+}
+
+@Composable
+private fun QtyCell(
+    currentQty: String,
+    originalQty: String?,
+    modifier: Modifier = Modifier,
+) {
+    val currentText = currentQty.compactDecimal()
+    val originalText = originalQty?.compactDecimal()
+    val isEdited = originalText != null && originalText != currentText
+    if (isEdited) {
+        // «N (M)» — где N перечёркнутое старое, M — текущее в скобках.
+        val annotated = buildAnnotatedString {
+            withStyle(
+                SpanStyle(
+                    textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough,
+                    color = androidx.compose.ui.graphics.Color.Unspecified,
+                ),
+            ) {
+                append(originalText!!.ifBlank { "—" })
+            }
+            append(" (")
+            append(currentText.ifBlank { "—" })
+            append(")")
+        }
+        Text(
+            text = annotated,
+            style = MaterialTheme.typography.bodyLarge,
+            textAlign = TextAlign.Center,
+            modifier = modifier,
+        )
+    } else {
+        Text(
+            text = currentText.ifBlank { "—" },
+            style = MaterialTheme.typography.bodyLarge,
+            textAlign = TextAlign.Center,
+            modifier = modifier,
+        )
     }
 }
 
@@ -571,10 +617,10 @@ fun MaterialsTableHeader(
 }
 
 /**
- * Модалка ручного ввода материала (Название + Количество). На 2 Этапе её
- * открывает кнопка «Добавить материал», на 1 Этапе — тап по существующей
- * строке для правки. Для add-сценария отдаём пустой [initial], для edit —
- * текущие значения строки.
+ * Модалка ручного ввода материала. На 2 Этапе её открывает кнопка «Добавить
+ * материал» (showUnitField=true — нужно выбрать единицу), на правке строки —
+ * showUnitField=false (юзер меняет только название/количество, ед.измерения
+ * приходит с сервера и менять её не должны).
  */
 @Composable
 fun MaterialEditDialog(
@@ -582,8 +628,15 @@ fun MaterialEditDialog(
     onDismiss: () -> Unit,
     onSave: (MaterialDraft) -> Unit,
     title: String = "Редактировать материал",
+    showUnitField: Boolean = true,
 ) {
-    EditMaterialDialog(initial = initial, onDismiss = onDismiss, onSave = onSave, title = title)
+    EditMaterialDialog(
+        initial = initial,
+        onDismiss = onDismiss,
+        onSave = onSave,
+        title = title,
+        showUnitField = showUnitField,
+    )
 }
 
 @Composable
@@ -595,6 +648,15 @@ fun EditableMaterialsInlineList(
     modifier: Modifier = Modifier,
     headerStyle: TextStyle? = null,
     showHeader: Boolean = true,
+    // Оригинальные значения для каждой серверной строки. Используется для
+    // подсветки изменений: имя перечёркивается только если оно реально
+    // изменилось, qty рендерится как «old (new)» при правке. Для строк,
+    // добавленных вручную (нет в originalMaterials), оригинала нет.
+    originalMaterials: List<MaterialDraft>? = null,
+    // На 2 Этапе при правке существующей строки скрываем поле «Ед.» —
+    // редактируется только Название + Количество. Для add-сценария поле
+    // отображается через отдельный вызов MaterialEditDialog.
+    editingShowUnitField: Boolean = true,
 ) {
     var editingIndex by remember { mutableStateOf<Int?>(null) }
 
@@ -617,13 +679,19 @@ fun EditableMaterialsInlineList(
             )
         } else {
             value.forEachIndexed { index, draft ->
+                val original = originalMaterials?.getOrNull(index)
+                val nameEdited = original != null && original.name != draft.name
+                val qtyOriginalForDisplay = original
+                    ?.qty
+                    ?.takeIf { it != draft.qty }
                 // Ключ swipe-state — содержимое строки. После delete индексы
                 // сдвигаются, и привязка по index не пережила бы recomposition.
                 key(draft.name, draft.qty, draft.unit, index) {
                     SwipeableMaterialRow(
                         number = index + 1,
                         draft = draft,
-                        strikethroughName = index in editedIndexes,
+                        strikethroughName = nameEdited,
+                        originalQty = qtyOriginalForDisplay,
                         onTap = { editingIndex = index },
                         onSwipeDelete = { onDelete(index) },
                     )
@@ -641,6 +709,7 @@ fun EditableMaterialsInlineList(
                     onEdit(idx, newDraft)
                     editingIndex = null
                 },
+                showUnitField = editingShowUnitField,
             )
         } else {
             editingIndex = null
@@ -654,6 +723,7 @@ private fun SwipeableMaterialRow(
     number: Int,
     draft: MaterialDraft,
     strikethroughName: Boolean,
+    originalQty: String?,
     onTap: () -> Unit,
     onSwipeDelete: () -> Unit,
 ) {
@@ -697,6 +767,7 @@ private fun SwipeableMaterialRow(
             draft = draft,
             onClick = onTap,
             strikethroughName = strikethroughName,
+            originalQty = originalQty,
         )
     }
 }
@@ -707,11 +778,13 @@ private fun EditMaterialDialog(
     onDismiss: () -> Unit,
     onSave: (MaterialDraft) -> Unit,
     title: String = "Редактировать материал",
+    showUnitField: Boolean = true,
 ) {
     var name by remember { mutableStateOf(initial.name) }
     var qty by remember { mutableStateOf(initial.qty.compactDecimal()) }
-    // Единицу измерения тоже редактируем — раньше она бралась из initial.unit
-    // как есть, и при ручном добавлении строки невозможно было указать «шт/м³/кг».
+    // Ед.измерения редактируется только в add-сценарии. В edit-режиме оно
+    // приходит с сервера и не должно меняться пользователем — поле скрыто,
+    // значение пробрасывается из initial.
     var unit by remember { mutableStateOf(initial.unit) }
     val nameFocus = remember { FocusRequester() }
 
@@ -741,24 +814,35 @@ private fun EditMaterialDialog(
                         .fillMaxWidth()
                         .focusRequester(nameFocus),
                 )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
+                if (showUnitField) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        OutlinedTextField(
+                            value = qty,
+                            onValueChange = { qty = it },
+                            label = { Text("Количество") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            modifier = Modifier.weight(2f),
+                        )
+                        OutlinedTextField(
+                            value = unit,
+                            onValueChange = { unit = it },
+                            label = { Text("Ед.") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                } else {
                     OutlinedTextField(
                         value = qty,
                         onValueChange = { qty = it },
                         label = { Text("Количество") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        modifier = Modifier.weight(2f),
-                    )
-                    OutlinedTextField(
-                        value = unit,
-                        onValueChange = { unit = it },
-                        label = { Text("Ед.") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
                 Row(
