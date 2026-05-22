@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -20,9 +21,12 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -64,6 +68,10 @@ fun Stage1FormScreen(
     val state by vm.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var previewPath by remember { mutableStateOf<String?>(null) }
+    val focusManager = LocalFocusManager.current
+    // Один источник для невидимого clickable на «пустые» зоны экрана — нужен
+    // чтобы тап мимо инпутов сворачивал клавиатуру через clearFocus.
+    val tapOutsideSource = remember { MutableInteractionSource() }
 
     LaunchedEffect(state.finalized) {
         if (state.finalized) onFinalized()
@@ -110,7 +118,20 @@ fun Stage1FormScreen(
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),
+                .padding(padding)
+                // imePadding ужимает контент-область на высоту клавиатуры,
+                // когда она поднята. Без этого «Комментарий» уезжает под
+                // клавиатуру и до него не доскроллить. TopAppBar при этом
+                // остаётся на месте — Scaffold его рисует над insets.
+                .imePadding()
+                // Тап по «пустой» части экрана (мимо инпутов) гасит фокус и
+                // прячет клавиатуру. indication=null убирает ripple, тапы по
+                // OutlinedTextField/кнопкам идут к ним напрямую.
+                .clickable(
+                    interactionSource = tapOutsideSource,
+                    indication = null,
+                    onClick = { focusManager.clearFocus() },
+                ),
         ) {
             val isTablet = maxWidth >= TabletBreakpoint
             val contentMaxWidth: Dp = if (isTablet) 900.dp else maxWidth

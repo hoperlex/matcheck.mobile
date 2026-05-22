@@ -32,7 +32,8 @@
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
             android:resizeableActivity="false"
             android:screenOrientation="nosensor"
-            android:theme="@style/Theme.Matcheckmobile">
+            android:theme="@style/Theme.Matcheckmobile"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
