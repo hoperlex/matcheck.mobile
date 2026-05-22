@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import java.time.LocalDate
 
 /**
  * Inbox-список ожидаемых УПД. Источник — серверная таблица
@@ -19,6 +20,10 @@ import kotlinx.coroutines.flow.stateIn
  * первичной загрузки (их нет ни в response, ни в `deletedIds`). Чтобы UI
  * не показывал «зомби» из устаревшего кэша, фильтруем по локально известным
  * привязкам Delivery + Shipment.
+ *
+ * Делим на «Сегодня» / «Будущие» по `expectedDate` (формат сервера
+ * 'YYYY-MM-DD'). Сегодня — `expectedDate == LocalDate.now()`,
+ * иначе (другая дата или null) — Будущие.
  */
 data class IntakeUpdRow(
     val document: RemoteSourceDocumentEntity,
@@ -34,11 +39,16 @@ data class IntakeUpdGroup(
     val rows: List<IntakeUpdRow>,
 )
 
+data class IntakeUpdGroupsState(
+    val today: List<IntakeUpdGroup> = emptyList(),
+    val future: List<IntakeUpdGroup> = emptyList(),
+)
+
 private const val UNKNOWN_CONTRACTOR_LABEL = "Подрядчик не указан"
 
 class IntakeUpdSelectViewModel(container: AppContainer) : ViewModel() {
 
-    val groups: StateFlow<List<IntakeUpdGroup>> = combine(
+    val state: StateFlow<IntakeUpdGroupsState> = combine(
         container.database.remoteSourceDocumentDao().observeAll(),
         container.database.remoteCounterpartyDao().observeAll(),
         container.database.remoteDeliveryDao().observeAttachedSourceDocumentIdsJson(),
@@ -50,22 +60,31 @@ class IntakeUpdSelectViewModel(container: AppContainer) : ViewModel() {
             }
         }
         val byCounterpartyId = cps.associateBy { it.id }
-        val rows = docs
-            .asSequence()
-            .filter { it.id !in attachedIds }
-            .map { d ->
-                IntakeUpdRow(
-                    document = d,
-                    supplierName = d.supplierName
-                        ?: d.supplierId?.let { byCounterpartyId[it]?.name },
-                    contractorName = d.contractorName
-                        ?: d.contractorId?.let { byCounterpartyId[it]?.name },
-                )
-            }
-            .toList()
+        val today = LocalDate.now().toString()
+        val todayRows = mutableListOf<IntakeUpdRow>()
+        val futureRows = mutableListOf<IntakeUpdRow>()
+        for (d in docs) {
+            if (d.id in attachedIds) continue
+            val row = IntakeUpdRow(
+                document = d,
+                supplierName = d.supplierName
+                    ?: d.supplierId?.let { byCounterpartyId[it]?.name },
+                contractorName = d.contractorName
+                    ?: d.contractorId?.let { byCounterpartyId[it]?.name },
+            )
+            if (d.expectedDate == today) todayRows.add(row) else futureRows.add(row)
+        }
+        IntakeUpdGroupsState(
+            today = groupByContractor(todayRows),
+            future = groupByContractor(futureRows),
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = IntakeUpdGroupsState(),
+    )
 
-        // Группируем по подрядчику. Безымянные («Подрядчик не указан») сортируем
-        // в конец, остальные — по алфавиту.
+    private fun groupByContractor(rows: List<IntakeUpdRow>): List<IntakeUpdGroup> =
         rows.groupBy { it.contractorName?.takeIf { name -> name.isNotBlank() } ?: UNKNOWN_CONTRACTOR_LABEL }
             .toList()
             .sortedWith(
@@ -75,9 +94,4 @@ class IntakeUpdSelectViewModel(container: AppContainer) : ViewModel() {
                 ),
             )
             .map { (contractor, items) -> IntakeUpdGroup(contractor, items) }
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = emptyList(),
-    )
 }
