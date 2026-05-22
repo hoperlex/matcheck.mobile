@@ -21,6 +21,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
@@ -41,7 +42,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.matcheckmobile.MatcheckApplication
 import com.example.matcheckmobile.presentation.components.MaterialsField
-import com.example.matcheckmobile.presentation.components.ModalTextField
 import com.example.matcheckmobile.presentation.components.PhotoCaptureSection
 import com.example.matcheckmobile.presentation.components.PhotoPreviewDialog
 import com.example.matcheckmobile.presentation.components.VehicleTypeChips
@@ -192,24 +192,27 @@ fun Stage1FormScreen(
                             )
                         }
 
-                        ModalTextField(
+                        OutlinedTextField(
                             value = state.licensePlate,
-                            onValueChange = vm::setLicensePlate,
-                            label = "Введите Госномер",
+                            // Госномер пишем ВЕРХНИМ регистром, как и раньше с
+                            // forceUppercase в модалке — иначе при сравнении и
+                            // валидации регистры разъедутся.
+                            onValueChange = { vm.setLicensePlate(it.uppercase()) },
+                            label = { Text("Введите Госномер", style = inputLabelStyle) },
                             isError = state.showPlateError,
-                            compact = true,
-                            forceUppercase = true,
+                            singleLine = true,
                             textStyle = inputTextStyle,
-                            labelStyle = inputLabelStyle,
+                            modifier = Modifier.fillMaxWidth(),
                         )
 
                         if (state.updId == null) {
-                            ModalTextField(
+                            OutlinedTextField(
                                 value = state.manualUpdText,
                                 onValueChange = vm::setManualUpd,
-                                label = "Введите УПД",
+                                label = { Text("Введите УПД", style = inputLabelStyle) },
+                                singleLine = true,
                                 textStyle = inputTextStyle,
-                                labelStyle = inputLabelStyle,
+                                modifier = Modifier.fillMaxWidth(),
                             )
                         }
 
@@ -232,12 +235,16 @@ fun Stage1FormScreen(
                             buttonMinHeight = if (isTablet) 72.dp else 64.dp,
                         )
 
-                        ModalTextField(
+                        OutlinedTextField(
                             value = state.commentText,
                             onValueChange = vm::setComment,
-                            label = "Комментарий",
+                            label = { Text("Комментарий", style = inputLabelStyle) },
+                            // Комментарий многострочный — оставляем минимум 3
+                            // строки, чтобы поле визуально читалось как textarea,
+                            // и не было дёрганий по высоте при вводе.
+                            minLines = 3,
                             textStyle = inputTextStyle,
-                            labelStyle = inputLabelStyle,
+                            modifier = Modifier.fillMaxWidth(),
                         )
                     }
 
