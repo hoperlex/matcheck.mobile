@@ -2,12 +2,18 @@ package com.example.matcheckmobile.presentation.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.matcheckmobile.data.local.entity.RemoteDeliveryEntity
+import com.example.matcheckmobile.data.local.entity.RemoteSourceDocumentEntity
+import com.example.matcheckmobile.data.local.entity.Stage1DraftEntity
 import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.data.repository.OperationRepository
 import com.example.matcheckmobile.di.AppContainer
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
 import java.time.Instant
 import java.time.LocalDate
@@ -48,13 +54,17 @@ data class MainStatusUiState(
 class MainStatusViewModel(container: AppContainer) : ViewModel() {
 
     private val expectedCounts = combine(
-        container.database.remoteSourceDocumentDao().observeAll(),
-        container.database.remoteDeliveryDao().observeAttachedSourceDocumentIdsJson(),
-        container.database.remoteShipmentDao().observeAttachedSourceDocumentIdsJson(),
-        container.stage1DraftRepository.observeAll(),
-        container.database.remoteDeliveryDao().observeByStatus("filled"),
-    ) { docs, deliveryAttachedJsons, shipmentAttachedJsons, drafts, filledDeliveries ->
-        val today = LocalDate.now().toString()
+        combine(
+            container.database.remoteSourceDocumentDao().observeAll(),
+            container.database.remoteDeliveryDao().observeAttachedSourceDocumentIdsJson(),
+            container.database.remoteShipmentDao().observeAttachedSourceDocumentIdsJson(),
+            container.stage1DraftRepository.observeAll(),
+            container.database.remoteDeliveryDao().observeByStatus("filled"),
+            ::PlanSources,
+        ),
+        dayTicker,
+    ) { src, today ->
+        val (docs, deliveryAttachedJsons, shipmentAttachedJsons, drafts, filledDeliveries) = src
 
         // Фильтр привязок — тот же, что в IntakeUpdSelectViewModel: иначе
         // устаревший локальный кэш привязанных УПД задвоит счётчик «Будущие».
@@ -97,6 +107,28 @@ class MainStatusViewModel(container: AppContainer) : ViewModel() {
                 .toLocalDate()
                 .toString()
         }.getOrNull() == todayLocal
+    }
+
+    /** Holder для агрегата 5 источников, чтобы рядом подмесить [dayTicker]. */
+    private data class PlanSources(
+        val docs: List<RemoteSourceDocumentEntity>,
+        val deliveryAttachedJsons: List<String>,
+        val shipmentAttachedJsons: List<String>,
+        val drafts: List<Stage1DraftEntity>,
+        val filledDeliveries: List<RemoteDeliveryEntity>,
+    )
+
+    companion object {
+        /**
+         * Тикер локальной даты раз в минуту: гарантирует, что после полуночи
+         * счётчик «Сегодня/Будущие» пересчитается без действий пользователя.
+         */
+        private val dayTicker = flow {
+            while (true) {
+                emit(LocalDate.now().toString())
+                delay(60_000L)
+            }
+        }.distinctUntilChanged()
     }
 
     val status: StateFlow<MainStatusUiState> = combine(

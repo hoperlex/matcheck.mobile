@@ -6,9 +6,12 @@ import com.example.matcheckmobile.data.local.entity.RemoteSourceDocumentEntity
 import com.example.matcheckmobile.data.local.entity.Stage1DraftEntity
 import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.di.AppContainer
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
 import java.time.LocalDate
 
@@ -58,19 +61,23 @@ private const val MANUAL_GROUP_LABEL = "Созданы вручную"
 class IntakeUpdSelectViewModel(container: AppContainer) : ViewModel() {
 
     val state: StateFlow<IntakeUpdGroupsState> = combine(
-        container.database.remoteSourceDocumentDao().observeAll(),
-        container.database.remoteCounterpartyDao().observeAll(),
-        container.database.remoteDeliveryDao().observeAttachedSourceDocumentIdsJson(),
-        container.database.remoteShipmentDao().observeAttachedSourceDocumentIdsJson(),
-        container.stage1DraftRepository.observeAll(),
-    ) { docs, cps, deliveryAttachedJsons, shipmentAttachedJsons, drafts ->
+        combine(
+            container.database.remoteSourceDocumentDao().observeAll(),
+            container.database.remoteCounterpartyDao().observeAll(),
+            container.database.remoteDeliveryDao().observeAttachedSourceDocumentIdsJson(),
+            container.database.remoteShipmentDao().observeAttachedSourceDocumentIdsJson(),
+            container.stage1DraftRepository.observeAll(),
+            ::IntakeUpdSources,
+        ),
+        dayTicker,
+    ) { src, today ->
+        val (docs, cps, deliveryAttachedJsons, shipmentAttachedJsons, drafts) = src
         val attachedIds: Set<String> = buildSet {
             (deliveryAttachedJsons + shipmentAttachedJsons).forEach { json ->
                 addAll(RemoteMappers.decodeIdList(json))
             }
         }
         val byCounterpartyId = cps.associateBy { it.id }
-        val today = LocalDate.now().toString()
         // updId → draftId. По uniqueness индекса значение единственное.
         val draftsByUpdId: Map<String, String> = drafts
             .mapNotNull { d -> d.updId?.let { it to d.localDraftId } }
@@ -142,5 +149,33 @@ class IntakeUpdSelectViewModel(container: AppContainer) : ViewModel() {
             .map { (contractor, items) -> IntakeUpdGroup(contractor, items) }
         return if (manualRows.isEmpty()) realGroups
             else realGroups + IntakeUpdGroup(MANUAL_GROUP_LABEL, manualRows)
+    }
+
+    /**
+     * Внутренний holder, чтобы прокинуть 5 источников через `combine` и
+     * рядом подмешать тикер дня. Иначе пришлось бы использовать combine с
+     * vararg, который требует одинакового типа для всех источников.
+     */
+    private data class IntakeUpdSources(
+        val docs: List<RemoteSourceDocumentEntity>,
+        val counterparties: List<com.example.matcheckmobile.data.local.entity.RemoteCounterpartyEntity>,
+        val deliveryAttachedJsons: List<String>,
+        val shipmentAttachedJsons: List<String>,
+        val drafts: List<Stage1DraftEntity>,
+    )
+
+    companion object {
+        /**
+         * Тикер, эмитящий текущую локальную дату каждые 60 сек. Нужен чтобы
+         * УПД c `expectedDate=завтра` сама переехала из «Будущие» в «Сегодня»
+         * сразу после полуночи без действий пользователя. Без него `today`
+         * пересчитывается только когда переэмитит один из data-источников.
+         */
+        private val dayTicker = flow {
+            while (true) {
+                emit(LocalDate.now().toString())
+                delay(60_000L)
+            }
+        }.distinctUntilChanged()
     }
 }
