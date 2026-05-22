@@ -22,13 +22,18 @@ data class MainStatusUiState(
 }
 
 /**
- * План «Сегодня/Будущие» считаем по тем же ожидаемым УПД, что показываются
- * на экране выбора УПД (1 Этап) — серверная таблица `remote_source_documents`
- * минус локально известные привязки к Delivery/Shipment.
+ * План «Сегодня/Будущие» — счётчик активной работы инспектора.
  *
- * Сегодня: `expectedDate == LocalDate.now()` (формат сервера — 'YYYY-MM-DD',
- * без TZ). Всё остальное — пустое `expectedDate` или любая другая дата —
- * считаем «Будущим».
+ * Сегодня = (1) empty-drafts из stage1_drafts (ручные приёмки без УПД),
+ * (2) drafts с привязкой к УПД, (3) неприкреплённые УПД с `expectedDate ==
+ * сегодня`, у которых ещё нет draft, (4) delivery в статусе `filled` —
+ * 1 Этап завершён, 2 Этап не пройден.
+ *
+ * Будущие = неприкреплённые УПД без draft с другой/пустой `expectedDate`.
+ *
+ * Когда пользователь жмёт «Завершить 2 Этап», delivery переходит в
+ * `confirmed_mol` → выпадает из (4), счётчик «Сегодня» уменьшается.
+ * Когда создаётся ручная приёмка — она попадает в (1), счётчик растёт.
  */
 class MainStatusViewModel(container: AppContainer) : ViewModel() {
 
@@ -36,20 +41,35 @@ class MainStatusViewModel(container: AppContainer) : ViewModel() {
         container.database.remoteSourceDocumentDao().observeAll(),
         container.database.remoteDeliveryDao().observeAttachedSourceDocumentIdsJson(),
         container.database.remoteShipmentDao().observeAttachedSourceDocumentIdsJson(),
-    ) { docs, deliveryAttachedJsons, shipmentAttachedJsons ->
+        container.stage1DraftRepository.observeAll(),
+        container.database.remoteDeliveryDao().observeByStatus("filled"),
+    ) { docs, deliveryAttachedJsons, shipmentAttachedJsons, drafts, filledDeliveries ->
         val attachedIds: Set<String> = buildSet {
             (deliveryAttachedJsons + shipmentAttachedJsons).forEach { json ->
                 addAll(RemoteMappers.decodeIdList(json))
             }
         }
         val today = LocalDate.now().toString()
-        var todayCount = 0
-        var futureCount = 0
+        val updWithDraft: Set<String> = drafts.mapNotNull { it.updId }.toSet()
+
+        // (1) + (2): все drafts. Empty + по УПД.
+        val draftsCount = drafts.size
+
+        // (3): неприкреплённые УПД на сегодня без существующего draft (чтобы
+        // не задвоить с пунктом (2)).
+        var unattachedTodayCount = 0
+        var unattachedFutureCount = 0
         for (d in docs) {
             if (d.id in attachedIds) continue
-            if (d.expectedDate == today) todayCount++ else futureCount++
+            if (d.id in updWithDraft) continue
+            if (d.expectedDate == today) unattachedTodayCount++ else unattachedFutureCount++
         }
-        todayCount to futureCount
+
+        // (4): delivery со статусом filled — 1 этап завершён, 2 ещё не пройден.
+        val activeFilledCount = filledDeliveries.size
+
+        val todayCount = draftsCount + unattachedTodayCount + activeFilledCount
+        todayCount to unattachedFutureCount
     }
 
     val status: StateFlow<MainStatusUiState> = combine(
