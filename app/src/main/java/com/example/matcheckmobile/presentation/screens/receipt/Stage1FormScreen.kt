@@ -239,10 +239,10 @@ fun Stage1FormScreen(
                             value = state.commentText,
                             onValueChange = vm::setComment,
                             label = { Text("Комментарий", style = inputLabelStyle) },
-                            // Комментарий многострочный — оставляем минимум 3
-                            // строки, чтобы поле визуально читалось как textarea,
-                            // и не было дёрганий по высоте при вводе.
-                            minLines = 3,
+                            // singleLine для визуальной унификации с «Госномер»
+                            // и «Введите УПД» — все три инпута одинаковой высоты.
+                            // Длинный текст прокручивается горизонтально внутри поля.
+                            singleLine = true,
                             textStyle = inputTextStyle,
                             modifier = Modifier.fillMaxWidth(),
                         )
