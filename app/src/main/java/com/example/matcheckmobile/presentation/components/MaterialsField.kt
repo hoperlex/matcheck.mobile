@@ -517,31 +517,35 @@ fun MaterialsTableHeader(
             text = "Название",
             style = headerStyle ?: MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            // Когда кнопка встроена в шапку, оставляем «Название» только
-            // обязательный минимум, остальное место отдаём кнопке «Добавить
-            // материал» (она wrap-content) и узким столбцам Кол-во / Ед.
-            modifier = Modifier.weight(if (onAddClick != null) 0.35f else 0.65f),
+            // Когда кнопка встроена в шапку, «Название» ужимается, чтобы
+            // кнопка «Добавить материал» получила широкий слот по центру
+            // между «Название» и «Кол-во».
+            modifier = Modifier.weight(if (onAddClick != null) 0.3f else 0.65f),
             maxLines = 1,
         )
         if (onAddClick != null) {
-            // Кнопка располагается в одной строке с «Название / Кол-во / Ед.».
-            // Текст «Добавить материал» защищён singleLine/softWrap=false, чтобы
-            // никогда не переносился на вторую строку — это ломало бы высоту
-            // шапки. Padding и иконка ужаты, чтобы кнопка влезала на phone.
+            // Слот для кнопки занимает явный weight — кнопка fillMaxWidth
+            // внутри слота, контент центрируется ButtonDefaults'ом. Так
+            // «Добавить материал» всегда визуально сидит ровно между
+            // «Название» и «Кол-во», независимо от ширины экрана.
             OutlinedButton(
                 onClick = onAddClick,
-                modifier = Modifier.heightIn(min = 36.dp),
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                modifier = Modifier
+                    .weight(0.4f)
+                    .heightIn(min = 40.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
             ) {
                 Icon(
                     imageVector = Icons.Default.Add,
                     contentDescription = null,
-                    modifier = Modifier.size(16.dp),
+                    modifier = Modifier.size(20.dp),
                 )
-                Spacer(Modifier.width(4.dp))
+                Spacer(Modifier.width(6.dp))
                 Text(
                     text = "Добавить материал",
-                    style = MaterialTheme.typography.labelMedium,
+                    // Используем headerStyle, как у заголовков, — крупнее
+                    // labelMedium и визуально согласовано с шапкой.
+                    style = headerStyle ?: MaterialTheme.typography.titleMedium,
                     maxLines = 1,
                     softWrap = false,
                 )
