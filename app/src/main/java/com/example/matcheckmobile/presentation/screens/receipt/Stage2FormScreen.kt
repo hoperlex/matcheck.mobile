@@ -8,9 +8,11 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -41,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -118,10 +121,6 @@ fun Stage2FormScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                // imePadding на весь контент: при подъёме клавиатуры низ
-                // области (Комментарий + кнопка «Завершить 2 Этап») прижимается
-                // к верху клавиатуры без белой полосы между ними.
-                .imePadding()
                 // Тап по «пустой» зоне (мимо инпутов) гасит фокус — клавиатура
                 // прячется. indication=null убирает ripple, тапы по
                 // OutlinedTextField/кнопкам/чипам идут к ним напрямую.
@@ -151,21 +150,50 @@ fun Stage2FormScreen(
             else
                 MaterialTheme.typography.titleLarge
 
+            // Та же layout-схема, что на Stage1: при подъёме клавиатуры
+            // Комментарий прижимается к её верху без белой полосы, а кнопка
+            // «Завершить 2 Этап» через Box.align(BottomEnd) остаётся в нижнем
+            // правом углу окна (клавиатура её перекрывает). Резерв снизу под
+            // кнопку — только когда клавиатура закрыта; при открытой ime
+            // зануляем, иначе образуется пустота между Комментарием и клавиатурой.
+            val density = LocalDensity.current
+            val imeBottomPx = WindowInsets.ime.getBottom(density)
+            val isImeVisible = imeBottomPx > 0
+            val bottomReserve = if (isImeVisible) {
+                0.dp
+            } else {
+                finalizeButtonHeight + sectionGap + outerPadding
+            }
+
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(outerPadding),
+                    .padding(
+                        start = outerPadding,
+                        end = outerPadding,
+                        top = outerPadding,
+                        // bottom = 0, иначе между imePadding-зоной Column и
+                        // верхом клавиатуры виден белый зазор outerPadding.
+                    ),
                 contentAlignment = Alignment.TopCenter,
             ) {
-                // Sticky-зоны: фото + Госномер закреплены сверху, Комментарий +
-                // кнопка — снизу. Скроллится только средняя область со списком
-                // материалов (weight=1f + verticalScroll).
-                Column(
+                Box(
                     modifier = Modifier
                         .widthIn(max = contentMaxWidth)
                         .fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(sectionGap),
                 ) {
+                    // Sticky-зоны: фото + Госномер закреплены сверху, Комментарий
+                    // снизу. Скроллится только средняя область со списком
+                    // материалов (weight=1f + verticalScroll). imePadding ужимает
+                    // всю Column-цепочку при подъёме клавиатуры — Комментарий
+                    // оказывается прямо над клавиатурой.
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .imePadding()
+                            .padding(bottom = bottomReserve),
+                        verticalArrangement = Arrangement.spacedBy(sectionGap),
+                    ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(sectionGap),
@@ -253,10 +281,16 @@ fun Stage2FormScreen(
                         textStyle = inputTextStyle,
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    }
 
+                    // Кнопка «Завершить 2 Этап» — overlay через align(BottomEnd),
+                    // вне layout-chain Column. imePadding на Column её не двигает,
+                    // при открытой клавиатуре она остаётся внизу окна и просто
+                    // перекрывается клавиатурой (как на Stage1).
                     Box(
-                        modifier = Modifier.fillMaxWidth(),
-                        contentAlignment = Alignment.CenterEnd,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(bottom = outerPadding),
                     ) {
                         Button(
                             onClick = vm::finalizeStage2,
