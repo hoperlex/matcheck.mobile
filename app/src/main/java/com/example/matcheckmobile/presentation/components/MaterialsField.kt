@@ -517,34 +517,34 @@ fun MaterialsTableHeader(
             text = "Название",
             style = headerStyle ?: MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            // Когда кнопка встроена в шапку, «Название» ужимается, чтобы
-            // кнопка «Добавить материал» получила широкий слот по центру
-            // между «Название» и «Кол-во».
-            modifier = Modifier.weight(if (onAddClick != null) 0.3f else 0.65f),
+            // Когда кнопка встроена в шапку, делаем слоты «Название» и «Кол-во»
+            // равными по ширине, оба с textAlign=Center — тогда кнопка между
+            // ними визуально стоит ровно по центру, а не «прижата» к Кол-во.
+            textAlign = if (onAddClick != null) TextAlign.Center else TextAlign.Start,
+            modifier = Modifier.weight(if (onAddClick != null) 0.22f else 0.65f),
             maxLines = 1,
         )
         if (onAddClick != null) {
-            // Слот для кнопки занимает явный weight — кнопка fillMaxWidth
-            // внутри слота, контент центрируется ButtonDefaults'ом. Так
-            // «Добавить материал» всегда визуально сидит ровно между
-            // «Название» и «Кол-во», независимо от ширины экрана.
+            // Слот кнопки шире, чтобы слово «материал» (с последней «л»)
+            // не обрезалось по горизонтали. Padding и иконка ужаты, иначе
+            // на phone текст вылезает за рамку.
             OutlinedButton(
                 onClick = onAddClick,
                 modifier = Modifier
-                    .weight(0.4f)
+                    .weight(0.45f)
                     .heightIn(min = 40.dp),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
             ) {
                 Icon(
                     imageVector = Icons.Default.Add,
                     contentDescription = null,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(18.dp),
                 )
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(4.dp))
                 Text(
                     text = "Добавить материал",
-                    // Используем headerStyle, как у заголовков, — крупнее
-                    // labelMedium и визуально согласовано с шапкой.
+                    // headerStyle крупнее labelMedium и визуально согласован с
+                    // шапкой; maxLines=1 + softWrap=false гарантируют одну строку.
                     style = headerStyle ?: MaterialTheme.typography.titleMedium,
                     maxLines = 1,
                     softWrap = false,
@@ -556,7 +556,7 @@ fun MaterialsTableHeader(
             style = headerStyle ?: MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
-            modifier = Modifier.weight(if (onAddClick != null) 0.18f else 0.2f),
+            modifier = Modifier.weight(if (onAddClick != null) 0.22f else 0.2f),
             maxLines = 1,
         )
         Text(
@@ -564,7 +564,7 @@ fun MaterialsTableHeader(
             style = headerStyle ?: MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
-            modifier = Modifier.weight(if (onAddClick != null) 0.12f else 0.15f),
+            modifier = Modifier.weight(if (onAddClick != null) 0.11f else 0.15f),
             maxLines = 1,
         )
     }
