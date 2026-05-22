@@ -110,6 +110,15 @@ interface RemoteDeliveryDao {
     )
     fun observeByStatus(status: String): Flow<List<RemoteDeliveryEntity>>
 
+    @Query(
+        """
+        SELECT * FROM remote_deliveries
+        WHERE statusCode IN (:statuses) AND pendingDeletionAt IS NULL
+        ORDER BY updatedAt DESC, createdAt DESC
+        """
+    )
+    fun observeByStatuses(statuses: List<String>): Flow<List<RemoteDeliveryEntity>>
+
     @Query("SELECT * FROM remote_delivery_items WHERE deliveryId = :deliveryId ORDER BY lineNo ASC")
     suspend fun findItemsByDelivery(deliveryId: String): List<RemoteDeliveryItemEntity>
 

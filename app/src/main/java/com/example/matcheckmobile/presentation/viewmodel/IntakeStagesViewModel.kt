@@ -19,10 +19,10 @@ import java.time.Instant
  *   Фильтр аналогичен [IntakeUpdSelectViewModel] — берём `remote_source_documents`
  *   и исключаем id, привязанные локально через `remote_deliveries` и
  *   `remote_shipments` (сервер не присылает их в дельте после привязки).
- * - Stage 2: приёмки в статусе `filled` («Оформлена»), ожидающие подтверждения МОЛ.
- * - overdueStage2: приёмки в статусе `filled`, у которых [updatedAt] (последнее
- *   изменение, обычно — момент перехода в filled на финализации 1-го этапа)
- *   старше 2 часов.
+ * - Stage 2: приёмки в статусах `filled` («Оформлена») и `no_document` («Без
+ *   документа»), ожидающие подтверждения МОЛ. Список совпадает со [Stage2ListViewModel].
+ * - overdueStage2: те же приёмки 2-го Этапа, у которых [updatedAt] (момент
+ *   перехода в filled/no_document на финализации 1-го Этапа) старше 2 часов.
  */
 data class IntakeStagesCounts(
     val total: Int = 0,
@@ -37,7 +37,7 @@ class IntakeStagesViewModel(container: AppContainer) : ViewModel() {
         container.database.remoteSourceDocumentDao().observeAll(),
         container.database.remoteDeliveryDao().observeAttachedSourceDocumentIdsJson(),
         container.database.remoteShipmentDao().observeAttachedSourceDocumentIdsJson(),
-        container.deliveryRepository.observeByStatus("filled"),
+        container.deliveryRepository.observeByStatuses(listOf("filled", "no_document")),
         overdueTicker,
     ) { docs, deliveryAttachedJsons, shipmentAttachedJsons, stage2Deliveries, nowMs ->
         val attachedIds: Set<String> = buildSet {

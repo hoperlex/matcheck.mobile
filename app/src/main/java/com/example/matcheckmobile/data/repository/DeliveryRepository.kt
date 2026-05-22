@@ -35,6 +35,8 @@ class DeliveryRepository(
     fun observeTrash(): Flow<List<RemoteDeliveryEntity>> = deliveryDao.observeTrash()
     fun observeByStatus(status: String): Flow<List<RemoteDeliveryEntity>> =
         deliveryDao.observeByStatus(status)
+    fun observeByStatuses(statuses: List<String>): Flow<List<RemoteDeliveryEntity>> =
+        deliveryDao.observeByStatuses(statuses)
 
     suspend fun findById(id: String): RemoteDeliveryEntity? = deliveryDao.findById(id)
 
