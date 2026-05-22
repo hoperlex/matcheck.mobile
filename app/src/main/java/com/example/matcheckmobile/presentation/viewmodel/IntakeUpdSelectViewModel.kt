@@ -53,6 +53,7 @@ data class IntakeUpdGroupsState(
 )
 
 private const val UNKNOWN_CONTRACTOR_LABEL = "Подрядчик не указан"
+private const val MANUAL_GROUP_LABEL = "Созданы вручную"
 
 class IntakeUpdSelectViewModel(container: AppContainer) : ViewModel() {
 
@@ -116,8 +117,16 @@ class IntakeUpdSelectViewModel(container: AppContainer) : ViewModel() {
         initialValue = IntakeUpdGroupsState(),
     )
 
-    private fun groupByContractor(rows: List<IntakeUpdRow>): List<IntakeUpdGroup> =
-        rows.groupBy { it.contractorName?.takeIf { name -> name.isNotBlank() } ?: UNKNOWN_CONTRACTOR_LABEL }
+    /**
+     * Группировка: empty-draft строки (`document == null`) идут в отдельный
+     * блок «Созданы вручную» в самом конце списка. Реальные УПД из веб-портала
+     * группируются по подрядчику; те, у которых contractorName пуст —
+     * в «Подрядчик не указан» прямо перед «Созданы вручную».
+     */
+    private fun groupByContractor(rows: List<IntakeUpdRow>): List<IntakeUpdGroup> {
+        val (manualRows, realRows) = rows.partition { it.document == null }
+        val realGroups = realRows
+            .groupBy { it.contractorName?.takeIf { name -> name.isNotBlank() } ?: UNKNOWN_CONTRACTOR_LABEL }
             .toList()
             .sortedWith(
                 compareBy(
@@ -126,4 +135,7 @@ class IntakeUpdSelectViewModel(container: AppContainer) : ViewModel() {
                 ),
             )
             .map { (contractor, items) -> IntakeUpdGroup(contractor, items) }
+        return if (manualRows.isEmpty()) realGroups
+            else realGroups + IntakeUpdGroup(MANUAL_GROUP_LABEL, manualRows)
+    }
 }
