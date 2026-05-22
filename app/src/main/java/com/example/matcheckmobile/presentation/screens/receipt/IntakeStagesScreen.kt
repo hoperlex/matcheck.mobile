@@ -270,7 +270,7 @@ private fun StageStats(
     Column(verticalArrangement = Arrangement.spacedBy(rowGap)) {
         StatRow(
             label = "Всего:",
-            value = counts.total,
+            value = counts.totalToday,
             fontSize = fontSize,
             dotSize = dotSize,
             spacing = spacing,
@@ -278,7 +278,7 @@ private fun StageStats(
         )
         StatRow(
             label = "В разгрузке:",
-            value = counts.stage2Active,
+            value = counts.unloadingActive,
             fontSize = fontSize,
             dotSize = dotSize,
             spacing = spacing,
@@ -286,7 +286,7 @@ private fun StageStats(
         )
         StatRow(
             label = "Разгрузка >2х часов:",
-            value = counts.overdueStage2,
+            value = counts.overdueUnloading,
             fontSize = fontSize,
             dotSize = dotSize,
             spacing = spacing,
