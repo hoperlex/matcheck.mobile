@@ -119,6 +119,12 @@ fun Stage1FormScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                // imePadding на весь контент-Box: при подъёме клавиатуры низ
+                // области (вместе с кнопкой «Завершить 1 Этап») прижимается
+                // ровно к верху клавиатуры — без пустой белой полосы между
+                // ними. TopAppBar остаётся на месте (Scaffold его рисует над
+                // insets), скролл доводит до «Комментария».
+                .imePadding()
                 // Тап по «пустой» части экрана (мимо инпутов) гасит фокус и
                 // прячет клавиатуру. indication=null убирает ripple, тапы по
                 // OutlinedTextField/кнопкам идут к ним напрямую.
@@ -176,12 +182,6 @@ fun Stage1FormScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
-                            // imePadding только на скроллируемой зоне: при
-                            // подъёме клавиатуры сжимается она, а нижний Box с
-                            // кнопкой «Завершить 1 Этап» остаётся на месте.
-                            // Клавиатура перекроет кнопку — для нажатия её
-                            // нужно сначала закрыть (тапом мимо или Back).
-                            .imePadding()
                             .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(sectionGap),
                     ) {
