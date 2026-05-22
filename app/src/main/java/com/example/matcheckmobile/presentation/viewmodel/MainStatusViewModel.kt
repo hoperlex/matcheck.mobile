@@ -2,14 +2,15 @@ package com.example.matcheckmobile.presentation.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.data.repository.OperationRepository
 import com.example.matcheckmobile.di.AppContainer
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 
 data class MainStatusUiState(
     val pendingOperations: Int = 0,
@@ -22,54 +23,63 @@ data class MainStatusUiState(
 }
 
 /**
- * План «Сегодня/Будущие» — счётчик активной работы инспектора.
+ * План «Сегодня/Будущие» — счётчик ожидаемых УПД на сегодня.
  *
- * Сегодня = (1) empty-drafts из stage1_drafts (ручные приёмки без УПД),
- * (2) drafts с привязкой к УПД, (3) неприкреплённые УПД с `expectedDate ==
- * сегодня`, у которых ещё нет draft, (4) delivery в статусе `filled` —
- * 1 Этап завершён, 2 Этап не пройден.
+ * Сегодня =
+ *   (a) УПД из server-snapshot с `expectedDate == сегодня` (всё, что
+ *       автоматически загружено с веб-портала на сегодня),
+ * + (b) ручные приёмки (empty-drafts без updId),
+ * + (c) delivery со статусом `filled` (1 этап завершён, 2 не пройден) у
+ *       которой `arrivedAt` приходится на сегодняшнюю дату — это та же УПД
+ *       из (a), просто после «Завершить 1 Этап» она пропадает из server-
+ *       snapshot для inspector_kpp; сюда её подхватываем, чтобы счётчик
+ *       не «прыгал».
  *
- * Будущие = неприкреплённые УПД без draft с другой/пустой `expectedDate`.
+ * Будущие = УПД из server-snapshot с другой/пустой `expectedDate`.
  *
- * Когда пользователь жмёт «Завершить 2 Этап», delivery переходит в
- * `confirmed_mol` → выпадает из (4), счётчик «Сегодня» уменьшается.
- * Когда создаётся ручная приёмка — она попадает в (1), счётчик растёт.
+ * Поведенческие требования:
+ * - Создал ручную приёмку → +1 в Сегодня (через (b)).
+ * - Завершил 1 Этап по УПД → УПД ушла из docs, но delivery с arrivedAt=
+ *   сегодня попала в (c) → счётчик не меняется.
+ * - Завершил 2 Этап → delivery `filled` → `confirmed_mol`, выпадает из
+ *   `observeByStatus("filled")` → −1 в Сегодня.
  */
 class MainStatusViewModel(container: AppContainer) : ViewModel() {
 
     private val expectedCounts = combine(
         container.database.remoteSourceDocumentDao().observeAll(),
-        container.database.remoteDeliveryDao().observeAttachedSourceDocumentIdsJson(),
-        container.database.remoteShipmentDao().observeAttachedSourceDocumentIdsJson(),
         container.stage1DraftRepository.observeAll(),
         container.database.remoteDeliveryDao().observeByStatus("filled"),
-    ) { docs, deliveryAttachedJsons, shipmentAttachedJsons, drafts, filledDeliveries ->
-        val attachedIds: Set<String> = buildSet {
-            (deliveryAttachedJsons + shipmentAttachedJsons).forEach { json ->
-                addAll(RemoteMappers.decodeIdList(json))
-            }
-        }
+    ) { docs, drafts, filledDeliveries ->
         val today = LocalDate.now().toString()
-        val updWithDraft: Set<String> = drafts.mapNotNull { it.updId }.toSet()
 
-        // (1) + (2): все drafts. Empty + по УПД.
-        val draftsCount = drafts.size
-
-        // (3): неприкреплённые УПД на сегодня без существующего draft (чтобы
-        // не задвоить с пунктом (2)).
-        var unattachedTodayCount = 0
-        var unattachedFutureCount = 0
+        // (a): неприкреплённые УПД из snapshot, разводим по expectedDate.
+        var todayUnattachedCount = 0
+        var futureUnattachedCount = 0
         for (d in docs) {
-            if (d.id in attachedIds) continue
-            if (d.id in updWithDraft) continue
-            if (d.expectedDate == today) unattachedTodayCount++ else unattachedFutureCount++
+            if (d.expectedDate == today) todayUnattachedCount++ else futureUnattachedCount++
         }
 
-        // (4): delivery со статусом filled — 1 этап завершён, 2 ещё не пройден.
-        val activeFilledCount = filledDeliveries.size
+        // (b): только empty-drafts. УПД-drafts (с updId) уже учтены в (a),
+        // потому что у них пока нет delivery → УПД остаётся в snapshot.
+        val emptyDraftsCount = drafts.count { it.updId == null }
 
-        val todayCount = draftsCount + unattachedTodayCount + activeFilledCount
-        todayCount to unattachedFutureCount
+        // (c): filled-deliveries с arrivedAt сегодня. Между этапами счётчик
+        // должен «нести» УПД, пропавшую из snapshot после Завершить 1 Этап.
+        val filledTodayCount = filledDeliveries.count { isToday(it.arrivedAt, today) }
+
+        val todayCount = todayUnattachedCount + emptyDraftsCount + filledTodayCount
+        todayCount to futureUnattachedCount
+    }
+
+    private fun isToday(arrivedAt: String?, todayLocal: String): Boolean {
+        if (arrivedAt.isNullOrBlank()) return false
+        return runCatching {
+            Instant.parse(arrivedAt)
+                .atZone(ZoneId.systemDefault())
+                .toLocalDate()
+                .toString()
+        }.getOrNull() == todayLocal
     }
 
     val status: StateFlow<MainStatusUiState> = combine(
