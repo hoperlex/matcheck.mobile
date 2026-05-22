@@ -517,26 +517,33 @@ fun MaterialsTableHeader(
             text = "Название",
             style = headerStyle ?: MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(if (onAddClick != null) 0.4f else 0.65f),
+            // Когда кнопка встроена в шапку, оставляем «Название» только
+            // обязательный минимум, остальное место отдаём кнопке «Добавить
+            // материал» (она wrap-content) и узким столбцам Кол-во / Ед.
+            modifier = Modifier.weight(if (onAddClick != null) 0.35f else 0.65f),
+            maxLines = 1,
         )
         if (onAddClick != null) {
-            // Компактная кнопка между «Название» и «Кол-во». Текст укорочен до
-            // «Добавить», чтобы вписаться в одну строку с заголовками; на тапе
-            // открывается модалка с полным заголовком «Добавить материал».
+            // Кнопка располагается в одной строке с «Название / Кол-во / Ед.».
+            // Текст «Добавить материал» защищён singleLine/softWrap=false, чтобы
+            // никогда не переносился на вторую строку — это ломало бы высоту
+            // шапки. Padding и иконка ужаты, чтобы кнопка влезала на phone.
             OutlinedButton(
                 onClick = onAddClick,
                 modifier = Modifier.heightIn(min = 36.dp),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
             ) {
                 Icon(
                     imageVector = Icons.Default.Add,
-                    contentDescription = "Добавить материал",
-                    modifier = Modifier.size(18.dp),
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
                 )
                 Spacer(Modifier.width(4.dp))
                 Text(
-                    text = "Добавить",
-                    style = headerStyle ?: MaterialTheme.typography.labelMedium,
+                    text = "Добавить материал",
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    softWrap = false,
                 )
             }
         }
@@ -545,14 +552,16 @@ fun MaterialsTableHeader(
             style = headerStyle ?: MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
-            modifier = Modifier.weight(0.2f),
+            modifier = Modifier.weight(if (onAddClick != null) 0.18f else 0.2f),
+            maxLines = 1,
         )
         Text(
             text = "Ед.",
             style = headerStyle ?: MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
-            modifier = Modifier.weight(0.15f),
+            modifier = Modifier.weight(if (onAddClick != null) 0.12f else 0.15f),
+            maxLines = 1,
         )
     }
 }
