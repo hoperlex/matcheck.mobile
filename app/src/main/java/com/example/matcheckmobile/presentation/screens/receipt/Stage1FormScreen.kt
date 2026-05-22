@@ -119,11 +119,6 @@ fun Stage1FormScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                // imePadding ужимает контент-область на высоту клавиатуры,
-                // когда она поднята. Без этого «Комментарий» уезжает под
-                // клавиатуру и до него не доскроллить. TopAppBar при этом
-                // остаётся на месте — Scaffold его рисует над insets.
-                .imePadding()
                 // Тап по «пустой» части экрана (мимо инпутов) гасит фокус и
                 // прячет клавиатуру. indication=null убирает ripple, тапы по
                 // OutlinedTextField/кнопкам идут к ним напрямую.
@@ -181,6 +176,12 @@ fun Stage1FormScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
+                            // imePadding только на скроллируемой зоне: при
+                            // подъёме клавиатуры сжимается она, а нижний Box с
+                            // кнопкой «Завершить 1 Этап» остаётся на месте.
+                            // Клавиатура перекроет кнопку — для нажатия её
+                            // нужно сначала закрыть (тапом мимо или Back).
+                            .imePadding()
                             .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(sectionGap),
                     ) {
@@ -239,7 +240,14 @@ fun Stage1FormScreen(
 
                         VehicleTypeChips(
                             selectedCode = state.vehicleTypeCode,
-                            onSelected = { vm.selectVehicle(it.code) },
+                            onSelected = {
+                                // Тап по чипу транспорта так же прячет клавиатуру,
+                                // как и тап по пустой зоне — чип съедает pointer-event
+                                // до корневого clickable, поэтому clearFocus вызываем
+                                // здесь явно.
+                                focusManager.clearFocus()
+                                vm.selectVehicle(it.code)
+                            },
                             maxItemsInRow = 2,
                             iconHeight = vehicleIconHeight,
                             showSubtitle = false,
