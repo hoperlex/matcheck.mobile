@@ -130,6 +130,7 @@ fun Stage2ListScreen(
                                                         title = row.titleText,
                                                         subtitle = row.subtitleText,
                                                         onClick = { onOpenDelivery(row.delivery.id) },
+                                                        started = row.hasDraft,
                                                     )
                                                 }
                                             }

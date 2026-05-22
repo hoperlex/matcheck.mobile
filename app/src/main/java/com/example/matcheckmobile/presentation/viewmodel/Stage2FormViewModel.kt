@@ -5,13 +5,18 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.data.repository.DeliveryRepository
+import com.example.matcheckmobile.data.repository.Stage2DraftState
 import com.example.matcheckmobile.di.AppContainer
 import com.example.matcheckmobile.presentation.components.MaterialDraft
 import com.example.matcheckmobile.presentation.navigation.Routes
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -27,6 +32,7 @@ import java.io.File
  * - «Фото машины, госномера» — обычное фото с watermark (GPS / время / Объект).
  * Старые фото с сервера в редакторе не показываются (это отдельная задача).
  */
+@OptIn(FlowPreview::class)
 class Stage2FormViewModel(
     private val container: AppContainer,
     savedStateHandle: SavedStateHandle,
@@ -40,7 +46,11 @@ class Stage2FormViewModel(
     val state: StateFlow<Stage2FormUiState> = _state.asStateFlow()
 
     init {
-        viewModelScope.launch { loadInitial() }
+        viewModelScope.launch {
+            loadInitial()
+            restoreDraftIfAny()
+            observeAutoSave()
+        }
     }
 
     private suspend fun loadInitial() {
@@ -64,6 +74,7 @@ class Stage2FormViewModel(
         container.sourceDocumentBackfillService.ensureCached(sourceDocIds)
         val updDisplay = resolveUpdDisplay(sourceDocIds, delivery.comment)
         val siteName = resolveSiteName(delivery.siteId)
+        val originalComment = delivery.comment.orEmpty()
 
         _state.update {
             it.copy(
@@ -76,13 +87,79 @@ class Stage2FormViewModel(
                 // перечёркивает только реально изменённое название, qty
                 // показывает как «old (new)».
                 originalMaterials = materials,
-                commentText = delivery.comment.orEmpty(),
+                originalCommentText = originalComment,
+                originalVehicleTypeCode = vehicleTypeCode,
+                commentText = originalComment,
                 vehicleTypeCode = vehicleTypeCode,
                 vehiclePlate = delivery.vehiclePlate?.takeIf { p -> p.isNotBlank() },
                 updDisplay = updDisplay,
                 loaded = true,
             )
         }
+    }
+
+    /**
+     * Если уже есть локальный draft по этому deliveryId — накладываем его
+     * поверх серверного снимка. `originalMaterials/Comment/Vehicle` остаются
+     * server-snapshot'ом: подсветка изменений в форме сравнивает текущее
+     * значение именно с ним.
+     */
+    private suspend fun restoreDraftIfAny() {
+        val draftEntity = container.stage2DraftRepository.findById(deliveryId) ?: return
+        val draft = container.stage2DraftRepository.toState(draftEntity)
+        _state.update {
+            it.copy(
+                documentPhotoPaths = draft.documentPhotoPaths,
+                vehiclePhotoPaths = draft.vehiclePhotoPaths,
+                vehicleTypeCode = draft.vehicleTypeCode,
+                materials = draft.materials,
+                editedIndexes = draft.editedIndexes,
+                commentText = draft.commentText,
+            )
+        }
+    }
+
+    /**
+     * Автосейв draft: подписка на state с debounce. Триггер — ЛЮБОЕ отличие
+     * от серверного снимка (правка qty/наименования, новая позиция, новый
+     * комментарий, выбор транспорта, добавление фото). Если все правки
+     * откатили — draft удаляется.
+     */
+    private suspend fun observeAutoSave() {
+        _state
+            .drop(1)
+            .debounce(300L)
+            .distinctUntilChanged { a, b -> a.draftPayloadEquals(b) }
+            .collect { snapshot ->
+                if (snapshot.finalized || !snapshot.loaded) return@collect
+                if (snapshot.hasUnsavedChanges()) {
+                    container.stage2DraftRepository.upsert(snapshot.toDraftState())
+                } else {
+                    container.stage2DraftRepository.deleteById(deliveryId)
+                }
+            }
+    }
+
+    private fun Stage2FormUiState.hasUnsavedChanges(): Boolean =
+        materials != originalMaterials ||
+            commentText != originalCommentText ||
+            vehicleTypeCode != originalVehicleTypeCode ||
+            documentPhotoPaths.isNotEmpty() ||
+            vehiclePhotoPaths.isNotEmpty()
+
+    private fun Stage2FormUiState.toDraftState(): Stage2DraftState {
+        val now = System.currentTimeMillis()
+        return Stage2DraftState(
+            deliveryId = deliveryId,
+            documentPhotoPaths = documentPhotoPaths,
+            vehiclePhotoPaths = vehiclePhotoPaths,
+            vehicleTypeCode = vehicleTypeCode,
+            materials = materials,
+            editedIndexes = editedIndexes,
+            commentText = commentText,
+            createdAt = now,
+            updatedAt = now,
+        )
     }
 
     /**
@@ -286,12 +363,27 @@ class Stage2FormViewModel(
                     return@launch
                 }
 
+                // Финализировано → draft больше не нужен. Удаляем ДО finalized=true,
+                // чтобы автосейв не воскресил запись на следующем тике debounce.
+                container.stage2DraftRepository.deleteById(deliveryId)
                 _state.update { it.copy(isSaving = false, finalized = true) }
             } catch (e: Throwable) {
                 _state.update { it.copy(isSaving = false, error = e.message ?: "Ошибка сохранения") }
             }
         }
     }
+
+    /**
+     * Полезная нагрузка state'а для distinctUntilChanged автосейва. Исключаем
+     * волатильные UI-поля (isSaving, finalized, error, loaded, siteName и т.п.).
+     */
+    private fun Stage2FormUiState.draftPayloadEquals(other: Stage2FormUiState): Boolean =
+        materials == other.materials &&
+            editedIndexes == other.editedIndexes &&
+            commentText == other.commentText &&
+            vehicleTypeCode == other.vehicleTypeCode &&
+            documentPhotoPaths == other.documentPhotoPaths &&
+            vehiclePhotoPaths == other.vehiclePhotoPaths
 
     private companion object {
         val MANUAL_UPD_REGEX = Regex("(?m)^УПД:\\s*(.+)$")
@@ -315,6 +407,10 @@ data class Stage2FormUiState(
      * нет — индекс выходит за пределы [originalMaterials].
      */
     val originalMaterials: List<MaterialDraft> = emptyList(),
+    /** Серверный комментарий на момент загрузки — для определения «есть изменения». */
+    val originalCommentText: String = "",
+    /** Серверный vehicleTypeCode на момент загрузки — для определения «есть изменения». */
+    val originalVehicleTypeCode: String? = null,
     /** Индексы материалов, которые правил инспектор на 2 Этапе — UI отмечает их перечёркнутым названием. */
     val editedIndexes: Set<Int> = emptySet(),
     val commentText: String = "",

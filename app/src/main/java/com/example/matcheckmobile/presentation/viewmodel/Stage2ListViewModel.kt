@@ -26,6 +26,8 @@ data class Stage2DeliveryRow(
     val delivery: RemoteDeliveryEntity,
     val titleText: String,
     val subtitleText: String,
+    /** true → есть локальный stage2_draft → бейдж «Начато» на карточке. */
+    val hasDraft: Boolean = false,
 )
 
 /** Группа приёмок по подрядчику — структура зеркалит [IntakeUpdGroup] на 1 Этапе. */
@@ -66,9 +68,11 @@ class Stage2ListViewModel(container: AppContainer) : ViewModel() {
         container.deliveryRepository.observeByStatuses(STAGE2_STATUSES),
         container.database.remoteSourceDocumentDao().observeAll(),
         container.database.remoteCounterpartyDao().observeAll(),
-    ) { deliveries, sourceDocs, counterparties ->
+        container.stage2DraftRepository.observeIds(),
+    ) { deliveries, sourceDocs, counterparties, draftIds ->
         val cpById = counterparties.associateBy { it.id }
         val docById = sourceDocs.associateBy { it.id }
+        val draftIdSet = draftIds.toSet()
 
         val pairs = deliveries.map { d ->
             val attachedIds = RemoteMappers.decodeIdList(d.sourceDocumentIdsJson)
@@ -98,6 +102,7 @@ class Stage2ListViewModel(container: AppContainer) : ViewModel() {
                 delivery = d,
                 titleText = titleText,
                 subtitleText = subtitleText,
+                hasDraft = d.id in draftIdSet,
             )
             val groupKey = contractorName?.takeIf { it.isNotBlank() } ?: UNKNOWN_CONTRACTOR_LABEL
             row to groupKey
