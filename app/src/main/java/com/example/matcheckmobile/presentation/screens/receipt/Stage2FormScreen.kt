@@ -1,5 +1,7 @@
 package com.example.matcheckmobile.presentation.screens.receipt
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -9,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -38,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -46,7 +50,6 @@ import com.example.matcheckmobile.presentation.components.EditableMaterialsInlin
 import com.example.matcheckmobile.presentation.components.MaterialDraft
 import com.example.matcheckmobile.presentation.components.MaterialEditDialog
 import com.example.matcheckmobile.presentation.components.MaterialsTableHeader
-import com.example.matcheckmobile.presentation.components.ModalTextField
 import com.example.matcheckmobile.presentation.components.PhotoCaptureSection
 import com.example.matcheckmobile.presentation.components.PhotoPreviewDialog
 import com.example.matcheckmobile.presentation.components.rememberDocumentScanner
@@ -69,6 +72,10 @@ fun Stage2FormScreen(
     val snackbar = remember { SnackbarHostState() }
     var previewPath by remember { mutableStateOf<String?>(null) }
     var addMaterialOpen by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+    // Источник для невидимого clickable на «пустые» зоны экрана — тап мимо
+    // инпутов сворачивает клавиатуру через clearFocus, как на Stage1.
+    val tapOutsideSource = remember { MutableInteractionSource() }
 
     LaunchedEffect(state.finalized) {
         if (state.finalized) onFinalized()
@@ -110,7 +117,19 @@ fun Stage2FormScreen(
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),
+                .padding(padding)
+                // imePadding на весь контент: при подъёме клавиатуры низ
+                // области (Комментарий + кнопка «Завершить 2 Этап») прижимается
+                // к верху клавиатуры без белой полосы между ними.
+                .imePadding()
+                // Тап по «пустой» зоне (мимо инпутов) гасит фокус — клавиатура
+                // прячется. indication=null убирает ripple, тапы по
+                // OutlinedTextField/кнопкам/чипам идут к ним напрямую.
+                .clickable(
+                    interactionSource = tapOutsideSource,
+                    indication = null,
+                    onClick = { focusManager.clearFocus() },
+                ),
         ) {
             val isTablet = maxWidth >= TabletBreakpoint
             val contentMaxWidth: Dp = if (isTablet) 900.dp else maxWidth
@@ -224,12 +243,15 @@ fun Stage2FormScreen(
                         )
                     }
 
-                    ModalTextField(
+                    OutlinedTextField(
                         value = state.commentText,
                         onValueChange = vm::setComment,
-                        label = "Комментарий",
+                        label = { Text("Комментарий", style = inputLabelStyle) },
+                        // singleLine для одинаковой высоты с «Госномер» —
+                        // тот же стиль, что и Комментарий на 1 Этапе.
+                        singleLine = true,
                         textStyle = inputTextStyle,
-                        labelStyle = inputLabelStyle,
+                        modifier = Modifier.fillMaxWidth(),
                     )
 
                     Box(
