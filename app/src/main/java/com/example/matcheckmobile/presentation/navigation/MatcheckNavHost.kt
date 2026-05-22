@@ -97,6 +97,9 @@ fun MatcheckNavHost() {
                 onOpenWithUpd = { updId ->
                     navController.navigate(Routes.stage1FormForUpd(updId))
                 },
+                onOpenDraft = { draftId ->
+                    navController.navigate(Routes.stage1FormForDraft(draftId))
+                },
                 onCreateEmpty = {
                     navController.navigate(Routes.stage1FormNew())
                 },
@@ -106,6 +109,11 @@ fun MatcheckNavHost() {
             route = Routes.STAGE1_FORM,
             arguments = listOf(
                 navArgument(Routes.ARG_UPD_ID) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument(Routes.ARG_DRAFT_ID) {
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null

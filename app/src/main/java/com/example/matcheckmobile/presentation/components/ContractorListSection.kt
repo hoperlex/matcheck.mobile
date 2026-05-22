@@ -1,8 +1,15 @@
 package com.example.matcheckmobile.presentation.components
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,7 +27,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
@@ -95,24 +104,74 @@ fun UpdSummaryCard(
     subtitle: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    started: Boolean = false,
 ) {
     Card(
         modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.headlineSmall,
-            )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.titleMedium,
-            )
+        Box(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    // Резерв справа под бейдж «Начато», чтобы длинное название
+                    // не заезжало под него.
+                    .padding(start = 16.dp, end = if (started) 96.dp else 16.dp, top = 16.dp, bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.headlineSmall,
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.titleMedium,
+                )
+            }
+            if (started) {
+                StartedBadge(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 12.dp, end = 12.dp),
+                )
+            }
         }
     }
 }
+
+/**
+ * «Начато» — зелёный пилюлеобразный лейбл с плавным пульсирующим alpha.
+ * Период ~1.8с (туда-обратно), easing linear, чтобы не «дёргалось». Цвет
+ * фиксированный (не из темы), чтобы на любой Surface оставался узнаваемо
+ * зелёным — это статусный маркер, а не декор.
+ */
+@Composable
+private fun StartedBadge(modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "started-badge")
+    val alpha by transition.animateFloat(
+        initialValue = 1f,
+        targetValue = 0.35f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 900, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "started-badge-alpha",
+    )
+    Surface(
+        shape = MaterialTheme.shapes.small,
+        color = StartedBadgeContainer,
+        contentColor = StartedBadgeContent,
+        modifier = modifier.alpha(alpha),
+    ) {
+        Text(
+            text = "Начато",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+        )
+    }
+}
+
+private val StartedBadgeContainer = Color(0xFF2E7D32) // green 800
+private val StartedBadgeContent = Color.White

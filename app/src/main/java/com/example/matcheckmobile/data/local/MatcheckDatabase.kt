@@ -23,6 +23,7 @@ import com.example.matcheckmobile.data.local.dao.RemoteSourceDocumentDao
 import com.example.matcheckmobile.data.local.dao.RemoteStatusDao
 import com.example.matcheckmobile.data.local.dao.SiteDao
 import com.example.matcheckmobile.data.local.dao.SourceDocumentDao
+import com.example.matcheckmobile.data.local.dao.Stage1DraftDao
 import com.example.matcheckmobile.data.local.dao.SyncQueueDao
 import com.example.matcheckmobile.data.local.dao.UserDao
 import com.example.matcheckmobile.data.local.entity.CounterpartyEntity
@@ -48,6 +49,7 @@ import com.example.matcheckmobile.data.local.entity.RemoteStatusEntity
 import com.example.matcheckmobile.data.local.entity.SiteEntity
 import com.example.matcheckmobile.data.local.entity.SourceDocumentEntity
 import com.example.matcheckmobile.data.local.entity.SourceDocumentItemEntity
+import com.example.matcheckmobile.data.local.entity.Stage1DraftEntity
 import com.example.matcheckmobile.data.local.entity.SyncQueueEntity
 import com.example.matcheckmobile.data.local.entity.UserEntity
 
@@ -80,8 +82,9 @@ import com.example.matcheckmobile.data.local.entity.UserEntity
         RemoteSourceDocumentItemEntity::class,
         RemoteSourceDocumentAttachmentEntity::class,
         MutationEntity::class,
+        Stage1DraftEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)
@@ -105,6 +108,7 @@ abstract class MatcheckDatabase : RoomDatabase() {
     abstract fun remoteSourceDocumentDao(): RemoteSourceDocumentDao
     abstract fun mutationDao(): MutationDao
     abstract fun deliveryLocalMetaDao(): DeliveryLocalMetaDao
+    abstract fun stage1DraftDao(): Stage1DraftDao
 
     companion object {
         private const val DB_NAME = "matcheck.db"
@@ -119,7 +123,7 @@ abstract class MatcheckDatabase : RoomDatabase() {
                     MatcheckDatabase::class.java,
                     DB_NAME,
                 )
-                    .addMigrations(MIGRATION_7_8)
+                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9)
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
                     .also { INSTANCE = it }
@@ -141,6 +145,37 @@ abstract class MatcheckDatabase : RoomDatabase() {
                             ON UPDATE NO ACTION ON DELETE CASCADE
                     )
                     """.trimIndent(),
+                )
+            }
+        }
+
+        // stage1_drafts — локальный черновик формы 1 Этапа: фото + поля.
+        // Сохраняется автоматически Stage1FormViewModel'ью при наличии хотя бы
+        // одного фото; удаляется после finalizeStage1 или когда все фото удалены.
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `stage1_drafts` (
+                        `localDraftId` TEXT NOT NULL,
+                        `updId` TEXT,
+                        `documentPhotoPathsJson` TEXT NOT NULL,
+                        `cargoPhotoPathsJson` TEXT NOT NULL,
+                        `vehicleTypeCode` TEXT,
+                        `materialsJson` TEXT NOT NULL,
+                        `commentText` TEXT NOT NULL,
+                        `licensePlate` TEXT NOT NULL,
+                        `manualUpdText` TEXT NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`localDraftId`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_stage1_drafts_updId` ON `stage1_drafts` (`updId`)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_stage1_drafts_updatedAt` ON `stage1_drafts` (`updatedAt`)",
                 )
             }
         }

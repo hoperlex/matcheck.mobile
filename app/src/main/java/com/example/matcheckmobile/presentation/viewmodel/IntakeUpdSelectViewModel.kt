@@ -3,6 +3,7 @@ package com.example.matcheckmobile.presentation.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.matcheckmobile.data.local.entity.RemoteSourceDocumentEntity
+import com.example.matcheckmobile.data.local.entity.Stage1DraftEntity
 import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.di.AppContainer
 import kotlinx.coroutines.flow.SharingStarted
@@ -25,12 +26,19 @@ import java.time.LocalDate
  * 'YYYY-MM-DD'). Сегодня — `expectedDate == LocalDate.now()`,
  * иначе (другая дата или null) — Будущие.
  */
+/**
+ * Строка списка УПД для выбора. Бывает двух «видов»:
+ * - реальная УПД из server-snapshot (`document != null`): тап → форма по `updId`;
+ *   `draftId != null` означает, что у УПД уже есть начатый локальный draft —
+ *   рисуем бейдж «Начато»;
+ * - empty-draft без УПД (`document == null`, `draftId != null`): создан кнопкой
+ *   «Создать приёмку», после первого фото и возврата назад попадает в список.
+ */
 data class IntakeUpdRow(
-    val document: RemoteSourceDocumentEntity,
-    /** Имя поставщика. На сервере приходит в `supplierName` готовое; counterparties используем как fallback. */
+    val document: RemoteSourceDocumentEntity?,
     val supplierName: String?,
-    /** Имя подрядчика. Аналогично supplierName: серверное поле + fallback на counterparties. */
     val contractorName: String?,
+    val draftId: String? = null,
 )
 
 /** Группа УПД по подрядчику. Используется для секций в [IntakeUpdSelectScreen]. */
@@ -53,7 +61,8 @@ class IntakeUpdSelectViewModel(container: AppContainer) : ViewModel() {
         container.database.remoteCounterpartyDao().observeAll(),
         container.database.remoteDeliveryDao().observeAttachedSourceDocumentIdsJson(),
         container.database.remoteShipmentDao().observeAttachedSourceDocumentIdsJson(),
-    ) { docs, cps, deliveryAttachedJsons, shipmentAttachedJsons ->
+        container.stage1DraftRepository.observeAll(),
+    ) { docs, cps, deliveryAttachedJsons, shipmentAttachedJsons, drafts ->
         val attachedIds: Set<String> = buildSet {
             (deliveryAttachedJsons + shipmentAttachedJsons).forEach { json ->
                 addAll(RemoteMappers.decodeIdList(json))
@@ -61,18 +70,41 @@ class IntakeUpdSelectViewModel(container: AppContainer) : ViewModel() {
         }
         val byCounterpartyId = cps.associateBy { it.id }
         val today = LocalDate.now().toString()
+        // updId → draftId. По uniqueness индекса значение единственное.
+        val draftsByUpdId: Map<String, String> = drafts
+            .mapNotNull { d -> d.updId?.let { it to d.localDraftId } }
+            .toMap()
+        val emptyDrafts: List<Stage1DraftEntity> = drafts.filter { it.updId == null }
+
         val todayRows = mutableListOf<IntakeUpdRow>()
         val futureRows = mutableListOf<IntakeUpdRow>()
         for (d in docs) {
             if (d.id in attachedIds) continue
+            val draftId = draftsByUpdId[d.id]
             val row = IntakeUpdRow(
                 document = d,
                 supplierName = d.supplierName
                     ?: d.supplierId?.let { byCounterpartyId[it]?.name },
                 contractorName = d.contractorName
                     ?: d.contractorId?.let { byCounterpartyId[it]?.name },
+                draftId = draftId,
             )
-            if (d.expectedDate == today) todayRows.add(row) else futureRows.add(row)
+            // Принудительно «Сегодня», если уже начата — пользователь работает
+            // с ней сейчас, неважно какая у УПД expectedDate.
+            val bucket = if (draftId != null || d.expectedDate == today) todayRows else futureRows
+            bucket.add(row)
+        }
+        // Empty drafts (без УПД) показываем только в «Сегодня» — это активные
+        // приёмки текущего инспектора.
+        for (draft in emptyDrafts) {
+            todayRows.add(
+                IntakeUpdRow(
+                    document = null,
+                    supplierName = null,
+                    contractorName = null,
+                    draftId = draft.localDraftId,
+                ),
+            )
         }
         IntakeUpdGroupsState(
             today = groupByContractor(todayRows),

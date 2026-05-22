@@ -4,19 +4,25 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.matcheckmobile.data.repository.DeliveryRepository
+import com.example.matcheckmobile.data.repository.Stage1DraftState
 import com.example.matcheckmobile.di.AppContainer
 import com.example.matcheckmobile.presentation.components.MaterialDraft
 import com.example.matcheckmobile.presentation.components.VehicleLoadInfo
 import com.example.matcheckmobile.presentation.navigation.Routes
 import com.example.matcheckmobile.sync.MatcheckSyncScheduler
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.UUID
 
 /**
  * Упрощённая форма «1 Этап» приёмки: фото + тип транспорта (локально) +
@@ -29,62 +35,143 @@ import java.io.File
  * приёмка привязывается к выбранной УПД через sourceDocumentIds, а позиции
  * УПД предзаполняются в materials (name + qty).
  */
+@OptIn(FlowPreview::class)
 class Stage1FormViewModel(
     private val container: AppContainer,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
     private val updId: String? = savedStateHandle[Routes.ARG_UPD_ID]
+    private val initialDraftId: String? = savedStateHandle[Routes.ARG_DRAFT_ID]
+
+    /**
+     * Идентификатор draft в Room. Заранее сгенерирован: при первом фото
+     * автосейв создаст запись с этим id, а навигация по списку «Сегодня»
+     * вернёт пользователя сюда же по `draftId`.
+     */
+    private val draftLocalId: String = initialDraftId ?: UUID.randomUUID().toString()
 
     private val _state = MutableStateFlow(Stage1FormUiState(updId = updId))
     val state: StateFlow<Stage1FormUiState> = _state.asStateFlow()
 
     init {
-        val id = updId
-        if (!id.isNullOrBlank()) {
-            viewModelScope.launch {
-                val items = runCatching {
-                    container.database.remoteSourceDocumentDao().findItemsBySource(id)
-                }.getOrDefault(emptyList())
-                if (items.isNotEmpty()) {
-                    val drafts = items.map {
-                        MaterialDraft(name = it.nameRaw, qty = it.qty, unit = it.unit)
-                    }
-                    // На веб-портале volumeM3 и massKg у позиции УПД хранятся
-                    // ПО ЕДИНИЦЕ материала — поэтому суммируем как qty * value.
-                    // Отдельно трекаем hasVolume/hasMass: если ни у одной
-                    // позиции нет данных, ставим null, и gauge нарисуется как
-                    // «нет данных» (см. apps/web/.../VehicleFillGauge.tsx).
-                    var volume = 0.0
-                    var massKg = 0.0
-                    var hasVolume = false
-                    var hasMass = false
-                    for (item in items) {
-                        val qty = item.qty.toDoubleOrNull() ?: 0.0
-                        item.volumeM3?.toDoubleOrNull()?.let {
-                            volume += it * qty
-                            hasVolume = true
-                        }
-                        item.massKg?.toDoubleOrNull()?.let {
-                            massKg += it * qty
-                            hasMass = true
-                        }
-                    }
-                    val gauge = if (hasVolume || hasMass) VehicleLoadInfo(
-                        totalVolumeM3 = if (hasVolume) volume else null,
-                        totalMassT = if (hasMass) massKg / 1000.0 else null,
-                    ) else null
-                    _state.update { current ->
-                        val withMaterials = if (current.materials.isEmpty())
-                            current.copy(materials = drafts)
-                        else current
-                        withMaterials.copy(loadInfo = gauge)
-                    }
-                }
+        viewModelScope.launch { restoreDraftOrInitDefaults() }
+        viewModelScope.launch { resolveSiteName() }
+        viewModelScope.launch { observeAutoSave() }
+    }
+
+    /**
+     * Восстановление draft. Приоритет:
+     * 1. По переданному `draftId` (открыт через «Сегодня» → форма уже была начата).
+     * 2. По `updId` (заходит впервые из списка УПД, draft мог остаться от прошлой сессии).
+     * 3. Иначе — обычный init с предзаполнением позициями из УПД.
+     */
+    private suspend fun restoreDraftOrInitDefaults() {
+        val restored = when {
+            initialDraftId != null -> container.stage1DraftRepository.findById(initialDraftId)
+            !updId.isNullOrBlank() -> container.stage1DraftRepository.findByUpdId(updId)
+            else -> null
+        }?.let { container.stage1DraftRepository.toState(it) }
+
+        if (restored != null) {
+            _state.update {
+                it.copy(
+                    updId = restored.updId,
+                    documentPhotoPaths = restored.documentPhotoPaths,
+                    cargoPhotoPaths = restored.cargoPhotoPaths,
+                    vehicleTypeCode = restored.vehicleTypeCode,
+                    materials = restored.materials,
+                    commentText = restored.commentText,
+                    licensePlate = restored.licensePlate,
+                    manualUpdText = restored.manualUpdText,
+                )
             }
         }
-        viewModelScope.launch { resolveSiteName() }
+
+        // Позиции УПД (предзаполнение материалов и gauge) — только если
+        // draft не восстановился: иначе перетрём пользовательский ввод.
+        val id = updId
+        if (restored == null && !id.isNullOrBlank()) {
+            preloadFromSourceDocument(id)
+        }
     }
+
+    private suspend fun preloadFromSourceDocument(id: String) {
+        val items = runCatching {
+            container.database.remoteSourceDocumentDao().findItemsBySource(id)
+        }.getOrDefault(emptyList())
+        if (items.isEmpty()) return
+
+        val drafts = items.map {
+            MaterialDraft(name = it.nameRaw, qty = it.qty, unit = it.unit)
+        }
+        // На веб-портале volumeM3 и massKg у позиции УПД хранятся
+        // ПО ЕДИНИЦЕ материала — поэтому суммируем как qty * value.
+        // Отдельно трекаем hasVolume/hasMass: если ни у одной
+        // позиции нет данных, ставим null, и gauge нарисуется как
+        // «нет данных» (см. apps/web/.../VehicleFillGauge.tsx).
+        var volume = 0.0
+        var massKg = 0.0
+        var hasVolume = false
+        var hasMass = false
+        for (item in items) {
+            val qty = item.qty.toDoubleOrNull() ?: 0.0
+            item.volumeM3?.toDoubleOrNull()?.let {
+                volume += it * qty
+                hasVolume = true
+            }
+            item.massKg?.toDoubleOrNull()?.let {
+                massKg += it * qty
+                hasMass = true
+            }
+        }
+        val gauge = if (hasVolume || hasMass) VehicleLoadInfo(
+            totalVolumeM3 = if (hasVolume) volume else null,
+            totalMassT = if (hasMass) massKg / 1000.0 else null,
+        ) else null
+        _state.update { current ->
+            val withMaterials = if (current.materials.isEmpty())
+                current.copy(materials = drafts)
+            else current
+            withMaterials.copy(loadInfo = gauge)
+        }
+    }
+
+    /**
+     * Автосейв draft: подписка на state c debounce. Триггер — хотя бы одно
+     * фото (любой kind). Если фото нет — draft удаляется (или не создаётся).
+     * `drop(1)` чтобы при первой подписке не дёрнуть запись с дефолтным
+     * пустым state до того, как успеет отработать restoreDraftOrInitDefaults.
+     */
+    private suspend fun observeAutoSave() {
+        _state
+            .drop(1)
+            .debounce(300L)
+            .distinctUntilChanged { a, b -> a.draftPayloadEquals(b) }
+            .collect { snapshot ->
+                if (snapshot.finalized) return@collect
+                val hasAnyPhoto = snapshot.documentPhotoPaths.isNotEmpty() ||
+                    snapshot.cargoPhotoPaths.isNotEmpty()
+                if (hasAnyPhoto) {
+                    container.stage1DraftRepository.upsert(snapshot.toDraftState())
+                } else {
+                    container.stage1DraftRepository.deleteById(draftLocalId)
+                }
+            }
+    }
+
+    private fun Stage1FormUiState.toDraftState(): Stage1DraftState = Stage1DraftState(
+        localDraftId = draftLocalId,
+        updId = updId,
+        documentPhotoPaths = documentPhotoPaths,
+        cargoPhotoPaths = cargoPhotoPaths,
+        vehicleTypeCode = vehicleTypeCode,
+        materials = materials,
+        commentText = commentText,
+        licensePlate = licensePlate,
+        manualUpdText = manualUpdText,
+        updatedAt = System.currentTimeMillis(),
+    )
 
     /**
      * Тянет название объекта для штампа: сперва из выбранной УПД (поле siteName
@@ -280,6 +367,10 @@ class Stage1FormViewModel(
 
                 MatcheckSyncScheduler.requestImmediateSync(container.appContext)
 
+                // Финализировано → draft больше не нужен. Делаем это ДО
+                // выставления finalized=true, чтобы автосейв не успел
+                // воскресить запись на следующем тике.
+                container.stage1DraftRepository.deleteById(draftLocalId)
                 _state.update { it.copy(isSaving = false, finalized = true) }
             } catch (e: Throwable) {
                 _state.update { it.copy(isSaving = false, error = e.message ?: "Ошибка сохранения") }
@@ -320,3 +411,19 @@ private fun isValidPlate(input: String): Boolean {
     val cleaned = input.replace(Regex("\\s+"), "").uppercase()
     return PLATE_REGEX.matches(cleaned)
 }
+
+/**
+ * Сравнение «полезной нагрузки» state'а для distinctUntilChanged автосейва.
+ * Исключаем волатильные поля (`isSaving`, `finalized`, `error`, `loadInfo` —
+ * computed из УПД, `showPlateError` — UI-флаг), чтобы автосейв не дёргался
+ * на каждый сетевой ретрай или Snackbar.
+ */
+private fun Stage1FormUiState.draftPayloadEquals(other: Stage1FormUiState): Boolean =
+    updId == other.updId &&
+        documentPhotoPaths == other.documentPhotoPaths &&
+        cargoPhotoPaths == other.cargoPhotoPaths &&
+        vehicleTypeCode == other.vehicleTypeCode &&
+        materials == other.materials &&
+        commentText == other.commentText &&
+        licensePlate == other.licensePlate &&
+        manualUpdText == other.manualUpdText

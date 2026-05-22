@@ -55,6 +55,7 @@ private val ContentMaxWidth = 720.dp
 fun IntakeUpdSelectScreen(
     onBack: () -> Unit,
     onOpenWithUpd: (updLocalId: String) -> Unit,
+    onOpenDraft: (draftId: String) -> Unit,
     onCreateEmpty: () -> Unit,
 ) {
     val vm: IntakeUpdSelectViewModel = matcheckViewModel()
@@ -149,6 +150,7 @@ fun IntakeUpdSelectScreen(
                                             expandedMap[group.contractorName] = !expanded
                                         },
                                         onOpenWithUpd = onOpenWithUpd,
+                                        onOpenDraft = onOpenDraft,
                                     )
                                 }
                             }
@@ -225,6 +227,7 @@ private fun IntakeUpdGroupSection(
     expanded: Boolean,
     onToggle: () -> Unit,
     onOpenWithUpd: (updLocalId: String) -> Unit,
+    onOpenDraft: (draftId: String) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         ContractorHeaderCard(
@@ -245,10 +248,26 @@ private fun IntakeUpdGroupSection(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 group.rows.forEach { row ->
+                    val doc = row.document
+                    val title: String
+                    val subtitle: String
+                    val onClick: () -> Unit
+                    if (doc != null) {
+                        title = "УПД ${doc.docNumber ?: "—"}"
+                        subtitle = "Поставщик: ${row.supplierName ?: "—"}"
+                        onClick = { onOpenWithUpd(doc.id) }
+                    } else {
+                        // Псевдо-карточка empty-draft (создана через «Создать
+                        // приёмку» без выбора УПД). Открываем по draftId.
+                        title = "Приёмка без УПД"
+                        subtitle = "Черновик ожидает завершения"
+                        onClick = { row.draftId?.let(onOpenDraft) }
+                    }
                     UpdSummaryCard(
-                        title = "УПД ${row.document.docNumber ?: "—"}",
-                        subtitle = "Поставщик: ${row.supplierName ?: "—"}",
-                        onClick = { onOpenWithUpd(row.document.id) },
+                        title = title,
+                        subtitle = subtitle,
+                        onClick = onClick,
+                        started = row.draftId != null,
                     )
                 }
             }

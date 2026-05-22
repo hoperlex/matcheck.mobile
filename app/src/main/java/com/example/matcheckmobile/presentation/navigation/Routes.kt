@@ -10,10 +10,12 @@ object Routes {
     const val RECEIPT_BASE = "receipt"
     const val ARG_UPD_ID = "updId"
     const val ARG_SESSION_ID = "sessionId"
+    const val ARG_DRAFT_ID = "draftId"
 
     const val STAGE1_FORM_BASE = "stage1_form"
-    const val STAGE1_FORM = "$STAGE1_FORM_BASE?$ARG_UPD_ID={$ARG_UPD_ID}"
+    const val STAGE1_FORM = "$STAGE1_FORM_BASE?$ARG_UPD_ID={$ARG_UPD_ID}&$ARG_DRAFT_ID={$ARG_DRAFT_ID}"
     fun stage1FormForUpd(updId: String): String = "$STAGE1_FORM_BASE?$ARG_UPD_ID=$updId"
+    fun stage1FormForDraft(draftId: String): String = "$STAGE1_FORM_BASE?$ARG_DRAFT_ID=$draftId"
     fun stage1FormNew(): String = STAGE1_FORM_BASE
 
     const val ARG_DELIVERY_ID = "deliveryId"
