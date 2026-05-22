@@ -173,5 +173,5 @@ private fun StartedBadge(modifier: Modifier = Modifier) {
     }
 }
 
-private val StartedBadgeContainer = Color(0xFF2E7D32) // green 800
+private val StartedBadgeContainer = Color(0xFFF9A825) // yellow 800 — янтарный, достаточно тёмный для белого текста
 private val StartedBadgeContent = Color.White
