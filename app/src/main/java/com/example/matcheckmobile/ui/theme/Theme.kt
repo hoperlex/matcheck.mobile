@@ -1,15 +1,10 @@
 package com.example.matcheckmobile.ui.theme
 
-import android.app.Activity
-import android.os.Build
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
 
 private val DarkColorScheme = darkColorScheme(
     primary = Purple80,
@@ -17,35 +12,33 @@ private val DarkColorScheme = darkColorScheme(
     tertiary = Pink80
 )
 
+// Светлая брендовая схема matcheck. primary = синий с веб-портала (#1677FF),
+// контейнеры — палитра Ant Design blue. Остальные роли (surface, background,
+// outline) оставляем дефолтными — Material 3 сам выводит нейтральные
+// светлые тона. Так UI везде получает одинаковый синий look, синхронный с
+// тем, что инспектор видит на web/Ant Design.
 private val LightColorScheme = lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleGrey40,
-    tertiary = Pink40
-
-    /* Other default colors to override
-    background = Color(0xFFFFFBFE),
-    surface = Color(0xFFFFFBFE),
+    primary = MatcheckBlue,
     onPrimary = Color.White,
-    onSecondary = Color.White,
-    onTertiary = Color.White,
-    onBackground = Color(0xFF1C1B1F),
-    onSurface = Color(0xFF1C1B1F),
-    */
+    primaryContainer = MatcheckBlueContainer,
+    onPrimaryContainer = MatcheckBlueOnContainer,
+    secondary = PurpleGrey40,
+    tertiary = Pink40,
 )
 
 @Composable
 fun MatcheckmobileTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    // Dynamic color is available on Android 12+
-    dynamicColor: Boolean = true,
+    // Раньше тема следовала системному dark mode + Material You dynamic
+    // colors — из-за этого на Realme/Oppo (Android 14/15) в тёмной системной
+    // теме UI становился «всё близко к чёрному», а от устройства к устройству
+    // палитра разнилась. Зафиксировали светлую брендовую схему, dynamic
+    // выключен. darkTheme/dynamicColor оставлены параметрами на случай, если
+    // когда-то решим вернуть автоподстройку под систему.
+    darkTheme: Boolean = false,
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-
         darkTheme -> DarkColorScheme
         else -> LightColorScheme
     }

@@ -69,6 +69,11 @@ fun PhotoCaptureSection(
                     text = buttonText,
                     style = buttonTextStyle,
                     textAlign = TextAlign.Center,
+                    // На узких экранах телефонов длинные подписи вроде
+                    // «Фото груза, госномера» иначе уезжают на 3 строки и
+                    // обрезаются высотой кнопки. Лимит в 2 строки + softWrap
+                    // by default дают аккуратный перенос без обрезки слов.
+                    maxLines = 2,
                 )
             }
         }

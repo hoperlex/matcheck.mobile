@@ -163,7 +163,11 @@ fun Stage2FormScreen(
             val photoButtonTextStyle = if (isTablet)
                 MaterialTheme.typography.headlineSmall
             else
-                MaterialTheme.typography.titleLarge
+                // titleLarge (~22sp) на узких телефонах не позволял
+                // подписи «Фото машины, госномера» влезть в кнопку — текст
+                // переносился в 3 строки и упирался в её высоту. titleMedium
+                // (~16sp) спокойно умещается в 2 строки.
+                MaterialTheme.typography.titleMedium
 
             // Та же layout-схема, что на Stage1: при подъёме клавиатуры
             // Комментарий прижимается к её верху без белой полосы, а кнопка
