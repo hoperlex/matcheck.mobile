@@ -37,14 +37,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Миниатюра локального фото с крестиком удаления в правом верхнем углу.
+ * Миниатюра локального фото. Если задан [onRemove] — рисуется крестик
+ * удаления в правом верхнем углу; иначе только превью без X (тогда удаление
+ * выносится в [PhotoPreviewDialog] с подтверждением).
  * Декодирование bitmap'а на IO‑диспетчере, с уменьшением по `inSampleSize` и поворотом по EXIF.
  */
 @Composable
 fun PhotoThumb(
     filePath: String,
-    onRemove: () -> Unit,
     modifier: Modifier = Modifier,
+    onRemove: (() -> Unit)? = null,
     size: androidx.compose.ui.unit.Dp = 80.dp,
     onClick: (() -> Unit)? = null,
 ) {
@@ -86,23 +88,25 @@ fun PhotoThumb(
                 )
             }
         }
-        IconButton(
-            onClick = onRemove,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .offset(x = 4.dp, y = (-4).dp)
-                .size(24.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.errorContainer),
-            colors = IconButtonDefaults.iconButtonColors(
-                contentColor = MaterialTheme.colorScheme.onErrorContainer,
-            ),
-        ) {
-            Icon(
-                Icons.Default.Close,
-                contentDescription = "Удалить фото",
-                modifier = Modifier.size(16.dp),
-            )
+        if (onRemove != null) {
+            IconButton(
+                onClick = onRemove,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = 4.dp, y = (-4).dp)
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.errorContainer),
+                colors = IconButtonDefaults.iconButtonColors(
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                ),
+            ) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "Удалить фото",
+                    modifier = Modifier.size(16.dp),
+                )
+            }
         }
     }
 }

@@ -38,7 +38,10 @@ fun PhotoCaptureSection(
     onTakePhoto: () -> Unit,
     photoPaths: List<String>,
     onRemovePhoto: (String) -> Unit,
-    onPreviewPhoto: (String) -> Unit,
+    // Превью получает не только путь к фото, но и колбэк удаления именно
+    // для этого фото — экран открывает PhotoPreviewDialog с кнопкой
+    // «Удалить», а X-крестик на миниатюре больше не рисуется.
+    onPreviewPhoto: (path: String, onDelete: () -> Unit) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -79,8 +82,9 @@ fun PhotoCaptureSection(
                 items(photoPaths, key = { it }) { path ->
                     PhotoThumb(
                         filePath = path,
-                        onRemove = { onRemovePhoto(path) },
-                        onClick = { onPreviewPhoto(path) },
+                        // onRemove не передаём — крестика на миниатюре нет.
+                        // Удаление идёт через PhotoPreviewDialog с подтверждением.
+                        onClick = { onPreviewPhoto(path) { onRemovePhoto(path) } },
                     )
                 }
             }

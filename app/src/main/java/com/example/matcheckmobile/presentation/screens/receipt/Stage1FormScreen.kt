@@ -88,6 +88,10 @@ fun Stage1FormScreen(
     val state by vm.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var previewPath by remember { mutableStateOf<String?>(null) }
+    // Колбэк удаления именно для текущего превью — секция (документы/груз)
+    // передаёт сюда замыкание, удаляющее своё фото. Кнопка «Удалить» внутри
+    // PhotoPreviewDialog дёргает его после подтверждения.
+    var previewDelete by remember { mutableStateOf<(() -> Unit)?>(null) }
     var confirmFinalizeVisible by remember { mutableStateOf(false) }
     var successVisible by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
@@ -248,7 +252,10 @@ fun Stage1FormScreen(
                                 onTakePhoto = takeDocumentPhoto,
                                 photoPaths = state.documentPhotoPaths,
                                 onRemovePhoto = vm::removeDocumentPhoto,
-                                onPreviewPhoto = { previewPath = it },
+                                onPreviewPhoto = { path, onDelete ->
+                                    previewPath = path
+                                    previewDelete = onDelete
+                                },
                                 modifier = Modifier.weight(1f),
                             )
 
@@ -260,7 +267,10 @@ fun Stage1FormScreen(
                                 onTakePhoto = takeCargoPhoto,
                                 photoPaths = state.cargoPhotoPaths,
                                 onRemovePhoto = vm::removeCargoPhoto,
-                                onPreviewPhoto = { previewPath = it },
+                                onPreviewPhoto = { path, onDelete ->
+                                    previewPath = path
+                                    previewDelete = onDelete
+                                },
                                 modifier = Modifier.weight(1f),
                             )
                         }
@@ -366,7 +376,11 @@ fun Stage1FormScreen(
         previewPath?.let { path ->
             PhotoPreviewDialog(
                 filePath = path,
-                onDismiss = { previewPath = null },
+                onDismiss = {
+                    previewPath = null
+                    previewDelete = null
+                },
+                onDelete = previewDelete,
             )
         }
 

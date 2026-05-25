@@ -74,6 +74,10 @@ fun Stage2FormScreen(
     val state by vm.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var previewPath by remember { mutableStateOf<String?>(null) }
+    // Колбэк удаления для текущего превью — каждая PhotoCaptureSection
+    // прокидывает сюда замыкание под своё фото. Кнопка «Удалить» внутри
+    // PhotoPreviewDialog вызывает его после подтверждения.
+    var previewDelete by remember { mutableStateOf<(() -> Unit)?>(null) }
     var addMaterialOpen by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
     // Источник для невидимого clickable на «пустые» зоны экрана — тап мимо
@@ -206,7 +210,10 @@ fun Stage2FormScreen(
                             onTakePhoto = takeDocumentPhoto,
                             photoPaths = state.documentPhotoPaths,
                             onRemovePhoto = vm::removeDocumentPhoto,
-                            onPreviewPhoto = { previewPath = it },
+                            onPreviewPhoto = { path, onDelete ->
+                                previewPath = path
+                                previewDelete = onDelete
+                            },
                             modifier = Modifier.weight(1f),
                         )
 
@@ -218,7 +225,10 @@ fun Stage2FormScreen(
                             onTakePhoto = takeVehiclePhoto,
                             photoPaths = state.vehiclePhotoPaths,
                             onRemovePhoto = vm::removeVehiclePhoto,
-                            onPreviewPhoto = { previewPath = it },
+                            onPreviewPhoto = { path, onDelete ->
+                                previewPath = path
+                                previewDelete = onDelete
+                            },
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -321,7 +331,11 @@ fun Stage2FormScreen(
         previewPath?.let { path ->
             PhotoPreviewDialog(
                 filePath = path,
-                onDismiss = { previewPath = null },
+                onDismiss = {
+                    previewPath = null
+                    previewDelete = null
+                },
+                onDelete = previewDelete,
             )
         }
 
