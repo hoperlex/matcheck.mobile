@@ -11,9 +11,11 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -53,6 +55,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -185,18 +188,26 @@ fun Stage1FormScreen(
             else
                 MaterialTheme.typography.titleMedium
 
-            // Layout-трюк, чтобы при поднятии клавиатуры:
-            // 1) скролл доходил до Комментария над клавиатурой,
-            // 2) кнопка «Завершить 1 Этап» оставалась внизу (клавиатура её
-            //    перекроет — поднимать её не надо),
-            // 3) между скроллом и клавиатурой не было видимой белой полосы.
+            // Layout как на 2 Этапе: Комментарий вынесен из скролла и прижат
+            // снизу через imePadding-Column. Скроллится только верхняя часть
+            // (фото / госномер / УПД / транспорт / материалы) через weight(1f)
+            // + verticalScroll. При подъёме клавиатуры imePadding ужимает всю
+            // Column — Комментарий прилипает к её верху и не «отрывается»
+            // пальцем; белой полосы между ним и клавиатурой нет.
             //
-            // Решение: скролл-Column тянется на ВСЮ высоту (включая зону под
-            // клавиатурой) и имеет imePadding — empty-зона imePadding физически
-            // совпадает с зоной клавиатуры и не видна. Кнопка рендерится через
-            // Box.align(BottomEnd) поверх — она в нижнем правом углу окна
-            // независимо от ime. У скролла внизу — content-padding под кнопку,
-            // чтобы последний инпут не «уезжал» под неё при ime=0.
+            // bottomReserve: место под кнопку «Завершить 1 Этап» нужно только
+            // при спрятанной клавиатуре. Когда ime поднята — кнопка скрыта за
+            // ней, резервировать ничего не нужно, иначе появится пустота
+            // между Комментарием и клавиатурой.
+            val density = LocalDensity.current
+            val imeBottomPx = WindowInsets.ime.getBottom(density)
+            val isImeVisible = imeBottomPx > 0
+            val bottomReserve = if (isImeVisible) {
+                0.dp
+            } else {
+                finalizeButtonHeight + sectionGap + outerPadding
+            }
+
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -219,91 +230,95 @@ fun Stage1FormScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .imePadding()
-                            .verticalScroll(rememberScrollState())
-                            // Резерв снизу под кнопку + её внутренний gap +
-                            // outerPadding — чтобы последний инпут (Комментарий)
-                            // не упирался в кнопку, когда клавиатура закрыта.
-                            .padding(bottom = finalizeButtonHeight + sectionGap + outerPadding),
+                            .padding(bottom = bottomReserve),
                         verticalArrangement = Arrangement.spacedBy(sectionGap),
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(sectionGap),
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(sectionGap),
                         ) {
-                            PhotoCaptureSection(
-                                buttonText = "Фото документов",
-                                buttonTextStyle = photoButtonTextStyle,
-                                isTablet = isTablet,
-                                buttonHeight = photoButtonHeight,
-                                onTakePhoto = takeDocumentPhoto,
-                                photoPaths = state.documentPhotoPaths,
-                                onRemovePhoto = vm::removeDocumentPhoto,
-                                onPreviewPhoto = { previewPath = it },
-                                modifier = Modifier.weight(1f),
-                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(sectionGap),
+                            ) {
+                                PhotoCaptureSection(
+                                    buttonText = "Фото документов",
+                                    buttonTextStyle = photoButtonTextStyle,
+                                    isTablet = isTablet,
+                                    buttonHeight = photoButtonHeight,
+                                    onTakePhoto = takeDocumentPhoto,
+                                    photoPaths = state.documentPhotoPaths,
+                                    onRemovePhoto = vm::removeDocumentPhoto,
+                                    onPreviewPhoto = { previewPath = it },
+                                    modifier = Modifier.weight(1f),
+                                )
 
-                            PhotoCaptureSection(
-                                buttonText = "Фото груза, госномера",
-                                buttonTextStyle = photoButtonTextStyle,
-                                isTablet = isTablet,
-                                buttonHeight = photoButtonHeight,
-                                onTakePhoto = takeCargoPhoto,
-                                photoPaths = state.cargoPhotoPaths,
-                                onRemovePhoto = vm::removeCargoPhoto,
-                                onPreviewPhoto = { previewPath = it },
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
+                                PhotoCaptureSection(
+                                    buttonText = "Фото груза, госномера",
+                                    buttonTextStyle = photoButtonTextStyle,
+                                    isTablet = isTablet,
+                                    buttonHeight = photoButtonHeight,
+                                    onTakePhoto = takeCargoPhoto,
+                                    photoPaths = state.cargoPhotoPaths,
+                                    onRemovePhoto = vm::removeCargoPhoto,
+                                    onPreviewPhoto = { previewPath = it },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
 
-                        OutlinedTextField(
-                            value = state.licensePlate,
-                            // Госномер пишем ВЕРХНИМ регистром, как и раньше с
-                            // forceUppercase в модалке — иначе при сравнении и
-                            // валидации регистры разъедутся.
-                            onValueChange = { vm.setLicensePlate(it.uppercase()) },
-                            label = { Text("Введите Госномер", style = inputLabelStyle) },
-                            isError = state.showPlateError,
-                            singleLine = true,
-                            textStyle = inputTextStyle,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-
-                        if (state.updId == null) {
                             OutlinedTextField(
-                                value = state.manualUpdText,
-                                onValueChange = vm::setManualUpd,
-                                label = { Text("Введите УПД", style = inputLabelStyle) },
+                                value = state.licensePlate,
+                                // Госномер пишем ВЕРХНИМ регистром, как и раньше с
+                                // forceUppercase в модалке — иначе при сравнении и
+                                // валидации регистры разъедутся.
+                                onValueChange = { vm.setLicensePlate(it.uppercase()) },
+                                label = { Text("Введите Госномер", style = inputLabelStyle) },
+                                isError = state.showPlateError,
                                 singleLine = true,
                                 textStyle = inputTextStyle,
                                 modifier = Modifier.fillMaxWidth(),
                             )
+
+                            if (state.updId == null) {
+                                OutlinedTextField(
+                                    value = state.manualUpdText,
+                                    onValueChange = vm::setManualUpd,
+                                    label = { Text("Введите УПД", style = inputLabelStyle) },
+                                    singleLine = true,
+                                    textStyle = inputTextStyle,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+
+                            VehicleTypeChips(
+                                selectedCode = state.vehicleTypeCode,
+                                onSelected = {
+                                    // Тап по чипу транспорта так же прячет клавиатуру,
+                                    // как и тап по пустой зоне — чип съедает pointer-event
+                                    // до корневого clickable, поэтому clearFocus вызываем
+                                    // здесь явно.
+                                    focusManager.clearFocus()
+                                    vm.selectVehicle(it.code)
+                                },
+                                maxItemsInRow = 2,
+                                iconHeight = vehicleIconHeight,
+                                showSubtitle = false,
+                                loadInfo = state.loadInfo,
+                                labelStyle = vehicleLabelStyle,
+                                chipTitleStyle = vehicleChipTitleStyle,
+                            )
+
+                            MaterialsField(
+                                value = state.materials,
+                                onValueChange = vm::setMaterials,
+                                readOnly = true,
+                                buttonTextStyle = materialsButtonTextStyle,
+                                buttonMinHeight = if (isTablet) 72.dp else 64.dp,
+                            )
                         }
-
-                        VehicleTypeChips(
-                            selectedCode = state.vehicleTypeCode,
-                            onSelected = {
-                                // Тап по чипу транспорта так же прячет клавиатуру,
-                                // как и тап по пустой зоне — чип съедает pointer-event
-                                // до корневого clickable, поэтому clearFocus вызываем
-                                // здесь явно.
-                                focusManager.clearFocus()
-                                vm.selectVehicle(it.code)
-                            },
-                            maxItemsInRow = 2,
-                            iconHeight = vehicleIconHeight,
-                            showSubtitle = false,
-                            loadInfo = state.loadInfo,
-                            labelStyle = vehicleLabelStyle,
-                            chipTitleStyle = vehicleChipTitleStyle,
-                        )
-
-                        MaterialsField(
-                            value = state.materials,
-                            onValueChange = vm::setMaterials,
-                            readOnly = true,
-                            buttonTextStyle = materialsButtonTextStyle,
-                            buttonMinHeight = if (isTablet) 72.dp else 64.dp,
-                        )
 
                         OutlinedTextField(
                             value = state.commentText,
@@ -318,11 +333,10 @@ fun Stage1FormScreen(
                         )
                     }
 
-                    // Кнопка «Завершить 1 Этап» прибита к низу окна через
-                    // Box.align(BottomEnd). Не входит в layout-chain scroll-Column,
-                    // поэтому imePadding скролла её не двигает — при подъёме
-                    // клавиатуры она остаётся в той же позиции (клавиатура её
-                    // перекрывает; для нажатия — сначала закрыть тапом мимо).
+                    // Кнопка «Завершить 1 Этап» — overlay через align(BottomEnd),
+                    // вне layout-chain Column. imePadding на Column её не двигает,
+                    // при открытой клавиатуре она остаётся внизу окна и просто
+                    // перекрывается клавиатурой (как на Stage2).
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
