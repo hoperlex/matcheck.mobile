@@ -50,6 +50,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.matcheckmobile.MatcheckApplication
 import com.example.matcheckmobile.presentation.components.EditableMaterialsInlineList
+import com.example.matcheckmobile.presentation.components.FinalizeConfirmDialog
+import com.example.matcheckmobile.presentation.components.FinalizeSuccessOverlay
 import com.example.matcheckmobile.presentation.components.MaterialDraft
 import com.example.matcheckmobile.presentation.components.MaterialEditDialog
 import com.example.matcheckmobile.presentation.components.MaterialsTableHeader
@@ -57,6 +59,7 @@ import com.example.matcheckmobile.presentation.components.PhotoCaptureSection
 import com.example.matcheckmobile.presentation.components.PhotoPreviewDialog
 import com.example.matcheckmobile.presentation.components.rememberDocumentScanner
 import com.example.matcheckmobile.presentation.components.rememberPhotoCapture
+import kotlinx.coroutines.delay
 import com.example.matcheckmobile.presentation.viewmodel.Stage2FormViewModel
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
 
@@ -79,13 +82,21 @@ fun Stage2FormScreen(
     // PhotoPreviewDialog вызывает его после подтверждения.
     var previewDelete by remember { mutableStateOf<(() -> Unit)?>(null) }
     var addMaterialOpen by remember { mutableStateOf(false) }
+    var confirmFinalizeVisible by remember { mutableStateOf(false) }
+    var successVisible by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
     // Источник для невидимого clickable на «пустые» зоны экрана — тап мимо
     // инпутов сворачивает клавиатуру через clearFocus, как на Stage1.
     val tapOutsideSource = remember { MutableInteractionSource() }
 
+    // На finalize показываем success-оверлей и через 900мс выходим — те же
+    // тайминги и поведение, что и на 1 Этапе (см. Stage1FormScreen).
     LaunchedEffect(state.finalized) {
-        if (state.finalized) onFinalized()
+        if (state.finalized) {
+            successVisible = true
+            delay(900L)
+            onFinalized()
+        }
     }
 
     LaunchedEffect(state.error) {
@@ -310,7 +321,7 @@ fun Stage2FormScreen(
                             .padding(bottom = outerPadding),
                     ) {
                         Button(
-                            onClick = vm::finalizeStage2,
+                            onClick = { confirmFinalizeVisible = true },
                             enabled = state.loaded && !state.isSaving && !state.finalized,
                             modifier = Modifier.height(finalizeButtonHeight),
                             contentPadding = PaddingValues(horizontal = 32.dp, vertical = 16.dp),
@@ -349,6 +360,22 @@ fun Stage2FormScreen(
                     addMaterialOpen = false
                 },
             )
+        }
+
+        if (confirmFinalizeVisible) {
+            FinalizeConfirmDialog(
+                title = "Завершить 2 Этап?",
+                message = "Подтверждение МОЛ будет отправлено на сервер. Изменить данные позже нельзя.",
+                onConfirm = {
+                    confirmFinalizeVisible = false
+                    vm.finalizeStage2()
+                },
+                onDismiss = { confirmFinalizeVisible = false },
+            )
+        }
+
+        if (successVisible) {
+            FinalizeSuccessOverlay()
         }
     }
 }
