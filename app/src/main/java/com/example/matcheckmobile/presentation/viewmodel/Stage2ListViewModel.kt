@@ -39,19 +39,21 @@ data class Stage2DeliveryGroup(
 private const val UNKNOWN_CONTRACTOR_LABEL = "Подрядчик не указан"
 
 /**
- * Список приёмок, ожидающих 2 Этап. Берём два статуса:
- *  - `filled` — «Оформлена» на веб-портале;
- *  - `no_document` — «Без документа» (1 Этап без выбора УПД из списка).
+ * Список приёмок, ожидающих 2 Этап — статус `filled` («Оформлена» на
+ * веб-портале). Подтверждение МОЛ переводит их в `confirmed_mol`, после
+ * чего они уходят из этого списка. UI показывает группировку по подрядчику
+ * с раскрытием — так же, как «Выбор УПД для приёмки» на 1 Этапе.
  *
- * Подтверждение МОЛ переводит их в `confirmed_mol`, после чего они уходят
- * из этого списка. UI показывает группировку по подрядчику с раскрытием —
- * так же, как «Выбор УПД для приёмки» на 1 Этапе.
+ * Раньше сюда же входил статус `no_document` (приёмка без УПД), но веб
+ * (commit fd0552c) упразднил этот код: теперь «без документа» — производный
+ * признак `sourceDocumentIds.length == 0`, а статус таких приёмок —
+ * `not_filled`. На 2 Этап их не пускаем: до МОЛ нужен оформленный `filled`.
  */
 class Stage2ListViewModel(container: AppContainer) : ViewModel() {
 
     init {
         // /sync для inspector_kpp фильтрует УПД, привязанные к приёмке/отгрузке,
-        // поэтому для filled/no_document приёмок их docNumber приходится дотягивать
+        // поэтому для filled-приёмок их docNumber приходится дотягивать
         // индивидуальными GET'ами. Подписка идёт пока ViewModel жив.
         viewModelScope.launch {
             container.deliveryRepository.observeByStatuses(STAGE2_STATUSES)
@@ -128,12 +130,12 @@ class Stage2ListViewModel(container: AppContainer) : ViewModel() {
         const val UPD_SUMMARY_MAX_INLINE = 2
 
         /** Статусы приёмки, попадающие в список 2-го Этапа. */
-        val STAGE2_STATUSES = listOf("filled", "no_document")
+        val STAGE2_STATUSES = listOf("filled")
 
         /**
          * Строка «УПД: <number>» либо «Примечание: <number>» в комментарии приёмки.
          * Stage1FormViewModel пишет ручной УПД с префиксом «Примечание:» — без него
-         * заголовок карточки no_document приёмки получался пустым («УПД —»).
+         * заголовок карточки приёмки без УПД был бы пустым («УПД —»).
          */
         val MANUAL_UPD_REGEX = Regex("(?m)^(?:УПД|Примечание):\\s*(.+)$")
 
