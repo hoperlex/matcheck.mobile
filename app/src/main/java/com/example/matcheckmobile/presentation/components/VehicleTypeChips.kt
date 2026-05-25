@@ -76,13 +76,21 @@ fun VehicleTypeChips(
         ) {
             VEHICLE_TYPES.forEach { type ->
                 val isSelected = type.code == selectedCode
+                // Когда у формы есть loadInfo (Stage1 — известны Объём/Масса
+                // по УПД), показываем «активный» вид (жирный primary-бордер +
+                // gauge по Объёму/Массе) сразу у всех 4 чипов: так видна
+                // прогнозируемая загрузка под каждый тип, а не только под
+                // тот, на который успели нажать. На экранах без loadInfo
+                // (ReceiptSessionFlow) поведение прежнее: рамку и subtitle
+                // меняет только реально выбранный чип.
+                val showActive = isSelected || loadInfo != null
                 VehicleChip(
                     type = type,
-                    selected = isSelected,
+                    selected = showActive,
                     onClick = { onSelected(type) },
                     iconHeight = iconHeight,
                     showSubtitle = showSubtitle,
-                    loadInfo = if (isSelected) loadInfo else null,
+                    loadInfo = loadInfo,
                     titleStyle = chipTitleStyle,
                     modifier = Modifier.weight(1f, fill = true),
                 )
