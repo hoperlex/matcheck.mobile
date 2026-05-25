@@ -10,9 +10,9 @@ val Purple40 = Color(0xFF6650a4)
 val PurpleGrey40 = Color(0xFF625b71)
 val Pink40 = Color(0xFF7D5260)
 
-// Брендовый синий matcheck — Ant Design geek-blue-6 `#2F54EB`.
-// Более насыщенный, с лёгким фиолетовым оттенком. Контейнер и
-// onContainer — geek-blue-1 / geek-blue-8 для контраста.
-val MatcheckBlue = Color(0xFF2F54EB)
-val MatcheckBlueContainer = Color(0xFFF0F5FF)   // Ant Design geek-blue-1
-val MatcheckBlueOnContainer = Color(0xFF10239E) // Ant Design geek-blue-8
+// Брендовый синий matcheck — Ant Design blue-7 `#096DD9`. На шаг темнее
+// основного blue-6 (`#1677ff`) c веба. Контейнер и onContainer —
+// blue-1 / blue-9 для контраста.
+val MatcheckBlue = Color(0xFF096DD9)
+val MatcheckBlueContainer = Color(0xFFE6F4FF)   // Ant Design blue-1
+val MatcheckBlueOnContainer = Color(0xFF002C8C) // Ant Design blue-9
