@@ -92,6 +92,12 @@ class Stage2FormViewModel(
                 commentText = originalComment,
                 vehicleTypeCode = vehicleTypeCode,
                 vehiclePlate = delivery.vehiclePlate?.takeIf { p -> p.isNotBlank() },
+                // Снимок серверных полей, которые мы не редактируем, но
+                // обязаны вернуть на finalize-upsert (иначе сервер их обнулит).
+                supplierId = delivery.supplierId,
+                contractorId = delivery.contractorId,
+                driverName = delivery.driverName,
+                arrivedAt = delivery.arrivedAt,
                 updDisplay = updDisplay,
                 loaded = true,
             )
@@ -317,6 +323,16 @@ class Stage2FormViewModel(
                         id = cur.deliveryId,
                         statusCode = "confirmed_mol",
                         siteId = siteId,
+                        // Все «не-редактируемые на 2 Этапе» поля приёмки
+                        // (Госномер / Прибытие / Поставщик / Подрядчик / Водитель)
+                        // обязаны быть переданы обратно, иначе сервер запишет
+                        // null'ы и веб-портал покажет пустые колонки в
+                        // карточке «Подтверждено МОЛ».
+                        supplierId = cur.supplierId,
+                        contractorId = cur.contractorId,
+                        vehiclePlate = cur.vehiclePlate,
+                        driverName = cur.driverName,
+                        arrivedAt = cur.arrivedAt,
                         comment = cur.commentText.ifBlank { null },
                         sourceDocumentIds = cur.sourceDocumentIds,
                         items = items,
@@ -416,6 +432,16 @@ data class Stage2FormUiState(
     val commentText: String = "",
     /** Госномер из приёмки — read-only сводка для информационного блока. */
     val vehiclePlate: String? = null,
+    // Серверные поля приёмки, которые 2 Этап не редактирует, но обязан
+    // вернуть их назад при finalize-upsert. Если их не передать,
+    // updateDelivery на сервере перепишет колонки в `null` (см.
+    // apps/api/src/routes/deliveries.ts: vehiclePlate: input.vehiclePlate ?? null
+    // и т.д.) — и веб-портал в «Подтверждено МОЛ» покажет пустые
+    // Госномер / Прибытие / Поставщик / Подрядчик / Водитель.
+    val supplierId: String? = null,
+    val contractorId: String? = null,
+    val driverName: String? = null,
+    val arrivedAt: String? = null,
     /** Номер(а) привязанной УПД для сводки, либо ручной номер из comment. */
     val updDisplay: String? = null,
     val loaded: Boolean = false,
