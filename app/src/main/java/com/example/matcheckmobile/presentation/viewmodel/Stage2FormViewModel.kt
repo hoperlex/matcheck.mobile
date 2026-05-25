@@ -9,6 +9,7 @@ import com.example.matcheckmobile.data.repository.Stage2DraftState
 import com.example.matcheckmobile.di.AppContainer
 import com.example.matcheckmobile.presentation.components.MaterialDraft
 import com.example.matcheckmobile.presentation.navigation.Routes
+import com.example.matcheckmobile.sync.MatcheckSyncScheduler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -378,6 +379,11 @@ class Stage2FormViewModel(
                     }
                     return@launch
                 }
+
+                // Принудительный push: без него мутация и новые фото 2 Этапа
+                // ждали бы периодики WorkManager (минимум 15 минут) или SSE-триггера.
+                // Stage1 уже делает то же самое после своего finalize.
+                MatcheckSyncScheduler.requestImmediateSync(container.appContext)
 
                 // Финализировано → draft больше не нужен. Удаляем ДО finalized=true,
                 // чтобы автосейв не воскресил запись на следующем тике debounce.
