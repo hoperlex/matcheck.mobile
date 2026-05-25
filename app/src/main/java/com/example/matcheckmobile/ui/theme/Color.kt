@@ -12,10 +12,8 @@ val Pink40 = Color(0xFF7D5260)
 
 // Брендовый синий matcheck — взят с веб-портала (apps/web/src/App.tsx
 // ConfigProvider token colorPrimary = '#1677ff' — Ant Design blue-6).
-// На мобайле как primary `#1677ff` смотрелся слишком ярким относительно
-// планшетной Material You палитры, к которой пользователь привык. Взяли
-// blue-8 (`#0958D9`) — тот же бренд-синий, но темнее и спокойнее. Контейнер
-// и onContainer оставили из тех же blue-2/blue-9.
-val MatcheckBlue = Color(0xFF0958D9)
+// Используется как primary в светлой теме мобайла, чтобы UI визуально
+// совпадал с тем, что инспектор видит на портале.
+val MatcheckBlue = Color(0xFF1677FF)
 val MatcheckBlueContainer = Color(0xFFD6E4FF)   // Ant Design blue-2
-val MatcheckBlueOnContainer = Color(0xFF002C8C) // Ant Design blue-9
+val MatcheckBlueOnContainer = Color(0xFF003A8C) // Ant Design blue-8
