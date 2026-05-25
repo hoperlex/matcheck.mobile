@@ -151,7 +151,10 @@ fun Stage1FormScreen(
             val contentMaxWidth: Dp = if (isTablet) 900.dp else maxWidth
             val outerPadding = if (isTablet) 24.dp else 16.dp
             val sectionGap = if (isTablet) 20.dp else 14.dp
-            val photoButtonHeight = if (isTablet) 128.dp else 104.dp
+            // На телефоне 104dp было впритык: padding 24 + иконка 32 + gap 6 +
+            // 2 строки текста ~36 = ~98, нижние выносные элементы букв («у», «р»)
+            // упирались в нижнюю границу кнопки. 116dp даёт запас ~10dp.
+            val photoButtonHeight = if (isTablet) 128.dp else 116.dp
             val vehicleIconHeight = if (isTablet) 96.dp else 72.dp
             val finalizeButtonHeight = if (isTablet) 80.dp else 64.dp
 

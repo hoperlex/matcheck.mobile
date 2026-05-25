@@ -149,7 +149,9 @@ fun Stage2FormScreen(
             val contentMaxWidth: Dp = if (isTablet) 900.dp else maxWidth
             val outerPadding = if (isTablet) 24.dp else 16.dp
             val sectionGap = if (isTablet) 20.dp else 14.dp
-            val photoButtonHeight = if (isTablet) 128.dp else 104.dp
+            // См. комментарий в Stage1FormScreen: 104dp было впритык, нижние
+            // выносные буквы упирались в границу. 116dp даёт ~10dp воздуха.
+            val photoButtonHeight = if (isTablet) 128.dp else 116.dp
             val finalizeButtonHeight = if (isTablet) 80.dp else 64.dp
 
             val inputTextStyle = if (isTablet)
