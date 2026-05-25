@@ -10,10 +10,9 @@ val Purple40 = Color(0xFF6650a4)
 val PurpleGrey40 = Color(0xFF625b71)
 val Pink40 = Color(0xFF7D5260)
 
-// Брендовый синий matcheck — взят с веб-портала (apps/web/src/App.tsx
-// ConfigProvider token colorPrimary = '#1677ff' — Ant Design blue-6).
-// Используется как primary в светлой теме мобайла, чтобы UI визуально
-// совпадал с тем, что инспектор видит на портале.
-val MatcheckBlue = Color(0xFF1677FF)
+// Брендовый синий matcheck — Ant Design blue-8 `#0958D9`. Чуть темнее, чем
+// blue-6 (`#1677ff`, тот что у web в colorPrimary): на мобайле спокойнее
+// смотрится. Контейнер и onContainer — blue-2 / blue-9 для контраста.
+val MatcheckBlue = Color(0xFF0958D9)
 val MatcheckBlueContainer = Color(0xFFD6E4FF)   // Ant Design blue-2
-val MatcheckBlueOnContainer = Color(0xFF003A8C) // Ant Design blue-8
+val MatcheckBlueOnContainer = Color(0xFF002C8C) // Ant Design blue-9
