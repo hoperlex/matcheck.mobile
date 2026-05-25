@@ -67,6 +67,7 @@ import com.example.matcheckmobile.MatcheckApplication
 import com.example.matcheckmobile.presentation.components.MaterialsField
 import com.example.matcheckmobile.presentation.components.PhotoCaptureSection
 import com.example.matcheckmobile.presentation.components.PhotoPreviewDialog
+import com.example.matcheckmobile.presentation.components.VehicleLoadInfo
 import com.example.matcheckmobile.presentation.components.VehicleTypeChips
 import com.example.matcheckmobile.presentation.components.rememberDocumentScanner
 import com.example.matcheckmobile.presentation.components.rememberPhotoCapture
@@ -301,7 +302,14 @@ fun Stage1FormScreen(
                             maxItemsInRow = 2,
                             iconHeight = vehicleIconHeight,
                             showSubtitle = false,
-                            loadInfo = state.loadInfo,
+                            // Ручная приёмка без УПД не имеет данных Объём/Масса
+                            // в материалах, но визуально хотим тот же «активный»
+                            // вид всех 4 чипов, что и при подгруженной УПД.
+                            // Подставляем пустой VehicleLoadInfo: gauge нарисуется
+                            // с подписью «нет данных» (см. LoadColumn), а чипы
+                            // получат жирный primary-бордер (showActive=true в
+                            // VehicleTypeChips, потому что loadInfo != null).
+                            loadInfo = state.loadInfo ?: VehicleLoadInfo(null, null),
                             labelStyle = vehicleLabelStyle,
                             chipTitleStyle = vehicleChipTitleStyle,
                         )
