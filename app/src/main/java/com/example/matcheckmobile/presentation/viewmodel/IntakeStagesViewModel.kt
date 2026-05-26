@@ -10,18 +10,22 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
+import java.time.Instant
 import java.time.LocalDate
 
 /**
- * Счётчики на кнопке «1 Этап» стартового экрана приёмки.
+ * Счётчики на стартовом экране приёмки.
  *
- * - `totalToday` — «Всего»: то же множество, что отображается во вкладке
- *   «Сегодня» 1 Этапа: empty-drafts + УПД-drafts + неприкреплённые УПД с
- *   `expectedDate == today` без draft (без двойного счёта).
- * - `unloadingActive` — «В разгрузке»: все [stage1_drafts]. Draft существует
- *   ровно тогда, когда есть хотя бы одно фото — это и есть «Начато».
- * - `overdueUnloading` — «Разгрузка >2ч»: drafts с `createdAt` (момент «Начато»,
- *   первое фото) старше двух часов. Тикер каждые 30с двигает порог.
+ * - `totalToday` — «Всего»: непривязанные УПД с `expectedDate == today` без
+ *   draft + все черновики 1 Этапа + приёмки на 2 Этапе (`filled`). Без двойного
+ *   счёта: УПД, у которой есть draft, попадает только в «drafts.size».
+ * - `unloadingActive` — «В разгрузке»: drafts (фактически — там есть фото,
+ *   draft создаётся только при первом снимке) + приёмки на 2 Этапе.
+ * - `overdueUnloading` — «Разгрузка >2ч»: подмножество «В разгрузке», у
+ *   которого момент «начато» старше двух часов:
+ *   — для draft это `createdAt` (первое фото),
+ *   — для filled-приёмки это `updatedAt` (момент «Завершить 1 Этап»).
+ *   Тикер раз в 30с двигает порог.
  */
 data class IntakeStagesCounts(
     val totalToday: Int = 0,
@@ -31,13 +35,21 @@ data class IntakeStagesCounts(
 
 class IntakeStagesViewModel(container: AppContainer) : ViewModel() {
 
-    val counts: StateFlow<IntakeStagesCounts> = combine(
-        container.database.remoteSourceDocumentDao().observeAll(),
+    // Сворачиваем оба «attached»-потока в один Pair, чтобы остаться в пределах
+    // 5-арного combine при расширении состава источников.
+    private val attachedIdsFlow = combine(
         container.database.remoteDeliveryDao().observeAttachedSourceDocumentIdsJson(),
         container.database.remoteShipmentDao().observeAttachedSourceDocumentIdsJson(),
+    ) { deliveryJsons, shipmentJsons -> deliveryJsons to shipmentJsons }
+
+    val counts: StateFlow<IntakeStagesCounts> = combine(
+        container.database.remoteSourceDocumentDao().observeAll(),
+        attachedIdsFlow,
         container.stage1DraftRepository.observeAll(),
+        container.deliveryRepository.observeByStatuses(STAGE2_STATUSES),
         overdueTicker,
-    ) { docs, deliveryAttachedJsons, shipmentAttachedJsons, drafts, nowMs ->
+    ) { docs, attached, drafts, stage2Deliveries, nowMs ->
+        val (deliveryAttachedJsons, shipmentAttachedJsons) = attached
         val attachedIds: Set<String> = buildSet {
             (deliveryAttachedJsons + shipmentAttachedJsons).forEach { json ->
                 addAll(RemoteMappers.decodeIdList(json))
@@ -46,27 +58,32 @@ class IntakeStagesViewModel(container: AppContainer) : ViewModel() {
         val today = LocalDate.now().toString()
         val updWithDraft: Set<String> = drafts.mapNotNull { it.updId }.toSet()
 
-        // Всего = эквивалент списка «Сегодня» на 1 Этапе:
-        //   (empty + УПД-drafts) + неприкреплённые УПД на сегодня без draft.
+        // Всего: непривязанные УПД на сегодня без draft + drafts + filled-приёмки.
         val unattachedTodayWithoutDraft = docs.count { d ->
             d.id !in attachedIds &&
                 d.id !in updWithDraft &&
                 d.expectedDate == today
         }
-        val totalToday = drafts.size + unattachedTodayWithoutDraft
+        val totalToday = drafts.size + unattachedTodayWithoutDraft + stage2Deliveries.size
 
-        // В разгрузке: все drafts (== «Начато», есть хотя бы одно фото).
-        val unloading = drafts.size
+        // В разгрузке: drafts (== есть фото) + приёмки на 2 Этапе.
+        val unloading = drafts.size + stage2Deliveries.size
 
-        // >2ч: считаем по createdAt (момент первого фото = момент старта),
-        // НЕ updatedAt — иначе любой ввод текста сбрасывает таймер.
+        // >2ч: для draft — createdAt (первое фото). Для filled-приёмки —
+        // updatedAt (момент перехода в filled при «Завершить 1 Этап»).
+        // updatedAt сервер возвращает как ISO, локально пишем тоже ISO в
+        // DeliveryRepository.upsert — нужно распарсить в epoch-мс.
         val twoHoursAgoMs = nowMs - 2 * 60 * 60 * 1000L
-        val overdue = drafts.count { it.createdAt in 1 until twoHoursAgoMs }
+        val overdueDrafts = drafts.count { it.createdAt in 1 until twoHoursAgoMs }
+        val overdueStage2 = stage2Deliveries.count { d ->
+            val ts = parseIsoMillis(d.updatedAt)
+            ts != null && ts < twoHoursAgoMs
+        }
 
         IntakeStagesCounts(
             totalToday = totalToday,
             unloadingActive = unloading,
-            overdueUnloading = overdue,
+            overdueUnloading = overdueDrafts + overdueStage2,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -75,12 +92,21 @@ class IntakeStagesViewModel(container: AppContainer) : ViewModel() {
     )
 
     private companion object {
+        /** Совпадает со Stage2ListViewModel.STAGE2_STATUSES. */
+        val STAGE2_STATUSES = listOf("filled")
+
         /** Тикает раз в 30 секунд, чтобы счётчик «>2 часов» переезжал по мере старения. */
         val overdueTicker = flow {
             while (true) {
                 emit(System.currentTimeMillis())
                 delay(30_000L)
             }
+        }
+
+        fun parseIsoMillis(s: String?): Long? = try {
+            if (s.isNullOrBlank()) null else Instant.parse(s).toEpochMilli()
+        } catch (_: Exception) {
+            null
         }
     }
 }
