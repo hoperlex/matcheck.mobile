@@ -14,6 +14,8 @@ data class DeliveryDto(
     val siteId: String,
     val supplierId: String? = null,
     val contractorId: String? = null,
+    // Получатель — Подрядчик/МОЛ; сервер берёт его из УПД при привязке.
+    val recipientMolId: String? = null,
     val vehiclePlate: String? = null,
     val driverName: String? = null,
     val arrivedAt: String? = null,
@@ -46,6 +48,11 @@ data class DeliveryItemDto(
     val lineNo: Int,
     val volumeM3: String? = null,
     val massKg: String? = null,
+    // Финансы из УПД: цена за единицу, ставка НДС, сумма НДС по позиции.
+    // Все Decimal-как-String, см. комментарий к DeliveryDto.
+    val price: String? = null,
+    val vatRate: String? = null,
+    val vatSum: String? = null,
     val volumeConfidence: String? = null,
     val groupName: String? = null,
 )
@@ -70,6 +77,7 @@ data class DeliveryUpsertRequest(
     val siteId: String,
     val supplierId: String? = null,
     val contractorId: String? = null,
+    val recipientMolId: String? = null,
     val vehiclePlate: String? = null,
     val driverName: String? = null,
     val arrivedAt: String? = null,
@@ -91,6 +99,9 @@ data class DeliveryUpsertItem(
     val lineNo: Int,
     val volumeM3: String? = null,
     val massKg: String? = null,
+    val price: String? = null,
+    val vatRate: String? = null,
+    val vatSum: String? = null,
     val volumeConfidence: String? = null,
     val groupName: String? = null,
 )

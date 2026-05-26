@@ -30,6 +30,7 @@ data class RemoteDeliveryEntity(
     val siteId: String,
     val supplierId: String?,
     val contractorId: String?,
+    val recipientMolId: String?,
     val vehiclePlate: String?,
     val driverName: String?,
     val arrivedAt: String?,
@@ -81,6 +82,9 @@ data class RemoteDeliveryItemEntity(
     val lineNo: Int,
     val volumeM3: String?,
     val massKg: String?,
+    val price: String?,
+    val vatRate: String?,
+    val vatSum: String?,
     val volumeConfidence: String?,
     val groupName: String?,
 )

@@ -88,19 +88,51 @@ class Stage1FormViewModel(
             }
         }
 
-        // Позиции УПД (предзаполнение материалов и gauge) — только если
-        // draft не восстановился: иначе перетрём пользовательский ввод.
+        // УПД-метаданные (контрагенты, финансы по позициям) подтягиваем всегда,
+        // если есть updId — даже когда восстановили draft. Materials заполним
+        // из УПД только если draft пустой/отсутствует, чтобы не перетереть
+        // пользовательский ввод.
         val id = updId
-        if (restored == null && !id.isNullOrBlank()) {
-            preloadFromSourceDocument(id)
+        if (!id.isNullOrBlank()) {
+            preloadFromSourceDocument(id, fillMaterials = restored == null)
         }
     }
 
-    private suspend fun preloadFromSourceDocument(id: String) {
+    private suspend fun preloadFromSourceDocument(id: String, fillMaterials: Boolean) {
         val items = runCatching {
             container.database.remoteSourceDocumentDao().findItemsBySource(id)
         }.getOrDefault(emptyList())
+        val docMeta = runCatching {
+            container.database.remoteSourceDocumentDao().findById(id)
+        }.getOrNull()
+
+        // Контрагенты — supplier/contractor/recipientMol — нужны на upsert,
+        // чтобы веб-портал отрисовал их в карточке приёмки. SourceDocument
+        // на мобиле называет получателя recipientId, на сервере — recipientMolId
+        // (один и тот же id, маппится без преобразования).
+        if (docMeta != null) {
+            _state.update {
+                it.copy(
+                    updSupplierId = docMeta.supplierId,
+                    updContractorId = docMeta.contractorId,
+                    updRecipientMolId = docMeta.recipientId,
+                )
+            }
+        }
+
         if (items.isEmpty()) return
+
+        // Финансы из УПД сохраняем по lineNo — потом мерджим обратно при
+        // финализации, даже если юзер правил qty/name (вьюшка их не показывает,
+        // но цена и НДС не меняются от ручной правки количества).
+        val financials = items.map {
+            UpdItemFinancials(
+                lineNo = it.lineNo,
+                price = it.price,
+                vatRate = it.vatRate,
+                vatSum = it.vatSum,
+            )
+        }
 
         val drafts = items.map {
             MaterialDraft(name = it.nameRaw, qty = it.qty, unit = it.unit)
@@ -130,10 +162,13 @@ class Stage1FormViewModel(
             totalMassT = if (hasMass) massKg / 1000.0 else null,
         ) else null
         _state.update { current ->
-            val withMaterials = if (current.materials.isEmpty())
+            val withMaterials = if (fillMaterials && current.materials.isEmpty())
                 current.copy(materials = drafts)
             else current
-            withMaterials.copy(loadInfo = gauge)
+            withMaterials.copy(
+                loadInfo = gauge,
+                materialFinancials = financials,
+            )
         }
     }
 
@@ -288,13 +323,22 @@ class Stage1FormViewModel(
         _state.update { it.copy(isSaving = true, error = null) }
         viewModelScope.launch {
             try {
+                // Мерджим финансы из УПД (price/vatRate/vatSum) по lineNo —
+                // юзер их не правит, но веб ждёт их рядом с позициями приёмки.
+                val financialsByLine = cur.materialFinancials.associateBy { it.lineNo }
                 val items = cur.materials
                     .filter { it.name.isNotBlank() || it.qty.isNotBlank() }
                     .mapIndexed { idx, m ->
+                        val lineNo = idx + 1
+                        val fin = financialsByLine[lineNo]
                         DeliveryRepository.ItemInput(
                             nameRaw = m.name.trim().ifEmpty { "—" },
                             qtyActual = m.qty.trim().ifEmpty { null },
-                            lineNo = idx + 1,
+                            unit = m.unit.ifEmpty { "шт" },
+                            lineNo = lineNo,
+                            price = fin?.price,
+                            vatRate = fin?.vatRate,
+                            vatSum = fin?.vatSum,
                         )
                     }
 
@@ -317,6 +361,12 @@ class Stage1FormViewModel(
                     DeliveryRepository.UpsertInput(
                         statusCode = "filled",
                         siteId = siteId,
+                        // Контрагенты из УПД — без них веб показывает прочерки
+                        // в Поставщике/Подрядчике/Получателе. Для no_document
+                        // приёмок (cur.updId == null) полей нет, они остаются null.
+                        supplierId = cur.updSupplierId,
+                        contractorId = cur.updContractorId,
+                        recipientMolId = cur.updRecipientMolId,
                         vehiclePlate = plate.ifEmpty { null },
                         // arrivedAt = момент «Завершить 1 Этап». Без него на веб-портале
                         // в колонке «Прибытие» висит «—»: сервер сам не подставляет default,
@@ -393,6 +443,15 @@ data class Stage1FormUiState(
     val cargoPhotoPaths: List<String> = emptyList(),
     val vehicleTypeCode: String? = null,
     val materials: List<MaterialDraft> = emptyList(),
+    // Финансы по позициям УПД (price/vatRate/vatSum), параллельны materials
+    // по lineNo (= индекс+1). Хранятся отдельно от MaterialDraft чтобы не
+    // ломать UI-компонент списка материалов; на финализации мерджатся в items.
+    val materialFinancials: List<UpdItemFinancials> = emptyList(),
+    // Контрагенты из УПД — нужны при создании приёмки, чтобы веб-портал
+    // показал Поставщика/Подрядчика/Получателя в карточке.
+    val updSupplierId: String? = null,
+    val updContractorId: String? = null,
+    val updRecipientMolId: String? = null,
     val commentText: String = "",
     val licensePlate: String = "",
     val showPlateError: Boolean = false,
@@ -401,6 +460,14 @@ data class Stage1FormUiState(
     val isSaving: Boolean = false,
     val finalized: Boolean = false,
     val error: String? = null,
+)
+
+/** Финансы одной позиции УПД, сохраняемые рядом с MaterialDraft по lineNo. */
+data class UpdItemFinancials(
+    val lineNo: Int,
+    val price: String?,
+    val vatRate: String?,
+    val vatSum: String?,
 )
 
 /**

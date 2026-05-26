@@ -76,6 +76,7 @@ object RemoteMappers {
         siteId = siteId,
         supplierId = supplierId,
         contractorId = contractorId,
+        recipientMolId = recipientMolId,
         vehiclePlate = vehiclePlate,
         driverName = driverName,
         arrivedAt = arrivedAt,
@@ -98,6 +99,7 @@ object RemoteMappers {
         id = id, deliveryId = deliveryId, materialId = materialId, nameRaw = nameRaw,
         qtyPlanned = qtyPlanned, qtyActual = qtyActual, unit = unit, comment = comment,
         lineNo = lineNo, volumeM3 = volumeM3, massKg = massKg,
+        price = price, vatRate = vatRate, vatSum = vatSum,
         volumeConfidence = volumeConfidence, groupName = groupName,
     )
 

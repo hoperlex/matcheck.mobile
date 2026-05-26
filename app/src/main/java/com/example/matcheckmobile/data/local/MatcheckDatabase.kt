@@ -87,7 +87,7 @@ import com.example.matcheckmobile.data.local.entity.UserEntity
         Stage1DraftEntity::class,
         Stage2DraftEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)
@@ -127,7 +127,7 @@ abstract class MatcheckDatabase : RoomDatabase() {
                     MatcheckDatabase::class.java,
                     DB_NAME,
                 )
-                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
+                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
                     .also { INSTANCE = it }
@@ -194,6 +194,20 @@ abstract class MatcheckDatabase : RoomDatabase() {
                 db.execSQL(
                     "UPDATE `stage1_drafts` SET `createdAt` = `updatedAt` WHERE `createdAt` = 0",
                 )
+            }
+        }
+
+        // remote_deliveries.recipientMolId — Получатель из УПД (Подрядчик/МОЛ).
+        // remote_delivery_items.price/vatRate/vatSum — финансовые поля из УПД,
+        // нужны на веб-портале в карточке приёмки и в Материалах→Поступление.
+        // Все поля nullable, существующие записи получат NULL — backfill приедет
+        // при следующем /sync.
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `remote_deliveries` ADD COLUMN `recipientMolId` TEXT")
+                db.execSQL("ALTER TABLE `remote_delivery_items` ADD COLUMN `price` TEXT")
+                db.execSQL("ALTER TABLE `remote_delivery_items` ADD COLUMN `vatRate` TEXT")
+                db.execSQL("ALTER TABLE `remote_delivery_items` ADD COLUMN `vatSum` TEXT")
             }
         }
 
