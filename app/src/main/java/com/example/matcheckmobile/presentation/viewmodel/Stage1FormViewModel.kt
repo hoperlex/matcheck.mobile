@@ -108,14 +108,14 @@ class Stage1FormViewModel(
 
         // Контрагенты — supplier/contractor/recipientMol — нужны на upsert,
         // чтобы веб-портал отрисовал их в карточке приёмки. SourceDocument
-        // на мобиле называет получателя recipientId, на сервере — recipientMolId
-        // (один и тот же id, маппится без преобразования).
+        // на сервере отдаёт recipientMolId отдельно (поле физлица-МОЛ),
+        // recipientId — старое историческое поле, не используем.
         if (docMeta != null) {
             _state.update {
                 it.copy(
                     updSupplierId = docMeta.supplierId,
                     updContractorId = docMeta.contractorId,
-                    updRecipientMolId = docMeta.recipientId,
+                    updRecipientMolId = docMeta.recipientMolId,
                 )
             }
         }
@@ -357,6 +357,14 @@ class Stage1FormViewModel(
                 }
                 val commentForServer = commentParts.joinToString("\n").ifEmpty { null }
 
+                // CHECK constraint deliveries_recipient_chk на сервере:
+                // нельзя одновременно contractor_id и recipient_mol_id. На вебе
+                // в карточке это «Получатель: Подрядчик / МОЛ» — переключатель.
+                // Приоритет МОЛ (физлица): если из УПД есть recipientMolId,
+                // он перебивает contractorId; иначе используем contractorId.
+                val finalRecipientMolId = cur.updRecipientMolId
+                val finalContractorId = if (finalRecipientMolId == null) cur.updContractorId else null
+
                 val deliveryId = container.deliveryRepository.upsert(
                     DeliveryRepository.UpsertInput(
                         statusCode = "filled",
@@ -365,8 +373,8 @@ class Stage1FormViewModel(
                         // в Поставщике/Подрядчике/Получателе. Для no_document
                         // приёмок (cur.updId == null) полей нет, они остаются null.
                         supplierId = cur.updSupplierId,
-                        contractorId = cur.updContractorId,
-                        recipientMolId = cur.updRecipientMolId,
+                        contractorId = finalContractorId,
+                        recipientMolId = finalRecipientMolId,
                         vehiclePlate = plate.ifEmpty { null },
                         // arrivedAt = момент «Завершить 1 Этап». Без него на веб-портале
                         // в колонке «Прибытие» висит «—»: сервер сам не подставляет default,

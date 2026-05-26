@@ -26,6 +26,7 @@ data class RemoteSourceDocumentEntity(
     val supplierId: String?,
     val recipientId: String?,
     val contractorId: String?,
+    val recipientMolId: String?,
     val siteId: String?,
     val supplierName: String?,
     val contractorName: String?,

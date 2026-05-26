@@ -170,6 +170,7 @@ object RemoteMappers {
     fun SourceDocumentDto.toEntity(): RemoteSourceDocumentEntity = RemoteSourceDocumentEntity(
         id = id, kind = kind, direction = direction, status = status,
         supplierId = supplierId, recipientId = recipientId, contractorId = contractorId,
+        recipientMolId = recipientMolId,
         siteId = siteId, supplierName = supplierName, contractorName = contractorName,
         siteName = siteName, docNumber = docNumber, docDate = docDate,
         totalSum = totalSum, vatSum = vatSum, expectedDate = expectedDate, origin = origin,

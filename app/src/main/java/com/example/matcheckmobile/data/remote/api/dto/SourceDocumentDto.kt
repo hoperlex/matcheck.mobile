@@ -19,6 +19,9 @@ data class SourceDocumentDto(
     val supplierId: String? = null,
     val recipientId: String? = null,
     val contractorId: String? = null,
+    // Получатель-МОЛ (отдельно от recipientId — это разные поля на сервере).
+    // У приёмки и УПД альтернативы: либо contractor_id, либо recipient_mol_id.
+    val recipientMolId: String? = null,
     val siteId: String? = null,
     val supplierName: String? = null,
     val contractorName: String? = null,
