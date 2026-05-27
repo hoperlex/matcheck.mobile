@@ -8,11 +8,9 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -29,7 +27,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -44,8 +41,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -173,19 +172,12 @@ fun Stage2FormScreen(
                 MaterialTheme.typography.titleMedium
 
             // Та же layout-схема, что на Stage1: при подъёме клавиатуры
-            // Комментарий прижимается к её верху без белой полосы, а кнопка
-            // «Завершить 2 Этап» через Box.align(BottomEnd) остаётся в нижнем
-            // правом углу окна (клавиатура её перекрывает). Резерв снизу под
-            // кнопку — только когда клавиатура закрыта; при открытой ime
-            // зануляем, иначе образуется пустота между Комментарием и клавиатурой.
-            val density = LocalDensity.current
-            val imeBottomPx = WindowInsets.ime.getBottom(density)
-            val isImeVisible = imeBottomPx > 0
-            val bottomReserve = if (isImeVisible) {
-                0.dp
-            } else {
-                finalizeButtonHeight + sectionGap + outerPadding
-            }
+            // Column ужимается imePadding'ом, кнопка «Завершить 2 Этап» через
+            // Box.align(BottomEnd) остаётся в нижнем правом углу окна и
+            // перекрывается клавиатурой (как на Stage1). Резерв снизу под
+            // кнопку — константный, чтобы последний инпут «Комментарий 2 Этап»
+            // не уезжал под кнопку при закрытой клавиатуре.
+            val bottomReserve = finalizeButtonHeight + sectionGap + outerPadding
 
             Box(
                 modifier = Modifier
@@ -306,44 +298,50 @@ fun Stage2FormScreen(
                         )
                     }
 
-                    state.stage1Comment?.takeIf { it.isNotBlank() }?.let { stage1Text ->
-                        // Read-only блок над инпутом «Комментарий»: показывает
-                        // комментарий 1 Этапа, чтобы инспектор видел контекст.
-                        // Стиль — лёгкая карточка surfaceVariant, чтобы блок
-                        // визуально отличался от input'а 2 Этапа.
-                        Surface(
-                            shape = MaterialTheme.shapes.medium,
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                    // 1 Этап header + Комментарий 2 Этап в одном sub-Column'е без
+                    // gap — header «прилипает» к input'у сверху, не съедая
+                    // место у списка материалов. Уровень родительского
+                    // verticalArrangement.spacedBy(sectionGap) к ним не
+                    // применяется (они один child родителя).
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        state.stage1Comment?.takeIf { it.isNotBlank() }?.let { stage1Text ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(
+                                        color = MaterialTheme.colorScheme.surfaceVariant,
+                                        shape = RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp),
+                                    )
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.Top,
                             ) {
                                 Text(
-                                    text = "1 Этап",
+                                    text = "1 Этап:",
                                     style = MaterialTheme.typography.labelLarge,
                                     color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(end = 8.dp),
                                 )
                                 Text(
                                     text = stage1Text,
-                                    style = inputTextStyle,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
                                 )
                             }
                         }
-                    }
 
-                    OutlinedTextField(
-                        value = state.commentText,
-                        onValueChange = vm::setComment,
-                        label = { Text("Комментарий 2 Этап", style = inputLabelStyle) },
-                        // singleLine для одинаковой высоты с «Госномер» —
-                        // тот же стиль, что и Комментарий на 1 Этапе.
-                        singleLine = true,
-                        textStyle = inputTextStyle,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                        OutlinedTextField(
+                            value = state.commentText,
+                            onValueChange = vm::setComment,
+                            label = { Text("Комментарий 2 Этап", style = inputLabelStyle) },
+                            // singleLine для одинаковой высоты с «Госномер» —
+                            // тот же стиль, что и Комментарий на 1 Этапе.
+                            singleLine = true,
+                            textStyle = inputTextStyle,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                     }
 
                     // Кнопка «Завершить 2 Этап» — overlay через align(BottomEnd),
