@@ -105,7 +105,15 @@ fun UpdSummaryCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     started: Boolean = false,
+    timer: UpdTimerBadge? = null,
 ) {
+    // Резерв справа под бейдж: для таймера нужно больше (текст «1д 1ч 23мин»),
+    // для «Начато» — фикс. Если оба, приоритет у таймера.
+    val rightPadding = when {
+        timer != null -> 132.dp
+        started -> 96.dp
+        else -> 16.dp
+    }
     Card(
         modifier = modifier
             .fillMaxWidth()
@@ -115,9 +123,7 @@ fun UpdSummaryCard(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    // Резерв справа под бейдж «Начато», чтобы длинное название
-                    // не заезжало под него.
-                    .padding(start = 16.dp, end = if (started) 96.dp else 16.dp, top = 16.dp, bottom = 16.dp),
+                    .padding(start = 16.dp, end = rightPadding, top = 16.dp, bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text(
@@ -129,8 +135,14 @@ fun UpdSummaryCard(
                     style = MaterialTheme.typography.titleMedium,
                 )
             }
-            if (started) {
-                StartedBadge(
+            when {
+                timer != null -> TimerBadge(
+                    timer = timer,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 12.dp, end = 12.dp),
+                )
+                started -> StartedBadge(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(top = 12.dp, end = 12.dp),
@@ -139,6 +151,45 @@ fun UpdSummaryCard(
         }
     }
 }
+
+/**
+ * Таймер «время в работе» для карточки УПД на 2 Этапе. До 2 часов — жёлтый,
+ * после — красный. Текст формируется снаружи (например, `1ч 23мин`).
+ */
+data class UpdTimerBadge(
+    val text: String,
+    val overdue: Boolean,
+)
+
+@Composable
+private fun TimerBadge(timer: UpdTimerBadge, modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "timer-badge")
+    val alpha by transition.animateFloat(
+        initialValue = 1f,
+        targetValue = 0.35f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 900, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "timer-badge-alpha",
+    )
+    val container = if (timer.overdue) TimerOverdueContainer else StartedBadgeContainer
+    Surface(
+        shape = MaterialTheme.shapes.small,
+        color = container,
+        contentColor = Color.White,
+        modifier = modifier.alpha(alpha),
+    ) {
+        Text(
+            text = timer.text,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+        )
+    }
+}
+
+private val TimerOverdueContainer = Color(0xFFD32F2F) // red 700 — совпадает с OverdueDot на кнопке 1 Этапа
 
 /**
  * «Начато» — зелёный пилюлеобразный лейбл с плавным пульсирующим alpha.

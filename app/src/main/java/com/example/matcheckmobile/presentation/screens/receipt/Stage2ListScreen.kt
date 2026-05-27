@@ -27,6 +27,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,8 +36,11 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.matcheckmobile.presentation.components.ContractorHeaderCard
 import com.example.matcheckmobile.presentation.components.UpdSummaryCard
+import com.example.matcheckmobile.presentation.components.UpdTimerBadge
 import com.example.matcheckmobile.presentation.viewmodel.Stage2ListViewModel
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
+import kotlinx.coroutines.delay
+import java.time.Instant
 
 private val ContentMaxWidth = 720.dp
 
@@ -49,6 +53,14 @@ fun Stage2ListScreen(
     val vm: Stage2ListViewModel = matcheckViewModel()
     val groups by vm.groups.collectAsStateWithLifecycle()
     val expandedMap = remember { mutableStateMapOf<String, Boolean>() }
+    // Один общий тикер на весь экран — пересчитывает таймеры всех УПД сразу.
+    // 30 секунд достаточно для шага «минута» в формате «1ч 23мин».
+    val nowMs by produceState(initialValue = System.currentTimeMillis()) {
+        while (true) {
+            value = System.currentTimeMillis()
+            delay(30_000L)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -130,7 +142,14 @@ fun Stage2ListScreen(
                                                         title = row.titleText,
                                                         subtitle = row.subtitleText,
                                                         onClick = { onOpenDelivery(row.delivery.id) },
-                                                        started = row.hasDraft,
+                                                        // «Начато» скрыт — на 2 Этапе показываем таймер.
+                                                        // row.hasDraft в VM считается, может пригодиться позже.
+                                                        started = false,
+                                                        timer = stage2TimerBadge(
+                                                            arrivedAt = row.delivery.arrivedAt,
+                                                            fallback = row.delivery.updatedAt,
+                                                            nowMs = nowMs,
+                                                        ),
                                                     )
                                                 }
                                             }
@@ -143,5 +162,43 @@ fun Stage2ListScreen(
                 }
             }
         }
+    }
+}
+
+private const val TWO_HOURS_MS: Long = 2L * 60L * 60L * 1000L
+
+/**
+ * Считает таймер «время в работе» для УПД 2 Этапа. Точка отсчёта — `arrivedAt`
+ * (выставляется в Stage1FormViewModel.finalizeStage1 = момент Завершить 1 Этап).
+ * Если по какой-то причине его нет (старая запись) — fallback на `updatedAt`.
+ * Возвращает null когда обе метки невалидны.
+ */
+private fun stage2TimerBadge(arrivedAt: String?, fallback: String, nowMs: Long): UpdTimerBadge? {
+    val startMs = parseInstantMs(arrivedAt) ?: parseInstantMs(fallback) ?: return null
+    val durationMs = (nowMs - startMs).coerceAtLeast(0L)
+    return UpdTimerBadge(
+        text = formatTimerDuration(durationMs),
+        overdue = durationMs >= TWO_HOURS_MS,
+    )
+}
+
+private fun parseInstantMs(value: String?): Long? {
+    if (value.isNullOrBlank()) return null
+    return runCatching { Instant.parse(value).toEpochMilli() }.getOrNull()
+}
+
+/**
+ * Формат: «23мин», «1ч 23мин», «1д 1ч 23мин». Минуты есть всегда; часы —
+ * с момента, как накопился хотя бы 1ч; дни — с 24ч. Меньше минуты → «0мин».
+ */
+private fun formatTimerDuration(ms: Long): String {
+    val totalMin = ms / 60_000L
+    val days = totalMin / (24L * 60L)
+    val hours = (totalMin % (24L * 60L)) / 60L
+    val minutes = totalMin % 60L
+    return buildString {
+        if (days > 0L) append("${days}д ")
+        if (days > 0L || hours > 0L) append("${hours}ч ")
+        append("${minutes}мин")
     }
 }
