@@ -36,6 +36,8 @@ object Routes {
     fun receiptNew(): String = RECEIPT_BASE
 
     const val DISPATCH = "dispatch"
+    /** Стартовый экран отгрузки с двумя кнопками 1 Этап / 2 Этап (зеркало INTAKE_STAGES). */
+    const val DISPATCH_STAGES = "dispatch_stages"
     const val JOURNAL = "journal"
     const val SYNC_QUEUE = "sync_queue"
     const val SETTINGS = "settings"

@@ -12,6 +12,7 @@ import androidx.navigation.navArgument
 import com.example.matcheckmobile.MatcheckApplication
 import com.example.matcheckmobile.data.repository.AuthRepository
 import com.example.matcheckmobile.presentation.screens.dispatch.DispatchScreen
+import com.example.matcheckmobile.presentation.screens.dispatch.DispatchStagesScreen
 import com.example.matcheckmobile.presentation.screens.documents.DocumentDetailsScreen
 import com.example.matcheckmobile.presentation.screens.documents.DocumentsScreen
 import com.example.matcheckmobile.presentation.screens.details.OperationDetailsScreen
@@ -74,7 +75,7 @@ fun MatcheckNavHost() {
         composable(Routes.MAIN) {
             MainScreen(
                 onReceipt = { navController.navigate(Routes.INTAKE_STAGES) },
-                onDispatch = { navController.navigate(Routes.DISPATCH) },
+                onDispatch = { navController.navigate(Routes.DISPATCH_STAGES) },
                 onJournal = { navController.navigate(Routes.JOURNAL) },
                 onSyncQueue = { navController.navigate(Routes.SYNC_QUEUE) },
                 onSettings = { navController.navigate(Routes.SETTINGS) },
@@ -171,6 +172,17 @@ fun MatcheckNavHost() {
             ReceiptScreen(
                 onBack = { navController.popBackStack() },
                 onSaved = { navController.popBackStack() },
+            )
+        }
+        composable(Routes.DISPATCH_STAGES) {
+            // Пока обе кнопки 1 Этап / 2 Этап ведут на legacy DispatchScreen
+            // (форма ввода отгрузки). Когда будут реализованы отдельные
+            // экраны выбора УПД и подтверждения МОЛ для shipment — поменяем
+            // навигацию на свои Stage1List / Stage2List.
+            DispatchStagesScreen(
+                onBack = { navController.popBackStack() },
+                onStage1 = { navController.navigate(Routes.DISPATCH) },
+                onStage2 = { navController.navigate(Routes.DISPATCH) },
             )
         }
         composable(Routes.DISPATCH) {
