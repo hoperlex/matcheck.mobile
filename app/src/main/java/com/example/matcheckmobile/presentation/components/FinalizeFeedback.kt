@@ -38,7 +38,7 @@ import androidx.compose.ui.window.DialogProperties
 @Composable
 fun FinalizeConfirmDialog(
     title: String,
-    message: String,
+    message: String? = null,
     confirmLabel: String = "Завершить",
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
@@ -46,7 +46,10 @@ fun FinalizeConfirmDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title, fontWeight = FontWeight.SemiBold) },
-        text = { Text(message) },
+        // message=null → диалог без пояснительного текста (минимальная высота:
+        // заголовок + кнопки). Используется на 1 Этапе приёмки, где пояснение
+        // избыточно.
+        text = message?.let { { Text(it) } },
         confirmButton = {
             TextButton(onClick = onConfirm) {
                 Text(confirmLabel, fontWeight = FontWeight.SemiBold)
