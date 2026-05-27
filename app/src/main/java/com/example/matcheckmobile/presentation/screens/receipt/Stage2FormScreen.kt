@@ -8,11 +8,9 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -45,7 +43,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -174,22 +171,14 @@ fun Stage2FormScreen(
                 // (~16sp) спокойно умещается в 2 строки.
                 MaterialTheme.typography.titleMedium
 
-            // На Stage2 нет verticalScroll на всей Column'е (список материалов
-            // имеет собственный weight=1f + scroll), поэтому константный
-            // bottomReserve при открытой клавиатуре оставляет белое поле
-            // между инпутом «Комментарий 2 Этап» и клавиатурой — выглядит
-            // как разрыв до шапки «Добавить материал». Зануляем резерв,
-            // когда ime поднята: инпут липнет к верху клавиатуры.
-            // Кнопка «Завершить 2 Этап» через Box.align(BottomEnd) остаётся
-            // в нижнем правом углу окна и перекрывается клавиатурой —
-            // поведение совпадает со Stage1.
-            val density = LocalDensity.current
-            val isImeVisible = WindowInsets.ime.getBottom(density) > 0
-            val bottomReserve = if (isImeVisible) {
-                0.dp
-            } else {
-                finalizeButtonHeight + sectionGap + outerPadding
-            }
+            // bottomReserve = 0 всегда:
+            // - Клавиатура закрыта → инпут «Комментарий 2 Этап» доходит до
+            //   низа Column'а, кнопка «Завершить 2 Этап» через Box.align(BottomEnd)
+            //   ложится поверх его правой части (перекрывает). Левая часть
+            //   инпута остаётся кликабельной — тап вызывает клавиатуру.
+            // - Клавиатура открыта → imePadding ужимает Column, инпут липнет
+            //   к верху клавиатуры, кнопка остаётся под клавиатурой и не видна
+            //   → инпут «поверх» кнопки.
 
             Box(
                 modifier = Modifier
@@ -216,8 +205,7 @@ fun Stage2FormScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .imePadding()
-                            .padding(bottom = bottomReserve),
+                            .imePadding(),
                         verticalArrangement = Arrangement.spacedBy(sectionGap),
                     ) {
                     Row(
