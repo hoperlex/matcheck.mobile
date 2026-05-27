@@ -231,10 +231,8 @@ class DispatchStage1FormViewModel(
             _state.update { it.copy(showPlateError = true, error = "Введите госномер") }
             return
         }
-        if (!isValidPlate(plate)) {
-            _state.update { it.copy(showPlateError = true, error = "Неверный формат госномера") }
-            return
-        }
+        // Regex-валидация формата убрана: те же резоны что в Stage1FormViewModel
+        // (спецтехника / прицепы / ведомственные номера). Достаточно непустоты.
         val siteId = container.tokenStorage.state.value.siteId
         if (siteId.isNullOrBlank()) {
             _state.update { it.copy(error = "Нет привязки к объекту, переавторизуйтесь") }
@@ -359,12 +357,6 @@ data class DispatchStage1FormUiState(
     val finalized: Boolean = false,
     val error: String? = null,
 )
-
-private val PLATE_REGEX = Regex("^[А-ЯA-Z]\\d{3}[А-ЯA-Z]{2}\\d{2,3}\$")
-private fun isValidPlate(input: String): Boolean {
-    val cleaned = input.replace(Regex("\\s+"), "").uppercase()
-    return PLATE_REGEX.matches(cleaned)
-}
 
 private fun DispatchStage1FormUiState.draftPayloadEquals(other: DispatchStage1FormUiState): Boolean =
     updId == other.updId &&

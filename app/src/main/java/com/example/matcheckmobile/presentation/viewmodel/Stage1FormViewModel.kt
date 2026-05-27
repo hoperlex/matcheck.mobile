@@ -309,10 +309,10 @@ class Stage1FormViewModel(
             _state.update { it.copy(showPlateError = true, error = "Введите госномер") }
             return
         }
-        if (!isValidPlate(plate)) {
-            _state.update { it.copy(showPlateError = true, error = "Неверный формат госномера") }
-            return
-        }
+        // Regex-валидация формата убрана намеренно: спецтехника / приcпы /
+        // ведомственные номера используют нетипичные комбинации, и инспектору
+        // важно завершить 1 Этап даже с «нестандартным» номером. Достаточно
+        // проверки на непустоту.
 
         val siteId = container.tokenStorage.state.value.siteId
         if (siteId.isNullOrBlank()) {
@@ -482,22 +482,6 @@ data class UpdItemFinancials(
     val vatRate: String?,
     val vatSum: String?,
 )
-
-/**
- * Госномер: 1 буква + 3 цифры + 2 буквы + 2-3 цифры региона.
- * Буквы — любые из русского или латинского алфавитов: легковые ходят на 12
- * «общих» буквах (АВЕКМНОРСТУХ), но спецтехника/ведомственные/прицепы/дип-
- * номера используют другие буквы (включая «Г», «Д», «Б» и т.д.). Не блокируем
- * нестандартные комбинации. Пробелы игнорируем, регистр — любой.
- */
-private val PLATE_REGEX = Regex(
-    "^[А-ЯA-Z]\\d{3}[А-ЯA-Z]{2}\\d{2,3}\$",
-)
-
-private fun isValidPlate(input: String): Boolean {
-    val cleaned = input.replace(Regex("\\s+"), "").uppercase()
-    return PLATE_REGEX.matches(cleaned)
-}
 
 /**
  * Сравнение «полезной нагрузки» state'а для distinctUntilChanged автосейва.
