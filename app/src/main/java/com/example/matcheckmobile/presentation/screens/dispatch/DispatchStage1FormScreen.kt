@@ -291,7 +291,6 @@ fun DispatchStage1FormScreen(
         if (confirmFinalizeVisible) {
             FinalizeConfirmDialog(
                 title = "Завершить 1 Этап?",
-                message = "Данные будут отправлены на сервер. Изменить их позже на 1 Этапе нельзя.",
                 onConfirm = {
                     confirmFinalizeVisible = false
                     vm.finalizeStage1()
