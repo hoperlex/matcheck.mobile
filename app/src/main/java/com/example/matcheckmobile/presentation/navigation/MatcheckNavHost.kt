@@ -26,6 +26,7 @@ import com.example.matcheckmobile.presentation.screens.receipt.Stage1FormScreen
 import com.example.matcheckmobile.presentation.screens.receipt.Stage2FormScreen
 import com.example.matcheckmobile.presentation.screens.receipt.Stage2ListScreen
 import com.example.matcheckmobile.presentation.screens.settings.SettingsScreen
+import com.example.matcheckmobile.presentation.screens.splash.SplashScreen
 import com.example.matcheckmobile.presentation.screens.sync.SyncQueueScreen
 
 @Composable
@@ -33,9 +34,10 @@ fun MatcheckNavHost() {
     val context = LocalContext.current
     val container = (context.applicationContext as MatcheckApplication).container
     val navController = rememberNavController()
-    val startDestination = remember {
-        if (container.tokenStorage.isAuthenticated()) Routes.MAIN else Routes.LOGIN
-    }
+    // Стартуем со SPLASH: он сам решит куда вести — на MAIN (с проактивно
+    // обновлённым access-токеном) или на LOGIN (если refresh мёртв).
+    // Это убирает flicker «MAIN → первый запрос 401 → LOGIN».
+    val startDestination = Routes.SPLASH
 
     LaunchedEffect(Unit) {
         container.authRepository.sessionEvents.collect { event ->
@@ -48,6 +50,20 @@ fun MatcheckNavHost() {
     }
 
     NavHost(navController = navController, startDestination = startDestination) {
+        composable(Routes.SPLASH) {
+            SplashScreen(
+                onAuthenticated = {
+                    navController.navigate(Routes.MAIN) {
+                        popUpTo(Routes.SPLASH) { inclusive = true }
+                    }
+                },
+                onUnauthenticated = {
+                    navController.navigate(Routes.LOGIN) {
+                        popUpTo(Routes.SPLASH) { inclusive = true }
+                    }
+                },
+            )
+        }
         composable(Routes.LOGIN) {
             LoginScreen(onLoggedIn = {
                 navController.navigate(Routes.MAIN) {

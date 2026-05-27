@@ -1,6 +1,7 @@
 package com.example.matcheckmobile.presentation.navigation
 
 object Routes {
+    const val SPLASH = "splash"
     const val LOGIN = "login"
     const val MAIN = "main"
     const val INTAKE_STAGES = "intake_stages"

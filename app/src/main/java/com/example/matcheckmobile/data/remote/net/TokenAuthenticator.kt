@@ -27,7 +27,14 @@ import retrofit2.HttpException
 class TokenAuthenticator(
     private val tokenStorage: TokenStorage,
     private val authApiProvider: () -> AuthApi,
-    private val onSessionInvalidated: () -> Unit,
+    /**
+     * Вызывается когда refresh упал с 401 (сервер сказал invalid_refresh /
+     * no_refresh / reuse detection). `triggeredByPath` — путь бизнес-запроса,
+     * который инициировал цепочку (полезно для audit log: «нас выкинуло на
+     * /api/v1/sync» vs «нас выкинуло на /api/v1/photos/presign»).
+     * `httpCode` — код HttpException, обычно 401.
+     */
+    private val onSessionInvalidated: (triggeredByPath: String, httpCode: Int) -> Unit,
 ) : Authenticator {
 
     private val refreshMutex = Mutex()
@@ -59,7 +66,7 @@ class TokenAuthenticator(
                 }
 
                 val refresh = tokenStorage.refreshToken ?: run {
-                    onSessionInvalidated()
+                    onSessionInvalidated(path, 401)
                     return@withLock null
                 }
 
@@ -78,7 +85,7 @@ class TokenAuthenticator(
                     // 401 invalid_refresh / no_refresh — сессия мертва.
                     if (e.code() == 401) {
                         tokenStorage.clear()
-                        onSessionInvalidated()
+                        onSessionInvalidated(path, 401)
                     }
                     null
                 } catch (_: Throwable) {

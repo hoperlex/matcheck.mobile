@@ -24,7 +24,7 @@ import java.util.concurrent.TimeUnit
 class NetworkFactory(
     baseUrl: String,
     tokenStorage: TokenStorage,
-    onSessionInvalidated: () -> Unit,
+    onSessionInvalidated: (triggeredByPath: String, httpCode: Int) -> Unit,
 ) {
 
     private val json: Json = Json {

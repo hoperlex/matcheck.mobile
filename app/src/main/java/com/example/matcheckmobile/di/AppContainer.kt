@@ -43,6 +43,9 @@ class AppContainer(val appContext: Context) {
 
     val tokenStorage: TokenStorage = TokenStorage(appContext)
 
+    val logoutAuditLog: com.example.matcheckmobile.data.auth.LogoutAuditLog =
+        com.example.matcheckmobile.data.auth.LogoutAuditLog(appContext)
+
     // AuthRepository нужен раньше, чем NetworkFactory отдаёт authApi,
     // потому что NetworkFactory принимает callback "сессия умерла".
     // Решается через lateinit + provider: NetworkFactory зовёт repo.notify,
@@ -52,12 +55,13 @@ class AppContainer(val appContext: Context) {
     val networkFactory: NetworkFactory = NetworkFactory(
         baseUrl = BuildConfig.API_BASE_URL,
         tokenStorage = tokenStorage,
-        onSessionInvalidated = { _authRepository.notifySessionInvalidated() },
+        onSessionInvalidated = { path, code -> _authRepository.notifySessionInvalidated(path, code) },
     )
 
     val authRepository: AuthRepository = AuthRepository(
         authApi = networkFactory.authApi,
         tokenStorage = tokenStorage,
+        logoutAuditLog = logoutAuditLog,
     ).also { _authRepository = it }
 
     val syncApi: SyncApi = networkFactory.create(SyncApi::class.java)
