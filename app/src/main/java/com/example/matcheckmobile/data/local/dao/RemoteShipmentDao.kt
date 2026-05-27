@@ -102,4 +102,16 @@ interface RemoteShipmentDao {
         """
     )
     fun observeAttachedSourceDocumentIdsJson(): kotlinx.coroutines.flow.Flow<List<String>>
+
+    @Query(
+        """
+        SELECT * FROM remote_shipments
+        WHERE statusCode IN (:statuses) AND pendingDeletionAt IS NULL
+        ORDER BY shippedAt DESC, createdAt DESC
+        """
+    )
+    fun observeByStatuses(statuses: List<String>): kotlinx.coroutines.flow.Flow<List<RemoteShipmentEntity>>
+
+    @Query("SELECT * FROM remote_shipment_items WHERE shipmentId = :shipmentId ORDER BY lineNo ASC")
+    suspend fun findItemsByShipment(shipmentId: String): List<RemoteShipmentItemEntity>
 }

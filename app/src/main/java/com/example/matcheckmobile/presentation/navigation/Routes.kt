@@ -38,6 +38,22 @@ object Routes {
     const val DISPATCH = "dispatch"
     /** Стартовый экран отгрузки с двумя кнопками 1 Этап / 2 Этап (зеркало INTAKE_STAGES). */
     const val DISPATCH_STAGES = "dispatch_stages"
+    const val DISPATCH_UPD_SELECT = "dispatch_upd_select"
+    const val DISPATCH_STAGE2 = "dispatch_stage2"
+
+    const val DISPATCH_STAGE1_FORM_BASE = "dispatch_stage1_form"
+    const val DISPATCH_STAGE1_FORM =
+        "$DISPATCH_STAGE1_FORM_BASE?$ARG_UPD_ID={$ARG_UPD_ID}&$ARG_DRAFT_ID={$ARG_DRAFT_ID}"
+    fun dispatchStage1FormForUpd(updId: String): String =
+        "$DISPATCH_STAGE1_FORM_BASE?$ARG_UPD_ID=$updId"
+    fun dispatchStage1FormForDraft(draftId: String): String =
+        "$DISPATCH_STAGE1_FORM_BASE?$ARG_DRAFT_ID=$draftId"
+    fun dispatchStage1FormNew(): String = DISPATCH_STAGE1_FORM_BASE
+
+    const val ARG_SHIPMENT_ID = "shipmentId"
+    const val DISPATCH_STAGE2_FORM_BASE = "dispatch_stage2_form"
+    const val DISPATCH_STAGE2_FORM = "$DISPATCH_STAGE2_FORM_BASE/{$ARG_SHIPMENT_ID}"
+    fun dispatchStage2Form(shipmentId: String): String = "$DISPATCH_STAGE2_FORM_BASE/$shipmentId"
     const val JOURNAL = "journal"
     const val SYNC_QUEUE = "sync_queue"
     const val SETTINGS = "settings"

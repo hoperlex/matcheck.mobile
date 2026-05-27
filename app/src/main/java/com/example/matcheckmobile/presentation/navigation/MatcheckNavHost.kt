@@ -12,7 +12,11 @@ import androidx.navigation.navArgument
 import com.example.matcheckmobile.MatcheckApplication
 import com.example.matcheckmobile.data.repository.AuthRepository
 import com.example.matcheckmobile.presentation.screens.dispatch.DispatchScreen
+import com.example.matcheckmobile.presentation.screens.dispatch.DispatchStage1FormScreen
+import com.example.matcheckmobile.presentation.screens.dispatch.DispatchStage2FormScreen
+import com.example.matcheckmobile.presentation.screens.dispatch.DispatchStage2ListScreen
 import com.example.matcheckmobile.presentation.screens.dispatch.DispatchStagesScreen
+import com.example.matcheckmobile.presentation.screens.dispatch.DispatchUpdSelectScreen
 import com.example.matcheckmobile.presentation.screens.documents.DocumentDetailsScreen
 import com.example.matcheckmobile.presentation.screens.documents.DocumentsScreen
 import com.example.matcheckmobile.presentation.screens.details.OperationDetailsScreen
@@ -175,14 +179,63 @@ fun MatcheckNavHost() {
             )
         }
         composable(Routes.DISPATCH_STAGES) {
-            // Пока обе кнопки 1 Этап / 2 Этап ведут на legacy DispatchScreen
-            // (форма ввода отгрузки). Когда будут реализованы отдельные
-            // экраны выбора УПД и подтверждения МОЛ для shipment — поменяем
-            // навигацию на свои Stage1List / Stage2List.
             DispatchStagesScreen(
                 onBack = { navController.popBackStack() },
-                onStage1 = { navController.navigate(Routes.DISPATCH) },
-                onStage2 = { navController.navigate(Routes.DISPATCH) },
+                onStage1 = { navController.navigate(Routes.DISPATCH_UPD_SELECT) },
+                onStage2 = { navController.navigate(Routes.DISPATCH_STAGE2) },
+            )
+        }
+        composable(Routes.DISPATCH_UPD_SELECT) {
+            DispatchUpdSelectScreen(
+                onBack = { navController.popBackStack() },
+                onOpenWithUpd = { updId ->
+                    navController.navigate(Routes.dispatchStage1FormForUpd(updId))
+                },
+                onOpenDraft = { draftId ->
+                    navController.navigate(Routes.dispatchStage1FormForDraft(draftId))
+                },
+                onCreateEmpty = {
+                    navController.navigate(Routes.dispatchStage1FormNew())
+                },
+            )
+        }
+        composable(
+            route = Routes.DISPATCH_STAGE1_FORM,
+            arguments = listOf(
+                navArgument(Routes.ARG_UPD_ID) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument(Routes.ARG_DRAFT_ID) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) {
+            DispatchStage1FormScreen(
+                onBack = { navController.popBackStack() },
+                onFinalized = {
+                    navController.popBackStack(Routes.DISPATCH_STAGES, inclusive = false)
+                },
+            )
+        }
+        composable(Routes.DISPATCH_STAGE2) {
+            DispatchStage2ListScreen(
+                onBack = { navController.popBackStack() },
+                onOpenShipment = { id -> navController.navigate(Routes.dispatchStage2Form(id)) },
+            )
+        }
+        composable(
+            route = Routes.DISPATCH_STAGE2_FORM,
+            arguments = listOf(navArgument(Routes.ARG_SHIPMENT_ID) { type = NavType.StringType }),
+        ) {
+            DispatchStage2FormScreen(
+                onBack = { navController.popBackStack() },
+                onFinalized = {
+                    navController.popBackStack(Routes.DISPATCH_STAGE2, inclusive = false)
+                },
             )
         }
         composable(Routes.DISPATCH) {

@@ -23,8 +23,13 @@ class ShipmentRepository(
 
     fun observeActive(): Flow<List<RemoteShipmentEntity>> = shipmentDao.observeActive()
     fun observeTrash(): Flow<List<RemoteShipmentEntity>> = shipmentDao.observeTrash()
+    fun observeByStatuses(statuses: List<String>): Flow<List<RemoteShipmentEntity>> =
+        shipmentDao.observeByStatuses(statuses)
 
     suspend fun findById(id: String): RemoteShipmentEntity? = shipmentDao.findById(id)
+
+    suspend fun findItemsByShipment(shipmentId: String): List<RemoteShipmentItemEntity> =
+        shipmentDao.findItemsByShipment(shipmentId)
 
     suspend fun upsert(input: UpsertInput): String {
         val id = input.id ?: UUID.randomUUID().toString()

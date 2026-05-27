@@ -18,6 +18,8 @@ import com.example.matcheckmobile.data.repository.AuthRepository
 import com.example.matcheckmobile.data.repository.ConflictRepository
 import com.example.matcheckmobile.data.repository.CounterpartyRepository
 import com.example.matcheckmobile.data.repository.DeliveryRepository
+import com.example.matcheckmobile.data.repository.ShipmentStage1DraftRepository
+import com.example.matcheckmobile.data.repository.ShipmentStage2DraftRepository
 import com.example.matcheckmobile.data.repository.Stage1DraftRepository
 import com.example.matcheckmobile.data.repository.Stage2DraftRepository
 import com.example.matcheckmobile.data.repository.MutationProcessor
@@ -131,6 +133,12 @@ class AppContainer(val appContext: Context) {
     val stage2DraftRepository: Stage2DraftRepository = Stage2DraftRepository(
         dao = database.stage2DraftDao(),
     )
+
+    val shipmentStage1DraftRepository: ShipmentStage1DraftRepository =
+        ShipmentStage1DraftRepository(dao = database.shipmentStage1DraftDao())
+
+    val shipmentStage2DraftRepository: ShipmentStage2DraftRepository =
+        ShipmentStage2DraftRepository(dao = database.shipmentStage2DraftDao())
 
     val sourceDocumentBackfillService: SourceDocumentBackfillService = SourceDocumentBackfillService(
         api = sourceDocumentsApi,

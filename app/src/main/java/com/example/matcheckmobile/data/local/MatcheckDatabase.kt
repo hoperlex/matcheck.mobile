@@ -23,6 +23,8 @@ import com.example.matcheckmobile.data.local.dao.RemoteSourceDocumentDao
 import com.example.matcheckmobile.data.local.dao.RemoteStatusDao
 import com.example.matcheckmobile.data.local.dao.SiteDao
 import com.example.matcheckmobile.data.local.dao.SourceDocumentDao
+import com.example.matcheckmobile.data.local.dao.ShipmentStage1DraftDao
+import com.example.matcheckmobile.data.local.dao.ShipmentStage2DraftDao
 import com.example.matcheckmobile.data.local.dao.Stage1DraftDao
 import com.example.matcheckmobile.data.local.dao.Stage2DraftDao
 import com.example.matcheckmobile.data.local.dao.SyncQueueDao
@@ -50,6 +52,8 @@ import com.example.matcheckmobile.data.local.entity.RemoteStatusEntity
 import com.example.matcheckmobile.data.local.entity.SiteEntity
 import com.example.matcheckmobile.data.local.entity.SourceDocumentEntity
 import com.example.matcheckmobile.data.local.entity.SourceDocumentItemEntity
+import com.example.matcheckmobile.data.local.entity.ShipmentStage1DraftEntity
+import com.example.matcheckmobile.data.local.entity.ShipmentStage2DraftEntity
 import com.example.matcheckmobile.data.local.entity.Stage1DraftEntity
 import com.example.matcheckmobile.data.local.entity.Stage2DraftEntity
 import com.example.matcheckmobile.data.local.entity.SyncQueueEntity
@@ -86,8 +90,10 @@ import com.example.matcheckmobile.data.local.entity.UserEntity
         MutationEntity::class,
         Stage1DraftEntity::class,
         Stage2DraftEntity::class,
+        ShipmentStage1DraftEntity::class,
+        ShipmentStage2DraftEntity::class,
     ],
-    version = 14,
+    version = 15,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)
@@ -113,6 +119,8 @@ abstract class MatcheckDatabase : RoomDatabase() {
     abstract fun deliveryLocalMetaDao(): DeliveryLocalMetaDao
     abstract fun stage1DraftDao(): Stage1DraftDao
     abstract fun stage2DraftDao(): Stage2DraftDao
+    abstract fun shipmentStage1DraftDao(): ShipmentStage1DraftDao
+    abstract fun shipmentStage2DraftDao(): ShipmentStage2DraftDao
 
     companion object {
         private const val DB_NAME = "matcheck.db"
@@ -127,7 +135,7 @@ abstract class MatcheckDatabase : RoomDatabase() {
                     MatcheckDatabase::class.java,
                     DB_NAME,
                 )
-                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
+                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
                     .also { INSTANCE = it }
@@ -262,6 +270,56 @@ abstract class MatcheckDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE `remote_shipment_items` ADD COLUMN `vatSum` TEXT")
                 db.execSQL(
                     "ALTER TABLE `remote_delivery_photos` ADD COLUMN `stage` TEXT NOT NULL DEFAULT 'before'",
+                )
+            }
+        }
+
+        // shipment_stage1_drafts + shipment_stage2_drafts — зеркала stage1/stage2_drafts
+        // для отгрузки. Структура полей идентична.
+        private val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `shipment_stage1_drafts` (
+                        `localDraftId` TEXT NOT NULL,
+                        `updId` TEXT,
+                        `documentPhotoPathsJson` TEXT NOT NULL,
+                        `cargoPhotoPathsJson` TEXT NOT NULL,
+                        `vehicleTypeCode` TEXT,
+                        `materialsJson` TEXT NOT NULL,
+                        `commentText` TEXT NOT NULL,
+                        `licensePlate` TEXT NOT NULL,
+                        `manualUpdText` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`localDraftId`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_shipment_stage1_drafts_updId` ON `shipment_stage1_drafts` (`updId`)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_shipment_stage1_drafts_updatedAt` ON `shipment_stage1_drafts` (`updatedAt`)",
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `shipment_stage2_drafts` (
+                        `shipmentId` TEXT NOT NULL,
+                        `documentPhotoPathsJson` TEXT NOT NULL,
+                        `vehiclePhotoPathsJson` TEXT NOT NULL,
+                        `vehicleTypeCode` TEXT,
+                        `materialsJson` TEXT NOT NULL,
+                        `editedIndexesJson` TEXT NOT NULL,
+                        `commentText` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`shipmentId`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_shipment_stage2_drafts_updatedAt` ON `shipment_stage2_drafts` (`updatedAt`)",
                 )
             }
         }
