@@ -115,7 +115,10 @@ fun Stage2ListScreen(
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             groups.forEach { group ->
-                                val expanded = expandedMap[group.contractorName] == true
+                                // По умолчанию группа раскрыта — на 2 Этапе обычно
+                                // немного активных приёмок, и инспектору удобнее
+                                // видеть карточки сразу, без лишнего клика.
+                                val expanded = expandedMap[group.contractorName] ?: true
                                 item(key = "group:${group.contractorName}") {
                                     Column(modifier = Modifier.fillMaxWidth()) {
                                         ContractorHeaderCard(

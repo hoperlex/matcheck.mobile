@@ -141,13 +141,18 @@ fun IntakeUpdSelectScreen(
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             activeGroups.forEach { group ->
-                                val expanded = expandedMap[group.contractorName] == true
-                                item(key = "group:${selectedTab.name}:${group.contractorName}") {
+                                // Per-tab ключ: переключение «Сегодня/Будущие»
+                                // не сбрасывает пользовательский тоггл. Дефолт:
+                                // в «Сегодня» — раскрыто, в «Будущие» — свёрнуто.
+                                val key = "${selectedTab.name}:${group.contractorName}"
+                                val defaultExpanded = selectedTab == IntakeUpdTab.Today
+                                val expanded = expandedMap[key] ?: defaultExpanded
+                                item(key = "group:$key") {
                                     IntakeUpdGroupSection(
                                         group = group,
                                         expanded = expanded,
                                         onToggle = {
-                                            expandedMap[group.contractorName] = !expanded
+                                            expandedMap[key] = !expanded
                                         },
                                         onOpenWithUpd = onOpenWithUpd,
                                         onOpenDraft = onOpenDraft,
