@@ -14,6 +14,8 @@ data class ShipmentDto(
     val kind: String, // 'contractor' | 'return' | 'transfer' | 'writeoff'
     val siteId: String,
     val receiverCounterpartyId: String? = null,
+    /** Получатель-МОЛ (физлицо). XOR с receiverCounterpartyId на стороне сервера. */
+    val receiverMolId: String? = null,
     val destSiteId: String? = null,
     val vehiclePlate: String? = null,
     val driverName: String? = null,
@@ -47,6 +49,10 @@ data class ShipmentItemDto(
     val lineNo: Int,
     val volumeM3: String? = null,
     val massKg: String? = null,
+    // Финансовый снимок позиции из УПД — зеркалит DeliveryItemDto.
+    val price: String? = null,
+    val vatRate: String? = null,
+    val vatSum: String? = null,
     val volumeConfidence: String? = null,
     val groupName: String? = null,
 )
@@ -69,6 +75,7 @@ data class ShipmentUpsertRequest(
     val kind: String,
     val siteId: String,
     val receiverCounterpartyId: String? = null,
+    val receiverMolId: String? = null,
     val destSiteId: String? = null,
     val vehiclePlate: String? = null,
     val driverName: String? = null,
@@ -91,6 +98,9 @@ data class ShipmentUpsertItem(
     val lineNo: Int,
     val volumeM3: String? = null,
     val massKg: String? = null,
+    val price: String? = null,
+    val vatRate: String? = null,
+    val vatSum: String? = null,
     val volumeConfidence: String? = null,
     val groupName: String? = null,
 )

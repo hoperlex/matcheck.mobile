@@ -24,10 +24,17 @@ class PhotoRepository(
     /**
      * @param kind 'cargo' | 'vehicle' | 'document' | 'other'.
      *   Для бумажного УПД на КПП — 'document'.
+     * @param stage 'before' (1-й Этап, КПП) / 'after' (2-й Этап, после
+     *   подтверждения МОЛ). Default 'before' для совместимости.
      * @return локальный photoId (UUID v4). Этот же id используется на сервере
      *   после presign.
      */
-    suspend fun captureForDelivery(deliveryId: String, kind: String, sourceUri: Uri): String {
+    suspend fun captureForDelivery(
+        deliveryId: String,
+        kind: String,
+        sourceUri: Uri,
+        stage: String = "before",
+    ): String {
         val photoId = UUID.randomUUID().toString()
         val prepared = photoStorage.prepareFromUri(sourceUri, photoId)
         deliveryDao.upsertPhoto(
@@ -35,6 +42,7 @@ class PhotoRepository(
                 id = photoId,
                 deliveryId = deliveryId,
                 kind = kind,
+                stage = stage,
                 s3Key = null,
                 thumbS3Key = null,
                 contentHash = prepared.mainSha256Hex,

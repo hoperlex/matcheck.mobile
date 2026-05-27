@@ -44,6 +44,9 @@ class ShipmentRepository(
                 lineNo = it.lineNo ?: (idx + 1),
                 volumeM3 = it.volumeM3,
                 massKg = it.massKg,
+                price = it.price,
+                vatRate = it.vatRate,
+                vatSum = it.vatSum,
                 volumeConfidence = it.volumeConfidence,
                 groupName = it.groupName,
             )
@@ -57,6 +60,7 @@ class ShipmentRepository(
             kind = input.kind,
             siteId = input.siteId,
             receiverCounterpartyId = input.receiverCounterpartyId,
+            receiverMolId = input.receiverMolId,
             destSiteId = input.destSiteId,
             vehiclePlate = input.vehiclePlate,
             driverName = input.driverName,
@@ -86,6 +90,7 @@ class ShipmentRepository(
             kind = input.kind,
             siteId = input.siteId,
             receiverCounterpartyId = input.receiverCounterpartyId,
+            receiverMolId = input.receiverMolId,
             destSiteId = input.destSiteId,
             vehiclePlate = input.vehiclePlate,
             driverName = input.driverName,
@@ -104,6 +109,9 @@ class ShipmentRepository(
                     lineNo = it.lineNo,
                     volumeM3 = it.volumeM3,
                     massKg = it.massKg,
+                    price = it.price,
+                    vatRate = it.vatRate,
+                    vatSum = it.vatSum,
                     volumeConfidence = it.volumeConfidence,
                     groupName = it.groupName,
                 )
@@ -220,6 +228,8 @@ class ShipmentRepository(
         val kind: String, // 'contractor' | 'return' | 'transfer' | 'writeoff'
         val siteId: String,
         val receiverCounterpartyId: String? = null,
+        /** XOR с receiverCounterpartyId на стороне сервера. */
+        val receiverMolId: String? = null,
         val destSiteId: String? = null,
         val vehiclePlate: String? = null,
         val driverName: String? = null,
@@ -241,6 +251,9 @@ class ShipmentRepository(
         val lineNo: Int? = null,
         val volumeM3: String? = null,
         val massKg: String? = null,
+        val price: String? = null,
+        val vatRate: String? = null,
+        val vatSum: String? = null,
         val volumeConfidence: String? = null,
         val groupName: String? = null,
     )

@@ -71,13 +71,23 @@ class Stage1DraftRepository(private val dao: Stage1DraftDao) {
     }.getOrDefault(emptyList())
 
     private fun encodeMaterials(values: List<MaterialDraft>): String {
-        val wire = values.map { MaterialDraftWire(name = it.name, qty = it.qty, unit = it.unit) }
+        val wire = values.map {
+            MaterialDraftWire(
+                name = it.name, qty = it.qty, unit = it.unit,
+                id = it.id, price = it.price, vatRate = it.vatRate, vatSum = it.vatSum,
+            )
+        }
         return json.encodeToString(materialListSerializer, wire)
     }
 
     private fun decodeMaterials(raw: String): List<MaterialDraft> = runCatching {
         json.decodeFromString(materialListSerializer, raw)
-            .map { MaterialDraft(name = it.name, qty = it.qty, unit = it.unit) }
+            .map {
+                MaterialDraft(
+                    name = it.name, qty = it.qty, unit = it.unit,
+                    id = it.id, price = it.price, vatRate = it.vatRate, vatSum = it.vatSum,
+                )
+            }
     }.getOrDefault(emptyList())
 
     @Serializable
@@ -85,6 +95,10 @@ class Stage1DraftRepository(private val dao: Stage1DraftDao) {
         val name: String,
         val qty: String,
         val unit: String = "",
+        val id: String? = null,
+        val price: String? = null,
+        val vatRate: String? = null,
+        val vatSum: String? = null,
     )
 
     companion object {

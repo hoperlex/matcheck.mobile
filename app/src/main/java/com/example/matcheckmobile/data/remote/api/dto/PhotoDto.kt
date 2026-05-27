@@ -16,6 +16,11 @@ data class PhotoPresignRequest(
     val idempotencyKey: String,
     val contentType: String,
     val thumbContentHash: String? = null,
+    /**
+     * Этап приёмки для фото delivery: 'before' (1-й этап) / 'after' (2-й этап).
+     * Сервер игнорирует на shipment. Если поле не передано — сервер пишет 'before'.
+     */
+    val stage: String? = null,
     val deliveryId: String? = null,
 )
 

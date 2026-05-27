@@ -400,6 +400,7 @@ class Stage1FormViewModel(
                             deliveryId = deliveryId,
                             kind = "document",
                             sourceUri = uri,
+                            stage = "before",
                         )
                     } catch (t: Throwable) {
                         android.util.Log.e("Stage1", "document photo capture failed: $path", t)
@@ -413,6 +414,7 @@ class Stage1FormViewModel(
                             deliveryId = deliveryId,
                             kind = "cargo",
                             sourceUri = uri,
+                            stage = "before",
                         )
                     } catch (t: Throwable) {
                         android.util.Log.e("Stage1", "cargo photo capture failed: $path", t)

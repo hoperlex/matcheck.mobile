@@ -110,7 +110,9 @@ object RemoteMappers {
      * а на отображение влияет только s3Key.
      */
     fun DeliveryPhotoDto.toEntity(deliveryId: String): RemoteDeliveryPhotoEntity = RemoteDeliveryPhotoEntity(
-        id = id, deliveryId = deliveryId, kind = kind, s3Key = s3Key,
+        id = id, deliveryId = deliveryId, kind = kind,
+        stage = stage,
+        s3Key = s3Key,
         thumbS3Key = thumbS3Key, contentHash = contentHash, takenAt = takenAt,
         uploadedAt = uploadedAt,
         idempotencyKey = "",
@@ -129,6 +131,7 @@ object RemoteMappers {
         kind = kind,
         siteId = siteId,
         receiverCounterpartyId = receiverCounterpartyId,
+        receiverMolId = receiverMolId,
         destSiteId = destSiteId,
         vehiclePlate = vehiclePlate,
         driverName = driverName,
@@ -152,6 +155,7 @@ object RemoteMappers {
         id = id, shipmentId = shipmentId, materialId = materialId, nameRaw = nameRaw,
         qtyPlanned = qtyPlanned, qtyActual = qtyActual, unit = unit, comment = comment,
         lineNo = lineNo, volumeM3 = volumeM3, massKg = massKg,
+        price = price, vatRate = vatRate, vatSum = vatSum,
         volumeConfidence = volumeConfidence, groupName = groupName,
     )
 

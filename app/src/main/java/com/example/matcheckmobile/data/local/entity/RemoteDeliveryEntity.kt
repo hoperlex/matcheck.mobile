@@ -109,6 +109,12 @@ data class RemoteDeliveryPhotoEntity(
     @PrimaryKey val id: String,
     val deliveryId: String,
     val kind: String, // 'document' | 'cargo' | 'vehicle' | 'other'
+    /**
+     * Этап приёмки: 'before' — 1-й этап (КПП/осмотр), 'after' — 2-й этап
+     * (после выгрузки и подтверждения МОЛ). Default 'before' для legacy
+     * фото; на сервере поле тоже NOT NULL DEFAULT 'before'.
+     */
+    val stage: String = "before",
     /** Известен после успешного presign / pull. До этого null. */
     val s3Key: String?,
     val thumbS3Key: String?,

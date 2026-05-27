@@ -66,6 +66,10 @@ class Stage2FormViewModel(
                 name = item.nameRaw,
                 qty = item.qtyActual ?: item.qtyPlanned.orEmpty(),
                 unit = item.unit,
+                id = item.id,
+                price = item.price,
+                vatRate = item.vatRate,
+                vatSum = item.vatSum,
             )
         }
         val vehicleTypeCode = container.deliveryRepository.getVehicleType(deliveryId)
@@ -97,6 +101,7 @@ class Stage2FormViewModel(
                 // обязаны вернуть на finalize-upsert (иначе сервер их обнулит).
                 supplierId = delivery.supplierId,
                 contractorId = delivery.contractorId,
+                recipientMolId = delivery.recipientMolId,
                 driverName = delivery.driverName,
                 arrivedAt = delivery.arrivedAt,
                 updDisplay = updDisplay,
@@ -313,9 +318,13 @@ class Stage2FormViewModel(
                     .filter { it.name.isNotBlank() || it.qty.isNotBlank() }
                     .mapIndexed { idx, m ->
                         DeliveryRepository.ItemInput(
+                            id = m.id,
                             nameRaw = m.name.trim().ifEmpty { "—" },
                             qtyActual = m.qty.trim().ifEmpty { null },
                             lineNo = idx + 1,
+                            price = m.price,
+                            vatRate = m.vatRate,
+                            vatSum = m.vatSum,
                         )
                     }
 
@@ -331,6 +340,7 @@ class Stage2FormViewModel(
                         // карточке «Подтверждено МОЛ».
                         supplierId = cur.supplierId,
                         contractorId = cur.contractorId,
+                        recipientMolId = cur.recipientMolId,
                         vehiclePlate = cur.vehiclePlate,
                         driverName = cur.driverName,
                         arrivedAt = cur.arrivedAt,
@@ -350,6 +360,7 @@ class Stage2FormViewModel(
                             deliveryId = cur.deliveryId,
                             kind = "document",
                             sourceUri = uri,
+                            stage = "after",
                         )
                     } catch (t: Throwable) {
                         android.util.Log.e("Stage2", "document photo capture failed: $path", t)
@@ -363,6 +374,7 @@ class Stage2FormViewModel(
                             deliveryId = cur.deliveryId,
                             kind = "vehicle",
                             sourceUri = uri,
+                            stage = "after",
                         )
                     } catch (t: Throwable) {
                         android.util.Log.e("Stage2", "vehicle photo capture failed: $path", t)
@@ -446,6 +458,7 @@ data class Stage2FormUiState(
     // Госномер / Прибытие / Поставщик / Подрядчик / Водитель.
     val supplierId: String? = null,
     val contractorId: String? = null,
+    val recipientMolId: String? = null,
     val driverName: String? = null,
     val arrivedAt: String? = null,
     /** Номер(а) привязанной УПД для сводки, либо ручной номер из comment. */

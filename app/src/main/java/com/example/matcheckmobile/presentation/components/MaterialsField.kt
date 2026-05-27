@@ -60,11 +60,23 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.text.KeyboardOptions
 
-/** Одна позиция материала: название + количество + единица измерения. */
+/**
+ * Одна позиция материала: название + количество + единица измерения.
+ *
+ * Опциональные поля `id`, `price`, `vatRate`, `vatSum` — снимок серверной
+ * позиции delivery_items/shipment_items. На 1 Этапе они null (позиции
+ * создаются с нуля). На 2 Этапе при загрузке заполняются из БД и должны
+ * быть возвращены обратно в upsert payload — иначе сервер обнулит
+ * Цена/НДС в карточке приёмки.
+ */
 data class MaterialDraft(
     val name: String,
     val qty: String,
     val unit: String = "",
+    val id: String? = null,
+    val price: String? = null,
+    val vatRate: String? = null,
+    val vatSum: String? = null,
 )
 
 /**

@@ -192,6 +192,7 @@ class PhotoUploadProcessor(
         idempotencyKey = photo.idempotencyKey,
         contentType = photo.contentType,
         thumbContentHash = null, // thumb-hash не считаем — для дедупликации хватает main
+        stage = photo.stage,
     )
 
     private fun buildPresignRequest(

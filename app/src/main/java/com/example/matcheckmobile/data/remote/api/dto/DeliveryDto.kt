@@ -61,6 +61,12 @@ data class DeliveryItemDto(
 data class DeliveryPhotoDto(
     val id: String,
     val kind: String, // 'document' | 'cargo' | 'vehicle' | 'other'
+    /**
+     * 'before' (1 Этап) / 'after' (2 Этап). На сервере NOT NULL DEFAULT 'before',
+     * поэтому делаем поле опциональным с тем же дефолтом для совместимости
+     * с записями, созданными до миграции 0037.
+     */
+    val stage: String = "before",
     val s3Key: String,
     val thumbS3Key: String? = null,
     val contentHash: String? = null,

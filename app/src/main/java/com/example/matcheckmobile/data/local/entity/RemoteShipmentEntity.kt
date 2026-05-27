@@ -23,6 +23,7 @@ data class RemoteShipmentEntity(
     val kind: String, // 'contractor' | 'return' | 'transfer' | 'writeoff'
     val siteId: String,
     val receiverCounterpartyId: String?,
+    val receiverMolId: String?,
     val destSiteId: String?,
     val vehiclePlate: String?,
     val driverName: String?,
@@ -72,6 +73,9 @@ data class RemoteShipmentItemEntity(
     val lineNo: Int,
     val volumeM3: String?,
     val massKg: String?,
+    val price: String?,
+    val vatRate: String?,
+    val vatSum: String?,
     val volumeConfidence: String?,
     val groupName: String?,
 )

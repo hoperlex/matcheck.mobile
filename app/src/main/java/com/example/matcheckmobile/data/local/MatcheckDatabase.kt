@@ -87,7 +87,7 @@ import com.example.matcheckmobile.data.local.entity.UserEntity
         Stage1DraftEntity::class,
         Stage2DraftEntity::class,
     ],
-    version = 13,
+    version = 14,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)
@@ -127,7 +127,7 @@ abstract class MatcheckDatabase : RoomDatabase() {
                     MatcheckDatabase::class.java,
                     DB_NAME,
                 )
-                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
+                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
                     .also { INSTANCE = it }
@@ -244,6 +244,24 @@ abstract class MatcheckDatabase : RoomDatabase() {
                 )
                 db.execSQL(
                     "CREATE INDEX IF NOT EXISTS `index_stage2_drafts_updatedAt` ON `stage2_drafts` (`updatedAt`)",
+                )
+            }
+        }
+
+        // Догоняем веб-контракт 2026-05-27:
+        // - remote_shipments.receiverMolId — МОЛ-получатель для отгрузки.
+        // - remote_shipment_items.price/vatRate/vatSum — финансовый снимок
+        //   позиции из УПД для отгрузки (зеркально delivery_items, миграция 0036).
+        // - remote_delivery_photos.stage — этап фото 'before'/'after'
+        //   (сервер: миграция 0037). Default 'before' для legacy фото.
+        private val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `remote_shipments` ADD COLUMN `receiverMolId` TEXT")
+                db.execSQL("ALTER TABLE `remote_shipment_items` ADD COLUMN `price` TEXT")
+                db.execSQL("ALTER TABLE `remote_shipment_items` ADD COLUMN `vatRate` TEXT")
+                db.execSQL("ALTER TABLE `remote_shipment_items` ADD COLUMN `vatSum` TEXT")
+                db.execSQL(
+                    "ALTER TABLE `remote_delivery_photos` ADD COLUMN `stage` TEXT NOT NULL DEFAULT 'before'",
                 )
             }
         }
