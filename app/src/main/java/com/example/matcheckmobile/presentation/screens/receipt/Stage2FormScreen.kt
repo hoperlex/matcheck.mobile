@@ -398,7 +398,6 @@ fun Stage2FormScreen(
         if (confirmFinalizeVisible) {
             FinalizeConfirmDialog(
                 title = "Завершить 2 Этап?",
-                message = "Подтверждение МОЛ будет отправлено на сервер. Изменить данные позже нельзя.",
                 onConfirm = {
                     confirmFinalizeVisible = false
                     vm.finalizeStage2()
