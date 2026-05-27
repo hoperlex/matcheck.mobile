@@ -1,1 +1,0 @@
-ALTER TYPE "public"."delivery_status" ADD VALUE 'draft' BEFORE 'expected';
