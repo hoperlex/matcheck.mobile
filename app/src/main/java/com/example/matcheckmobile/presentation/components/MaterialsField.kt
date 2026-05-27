@@ -56,6 +56,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.text.KeyboardOptions
@@ -583,15 +584,16 @@ fun MaterialsTableHeader(
             maxLines = 1,
         )
         if (onAddClick != null) {
-            // Слот кнопки шире, чтобы слово «материал» (с последней «л»)
-            // не обрезалось по горизонтали. Padding и иконка ужаты, иначе
-            // на phone текст вылезает за рамку.
+            // На планшете надпись помещается одной строкой, на узких телефонах
+            // — «материал» переносится на 2-ю строку (softWrap=true, maxLines=2).
+            // Высоту кнопки расширили, чтобы 2 строки текста не упирались
+            // в рамку.
             OutlinedButton(
                 onClick = onAddClick,
                 modifier = Modifier
                     .weight(0.45f)
-                    .heightIn(min = 40.dp),
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    .heightIn(min = 48.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
             ) {
                 Icon(
                     imageVector = Icons.Default.Add,
@@ -601,11 +603,11 @@ fun MaterialsTableHeader(
                 Spacer(Modifier.width(4.dp))
                 Text(
                     text = "Добавить материал",
-                    // headerStyle крупнее labelMedium и визуально согласован с
-                    // шапкой; maxLines=1 + softWrap=false гарантируют одну строку.
                     style = headerStyle ?: MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    softWrap = false,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    softWrap = true,
+                    lineHeight = 16.sp,
                 )
             }
         }
