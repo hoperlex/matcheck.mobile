@@ -29,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -305,10 +306,38 @@ fun Stage2FormScreen(
                         )
                     }
 
+                    state.stage1Comment?.takeIf { it.isNotBlank() }?.let { stage1Text ->
+                        // Read-only блок над инпутом «Комментарий»: показывает
+                        // комментарий 1 Этапа, чтобы инспектор видел контекст.
+                        // Стиль — лёгкая карточка surfaceVariant, чтобы блок
+                        // визуально отличался от input'а 2 Этапа.
+                        Surface(
+                            shape = MaterialTheme.shapes.medium,
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Text(
+                                    text = "1 Этап",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                Text(
+                                    text = stage1Text,
+                                    style = inputTextStyle,
+                                )
+                            }
+                        }
+                    }
+
                     OutlinedTextField(
                         value = state.commentText,
                         onValueChange = vm::setComment,
-                        label = { Text("Комментарий", style = inputLabelStyle) },
+                        label = { Text("Комментарий 2 Этап", style = inputLabelStyle) },
                         // singleLine для одинаковой высоты с «Госномер» —
                         // тот же стиль, что и Комментарий на 1 Этапе.
                         singleLine = true,

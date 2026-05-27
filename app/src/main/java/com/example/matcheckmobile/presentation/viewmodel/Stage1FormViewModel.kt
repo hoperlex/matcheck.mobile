@@ -347,12 +347,15 @@ class Stage1FormViewModel(
                 val plate = cur.licensePlate.trim()
                 val userComment = cur.commentText.trim()
                 val manualUpd = cur.manualUpdText.trim()
-                // Госномер передаём отдельным полем vehiclePlate, в comment
-                // его не дублируем. Ручной номер УПД складываем в comment
-                // отдельной строкой «Примечание: …», чтобы диспетчер на
-                // портале видел его при ручной привязке УПД.
+                // Госномер передаём отдельным полем vehiclePlate. В comment
+                // комментарий 1 Этапа маркируем префиксом «1 Этап: "..."» —
+                // на 2 Этапе VM парсит его и показывает отдельным блоком,
+                // а при finalize дописывает строку «2 Этап: "..."». В итоге
+                // веб-портал видит обе строки в одном поле «Комментарий».
+                // Ручной номер УПД складываем в отдельную строку «Примечание: …»
+                // — диспетчер использует её для ручной привязки УПД.
                 val commentParts = buildList {
-                    if (userComment.isNotEmpty()) add(userComment)
+                    if (userComment.isNotEmpty()) add("1 Этап: \"$userComment\"")
                     if (manualUpd.isNotEmpty() && cur.updId == null) add("Примечание: $manualUpd")
                 }
                 val commentForServer = commentParts.joinToString("\n").ifEmpty { null }

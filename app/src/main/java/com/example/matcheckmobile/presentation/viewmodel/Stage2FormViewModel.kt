@@ -80,6 +80,7 @@ class Stage2FormViewModel(
         val updDisplay = resolveUpdDisplay(sourceDocIds, delivery.comment)
         val siteName = resolveSiteName(delivery.siteId)
         val originalComment = delivery.comment.orEmpty()
+        val parsed = parseDeliveryComment(originalComment)
 
         _state.update {
             it.copy(
@@ -92,9 +93,17 @@ class Stage2FormViewModel(
                 // перечёркивает только реально изменённое название, qty
                 // показывает как «old (new)».
                 originalMaterials = materials,
-                originalCommentText = originalComment,
+                // originalCommentText сравниваем с commentText (только 2 Этап),
+                // поэтому храним именно распарсенный stage2-текст.
+                originalCommentText = parsed.stage2.orEmpty(),
                 originalVehicleTypeCode = vehicleTypeCode,
-                commentText = originalComment,
+                stage1Comment = parsed.stage1,
+                inheritedNote = parsed.note,
+                // commentText (поле «Комментарий» на 2 Этапе) — только текст
+                // 2 Этапа. Текст 1 Этапа показывается отдельным read-only
+                // блоком над инпутом; «Примечание: …» переносится как есть
+                // в финальный комментарий при finalize, не показывается в инпуте.
+                commentText = parsed.stage2.orEmpty(),
                 vehicleTypeCode = vehicleTypeCode,
                 vehiclePlate = delivery.vehiclePlate?.takeIf { p -> p.isNotBlank() },
                 // Снимок серверных полей, которые мы не редактируем, но
@@ -344,7 +353,11 @@ class Stage2FormViewModel(
                         vehiclePlate = cur.vehiclePlate,
                         driverName = cur.driverName,
                         arrivedAt = cur.arrivedAt,
-                        comment = cur.commentText.ifBlank { null },
+                        comment = buildCombinedComment(
+                            stage1 = cur.stage1Comment,
+                            stage2 = cur.commentText.trim().ifEmpty { null },
+                            note = cur.inheritedNote,
+                        ),
                         sourceDocumentIds = cur.sourceDocumentIds,
                         items = items,
                     ),
@@ -419,8 +432,57 @@ class Stage2FormViewModel(
             documentPhotoPaths == other.documentPhotoPaths &&
             vehiclePhotoPaths == other.vehiclePhotoPaths
 
+    /**
+     * Парсит серверный comment в три «слота»:
+     *  - stage1 — текст из строки `1 Этап: "..."`,
+     *  - stage2 — текст из строки `2 Этап: "..."` (если уже сохраняли),
+     *  - note   — содержимое `Примечание: ...` (унаследованное от 1 Этапа).
+     *
+     * Любые «прочие» строки (старые комментарии без префикса) приклеиваются
+     * к stage2 как fallback — иначе при первом сохранении 2 Этапа пользователь
+     * потерял бы текст, который ввели до миграции на новый формат.
+     */
+    private fun parseDeliveryComment(raw: String): ParsedComment {
+        if (raw.isBlank()) return ParsedComment(null, null, null)
+        var stage1: String? = null
+        var stage2: String? = null
+        var note: String? = null
+        val leftovers = mutableListOf<String>()
+        raw.split('\n').forEach { line ->
+            val s = line.trim()
+            if (s.isEmpty()) return@forEach
+            STAGE1_REGEX.find(s)?.let { stage1 = it.groupValues[1]; return@forEach }
+            STAGE2_REGEX.find(s)?.let { stage2 = it.groupValues[1]; return@forEach }
+            NOTE_REGEX.find(s)?.let { note = it.groupValues[1].trim(); return@forEach }
+            leftovers += s
+        }
+        if (stage2 == null && leftovers.isNotEmpty()) {
+            stage2 = leftovers.joinToString("\n")
+        }
+        return ParsedComment(stage1 = stage1, stage2 = stage2.orEmpty(), note = note)
+    }
+
+    /** Собирает финальный comment для upsert на «Завершить 2 Этап». */
+    private fun buildCombinedComment(stage1: String?, stage2: String?, note: String?): String? {
+        val lines = buildList {
+            if (!stage1.isNullOrBlank()) add("1 Этап: \"$stage1\"")
+            if (!stage2.isNullOrBlank()) add("2 Этап: \"$stage2\"")
+            if (!note.isNullOrBlank()) add("Примечание: $note")
+        }
+        return lines.joinToString("\n").ifEmpty { null }
+    }
+
+    private data class ParsedComment(
+        val stage1: String?,
+        val stage2: String?,
+        val note: String?,
+    )
+
     private companion object {
         val MANUAL_UPD_REGEX = Regex("(?m)^УПД:\\s*(.+)$")
+        val STAGE1_REGEX = Regex("^1 Этап:\\s*\"(.*)\"$")
+        val STAGE2_REGEX = Regex("^2 Этап:\\s*\"(.*)\"$")
+        val NOTE_REGEX = Regex("^Примечание:\\s*(.+)$")
     }
 }
 
@@ -447,6 +509,20 @@ data class Stage2FormUiState(
     val originalVehicleTypeCode: String? = null,
     /** Индексы материалов, которые правил инспектор на 2 Этапе — UI отмечает их перечёркнутым названием. */
     val editedIndexes: Set<Int> = emptySet(),
+    /**
+     * Серверный комментарий 1 Этапа: текст между кавычками после префикса
+     * «1 Этап: "..."». Показывается на форме 2 Этапа отдельным read-only
+     * блоком над полем «Комментарий». null — если 1 Этап не оставлял
+     * комментария.
+     */
+    val stage1Comment: String? = null,
+    /**
+     * Унаследованная строка «Примечание: …» из comment'а 1 Этапа (ручной
+     * ввод номера УПД, когда УПД из списка не выбиралась). При finalize
+     * 2 Этапа возвращается в итоговый comment без изменений.
+     */
+    val inheritedNote: String? = null,
+    /** Комментарий, который пользователь вводит на 2 Этапе. */
     val commentText: String = "",
     /** Госномер из приёмки — read-only сводка для информационного блока. */
     val vehiclePlate: String? = null,
