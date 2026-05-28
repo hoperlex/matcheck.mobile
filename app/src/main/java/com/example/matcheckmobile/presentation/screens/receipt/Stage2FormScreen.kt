@@ -197,140 +197,153 @@ fun Stage2FormScreen(
                         .widthIn(max = contentMaxWidth)
                         .fillMaxSize(),
                 ) {
-                    // Sticky-зоны: фото + Госномер закреплены сверху, Комментарий
-                    // снизу. Скроллится только средняя область со списком
-                    // материалов (weight=1f + verticalScroll). imePadding ужимает
-                    // всю Column-цепочку при подъёме клавиатуры — Комментарий
-                    // оказывается прямо над клавиатурой.
+                    // Вертикальная архитектура:
+                    //  1) Внешний Column = fillMaxSize + imePadding. imePadding
+                    //     ужимает его снизу ровно на высоту клавиатуры.
+                    //  2) Внутри одна общая скролл-зона (weight(1f) +
+                    //     verticalScroll) — туда уехали фото, госномер, шапка
+                    //     таблицы, список материалов и плашка «1 Этап». На
+                    //     узких экранах с открытой клавиатурой пользователь
+                    //     может скроллить наверх к фото, не мешая полю ввода.
+                    //  3) Док-зона снизу — «Комментарий 2 Этап». Она не
+                    //     скроллится и прижата к низу Column'а. При подъёме
+                    //     клавиатуры imePadding выталкивает её ровно над
+                    //     клавиатурой, она остаётся целиком видимой.
+                    //
+                    // Раньше Photo + Госномер + Header имели фиксированные
+                    // высоты, weight=1f отдавал только список; при клавиатуре
+                    // он схлопывался в 0, а сумма фиксированных блоков превышала
+                    // viewport — Комментарий обрезался.
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
                             .imePadding(),
-                        verticalArrangement = Arrangement.spacedBy(sectionGap),
                     ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(sectionGap),
-                    ) {
-                        PhotoCaptureSection(
-                            buttonText = "Фото документов",
-                            buttonTextStyle = photoButtonTextStyle,
-                            isTablet = isTablet,
-                            buttonHeight = photoButtonHeight,
-                            onTakePhoto = takeDocumentPhoto,
-                            photoPaths = state.documentPhotoPaths,
-                            onRemovePhoto = vm::removeDocumentPhoto,
-                            onPreviewPhoto = { path, onDelete ->
-                                previewPath = path
-                                previewDelete = onDelete
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-
-                        PhotoCaptureSection(
-                            buttonText = "Фото машины, госномера",
-                            buttonTextStyle = photoButtonTextStyle,
-                            isTablet = isTablet,
-                            buttonHeight = photoButtonHeight,
-                            onTakePhoto = takeVehiclePhoto,
-                            photoPaths = state.vehiclePhotoPaths,
-                            onRemovePhoto = vm::removeVehiclePhoto,
-                            onPreviewPhoto = { path, onDelete ->
-                                previewPath = path
-                                previewDelete = onDelete
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-
-                    // Госномер из приёмки — чистое отображение, без реакции
-                    // на тап (нет фокуса, курсора, тулбара). enabled=false
-                    // глушит обработку touch'ей, а disabled-цвета приведены
-                    // к виду обычного поля, чтобы рамка/текст не тускнели.
-                    OutlinedTextField(
-                        value = state.vehiclePlate.orEmpty(),
-                        onValueChange = {},
-                        enabled = false,
-                        readOnly = true,
-                        singleLine = true,
-                        textStyle = inputTextStyle,
-                        label = { Text("Госномер", style = inputLabelStyle) },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            disabledBorderColor = MaterialTheme.colorScheme.outline,
-                            disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            disabledTextColor = MaterialTheme.colorScheme.onSurface,
-                            disabledContainerColor = MaterialTheme.colorScheme.surface,
-                        ),
-                    )
-
-                    // Шапка таблицы — sticky над скроллом, чтобы при пролистывании
-                    // списка наверх «Название / Кол-во / Ед.» оставались видны.
-                    // Кнопка «+ Добавить» встроена в шапку между «Название» и
-                    // «Кол-во», поэтому отдельной кнопки под шапкой больше нет.
-                    MaterialsTableHeader(
-                        headerStyle = if (isTablet)
-                            MaterialTheme.typography.titleMedium
-                        else
-                            MaterialTheme.typography.labelLarge,
-                        onAddClick = { addMaterialOpen = true },
-                    )
-
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                            .verticalScroll(rememberScrollState()),
-                    ) {
-                        EditableMaterialsInlineList(
-                            value = state.materials,
-                            editedIndexes = state.editedIndexes,
-                            onEdit = vm::updateMaterial,
-                            onDelete = vm::deleteMaterial,
-                            showHeader = false,
-                            // Снимок серверных значений — нужно UI для подсветки
-                            // правок (перечёркнутое имя / qty в формате old (new)).
-                            originalMaterials = state.originalMaterials,
-                            // Поле «Ед.» в модалке правки строки скрыто —
-                            // единицу инспектор не меняет. В диалоге «Добавить
-                            // материал» (отдельный MaterialEditDialog) оно есть.
-                            editingShowUnitField = false,
-                        )
-                    }
-
-                    // 1 Этап header + Комментарий 2 Этап в одном sub-Column'е без
-                    // gap — header «прилипает» к input'у сверху, не съедая
-                    // место у списка материалов. Уровень родительского
-                    // verticalArrangement.spacedBy(sectionGap) к ним не
-                    // применяется (они один child родителя).
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        state.stage1Comment?.takeIf { it.isNotBlank() }?.let { stage1Text ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(sectionGap),
+                        ) {
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(
-                                        color = MaterialTheme.colorScheme.surfaceVariant,
-                                        shape = RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp),
-                                    )
-                                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.Top,
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(sectionGap),
                             ) {
-                                Text(
-                                    text = "1 Этап:",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(end = 8.dp),
+                                PhotoCaptureSection(
+                                    buttonText = "Фото документов",
+                                    buttonTextStyle = photoButtonTextStyle,
+                                    isTablet = isTablet,
+                                    buttonHeight = photoButtonHeight,
+                                    onTakePhoto = takeDocumentPhoto,
+                                    photoPaths = state.documentPhotoPaths,
+                                    onRemovePhoto = vm::removeDocumentPhoto,
+                                    onPreviewPhoto = { path, onDelete ->
+                                        previewPath = path
+                                        previewDelete = onDelete
+                                    },
+                                    modifier = Modifier.weight(1f),
                                 )
-                                Text(
-                                    text = stage1Text,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
+
+                                PhotoCaptureSection(
+                                    buttonText = "Фото машины, госномера",
+                                    buttonTextStyle = photoButtonTextStyle,
+                                    isTablet = isTablet,
+                                    buttonHeight = photoButtonHeight,
+                                    onTakePhoto = takeVehiclePhoto,
+                                    photoPaths = state.vehiclePhotoPaths,
+                                    onRemovePhoto = vm::removeVehiclePhoto,
+                                    onPreviewPhoto = { path, onDelete ->
+                                        previewPath = path
+                                        previewDelete = onDelete
+                                    },
+                                    modifier = Modifier.weight(1f),
                                 )
+                            }
+
+                            // Госномер из приёмки — чистое отображение, без реакции
+                            // на тап (нет фокуса, курсора, тулбара). enabled=false
+                            // глушит обработку touch'ей, а disabled-цвета приведены
+                            // к виду обычного поля, чтобы рамка/текст не тускнели.
+                            OutlinedTextField(
+                                value = state.vehiclePlate.orEmpty(),
+                                onValueChange = {},
+                                enabled = false,
+                                readOnly = true,
+                                singleLine = true,
+                                textStyle = inputTextStyle,
+                                label = { Text("Госномер", style = inputLabelStyle) },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    disabledBorderColor = MaterialTheme.colorScheme.outline,
+                                    disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                                    disabledContainerColor = MaterialTheme.colorScheme.surface,
+                                ),
+                            )
+
+                            // Шапка таблицы со встроенной кнопкой «+ Добавить»
+                            // между «Название» и «Кол-во». Скроллится вместе со
+                            // списком — sticky-поведение в текущей итерации не
+                            // нужно, на двух-трёх позициях разница неощутима.
+                            MaterialsTableHeader(
+                                headerStyle = if (isTablet)
+                                    MaterialTheme.typography.titleMedium
+                                else
+                                    MaterialTheme.typography.labelLarge,
+                                onAddClick = { addMaterialOpen = true },
+                            )
+
+                            EditableMaterialsInlineList(
+                                value = state.materials,
+                                editedIndexes = state.editedIndexes,
+                                onEdit = vm::updateMaterial,
+                                onDelete = vm::deleteMaterial,
+                                showHeader = false,
+                                // Снимок серверных значений — нужно UI для подсветки
+                                // правок (перечёркнутое имя / qty в формате old (new)).
+                                originalMaterials = state.originalMaterials,
+                                // Поле «Ед.» в модалке правки строки скрыто —
+                                // единицу инспектор не меняет. В диалоге «Добавить
+                                // материал» (отдельный MaterialEditDialog) оно есть.
+                                editingShowUnitField = false,
+                            )
+
+                            // Плашка «1 Этап: ...» — справочная, скроллится
+                            // вместе со списком. Прижата к низу скролл-зоны,
+                            // визуально соприкасается с инпутом Комментарий.
+                            state.stage1Comment?.takeIf { it.isNotBlank() }?.let { stage1Text ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(
+                                            color = MaterialTheme.colorScheme.surfaceVariant,
+                                            shape = RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp),
+                                        )
+                                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.Top,
+                                ) {
+                                    Text(
+                                        text = "1 Этап:",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(end = 8.dp),
+                                    )
+                                    Text(
+                                        text = stage1Text,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
                             }
                         }
 
+                        // Док-зона — Комментарий 2 Этап, без скролла, прижат
+                        // к низу. При подъёме клавиатуры imePadding-зона над
+                        // ним сжимается (скролл-секция отдаёт место), а инпут
+                        // остаётся целиком виден прямо над клавиатурой.
                         OutlinedTextField(
                             value = state.commentText,
                             onValueChange = vm::setComment,
@@ -341,7 +354,6 @@ fun Stage2FormScreen(
                             textStyle = inputTextStyle,
                             modifier = Modifier.fillMaxWidth(),
                         )
-                    }
                     }
 
                     // Кнопка «Завершить 2 Этап» — overlay через align(BottomEnd),
