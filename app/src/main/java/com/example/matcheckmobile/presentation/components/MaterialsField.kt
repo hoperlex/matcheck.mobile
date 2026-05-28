@@ -38,6 +38,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -202,7 +203,10 @@ private fun MaterialsDialogHeader(managerPhone: String?) {
             modifier = Modifier.weight(1f),
         )
         if (phone != null) {
-            IconButton(
+            // Текст «Менеджер» + иконка звонка как единая кликабельная зона —
+            // и понятнее сотруднику (без подписи иконка читалась бы как
+            // абстрактная кнопка), и больше площадь для тапа на узких телефонах.
+            TextButton(
                 onClick = {
                     val telUri = Uri.parse("tel:" + phone.normalizePhoneForDial())
                     val intent = Intent(Intent.ACTION_DIAL, telUri).apply {
@@ -214,12 +218,18 @@ private fun MaterialsDialogHeader(managerPhone: String?) {
                     // (планшеты без SIM), чтобы не словить ActivityNotFoundException.
                     runCatching { context.startActivity(intent) }
                 },
-                modifier = Modifier.size(40.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
             ) {
+                Text(
+                    text = "Менеджер",
+                    style = MaterialTheme.typography.labelLarge,
+                    maxLines = 1,
+                )
+                Spacer(Modifier.width(6.dp))
                 Icon(
                     imageVector = Icons.Default.Call,
                     contentDescription = "Позвонить менеджеру",
-                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
                 )
             }
         }
