@@ -93,7 +93,7 @@ import com.example.matcheckmobile.data.local.entity.UserEntity
         ShipmentStage1DraftEntity::class,
         ShipmentStage2DraftEntity::class,
     ],
-    version = 15,
+    version = 16,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)
@@ -135,7 +135,7 @@ abstract class MatcheckDatabase : RoomDatabase() {
                     MatcheckDatabase::class.java,
                     DB_NAME,
                 )
-                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)
+                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16)
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
                     .also { INSTANCE = it }
@@ -271,6 +271,18 @@ abstract class MatcheckDatabase : RoomDatabase() {
                 db.execSQL(
                     "ALTER TABLE `remote_delivery_photos` ADD COLUMN `stage` TEXT NOT NULL DEFAULT 'before'",
                 )
+            }
+        }
+
+        // remote_source_documents.createdByUserPhone — телефон автора УПД
+        // (того, кто загрузил её через веб /upload-upd*). Сервер: миграция 0039.
+        // Нужен на 1 Этапе приёмки для иконки звонка в шапке модалки «Материалы».
+        // Для EDO/mail-полученных УПД остаётся NULL — иконка не рисуется.
+        // Существующие строки получат NULL, актуальное значение приедет при
+        // следующем /sync.
+        private val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `remote_source_documents` ADD COLUMN `createdByUserPhone` TEXT")
             }
         }
 

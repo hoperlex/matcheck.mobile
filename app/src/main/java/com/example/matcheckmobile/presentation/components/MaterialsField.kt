@@ -1,5 +1,7 @@
 package com.example.matcheckmobile.presentation.components
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -21,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
@@ -48,6 +51,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -106,6 +111,13 @@ fun MaterialsField(
     readOnly: Boolean = false,
     buttonTextStyle: TextStyle? = null,
     buttonMinHeight: Dp = 56.dp,
+    // Телефон менеджера-автора УПД. Если задан и не пустой, в шапке диалога
+    // справа от заголовка «Материалы» рисуется иконка звонка; тап открывает
+    // системный диалер с подставленным номером (ACTION_DIAL — не требует
+    // CALL_PHONE permission, работает оффлайн). Используется только на
+    // 1 Этапе приёмки, в других местах вызова MaterialsField параметр
+    // не передаётся (по умолчанию null) и иконка не появляется.
+    managerPhone: String? = null,
 ) {
     var dialogVisible by remember { mutableStateOf(false) }
 
@@ -157,6 +169,7 @@ fun MaterialsField(
         MaterialsEditorDialog(
             initial = value,
             readOnly = readOnly,
+            managerPhone = managerPhone,
             onDismiss = { result ->
                 if (!readOnly) onValueChange(result)
                 dialogVisible = false
@@ -165,11 +178,70 @@ fun MaterialsField(
     }
 }
 
+/**
+ * Шапка модалки «Материалы»: заголовок слева, опциональная иконка звонка
+ * справа. Иконка появляется только если задан непустой [managerPhone].
+ * Layout — Row с заголовком на weight(1f) + maxLines=1/ellipsis, чтобы на
+ * узких телефонах (например, 360dp) заголовок ужимался, а не выталкивал
+ * иконку за край.
+ */
+@Composable
+private fun MaterialsDialogHeader(managerPhone: String?) {
+    val context = LocalContext.current
+    val phone = managerPhone?.trim()?.takeIf { it.isNotEmpty() }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = "Материалы",
+            style = MaterialTheme.typography.titleLarge,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        if (phone != null) {
+            IconButton(
+                onClick = {
+                    val telUri = Uri.parse("tel:" + phone.normalizePhoneForDial())
+                    val intent = Intent(Intent.ACTION_DIAL, telUri).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    // ACTION_DIAL не требует CALL_PHONE permission, работает оффлайн
+                    // (открывает системный диалер с подставленным номером).
+                    // runCatching — на случай устройств без dialer-приложения
+                    // (планшеты без SIM), чтобы не словить ActivityNotFoundException.
+                    runCatching { context.startActivity(intent) }
+                },
+                modifier = Modifier.size(40.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Call,
+                    contentDescription = "Позвонить менеджеру",
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Нормализация номера для tel:URI. Системный диалер принимает символы из
+ * RFC 3966, но самый совместимый вид — только цифры и ведущий «+». Убираем
+ * пробелы, скобки, дефисы. «8XXXXXXXXXX» оставляем как есть — диалер сам
+ * наберёт; принудительно менять на +7 не стоит, потому что в коде стран СНГ
+ * могут быть локальные «8» с другим значением.
+ */
+private fun String.normalizePhoneForDial(): String =
+    replace(Regex("[^+0-9]"), "")
+
 @Composable
 private fun MaterialsEditorDialog(
     initial: List<MaterialDraft>,
     onDismiss: (List<MaterialDraft>) -> Unit,
     readOnly: Boolean = false,
+    managerPhone: String? = null,
 ) {
     val items = remember {
         mutableStateListOf<MaterialDraft>().apply { addAll(initial) }
@@ -212,10 +284,7 @@ private fun MaterialsEditorDialog(
                 modifier = Modifier.padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(
-                    text = "Материалы",
-                    style = MaterialTheme.typography.titleLarge,
-                )
+                MaterialsDialogHeader(managerPhone = managerPhone)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()

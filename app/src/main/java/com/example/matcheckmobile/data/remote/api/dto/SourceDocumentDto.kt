@@ -26,6 +26,14 @@ data class SourceDocumentDto(
     val supplierName: String? = null,
     val contractorName: String? = null,
     val siteName: String? = null,
+    // Автор УПД — пользователь, загрузивший её через веб-портал (/upload-upd*).
+    // Для EDO/mail-полученных все три поля = null. Phone используется на 1 Этапе
+    // приёмки для кнопки звонка в шапке модалки «Материалы»; при null кнопка
+    // не рисуется. Все default=null для совместимости со старым сервером
+    // (до миграции 0039) — Json.ignoreUnknownKeys уже стоит глобально.
+    val createdByUserId: String? = null,
+    val createdByUserEmail: String? = null,
+    val createdByUserPhone: String? = null,
     val docNumber: String? = null,
     val docDate: String? = null,
     val totalSum: String? = null,

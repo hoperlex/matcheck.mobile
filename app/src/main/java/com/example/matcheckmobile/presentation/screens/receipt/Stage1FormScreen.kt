@@ -324,6 +324,11 @@ fun Stage1FormScreen(
                             readOnly = true,
                             buttonTextStyle = materialsButtonTextStyle,
                             buttonMinHeight = if (isTablet) 72.dp else 64.dp,
+                            // Телефон менеджера-автора УПД: на 1 Этапе в шапке модалки
+                            // «Материалы» появляется иконка звонка. Только если УПД
+                            // загружена с веб-портала (НЕ из EDO/mail) и у автора
+                            // указан телефон — иначе null и иконка не рисуется.
+                            managerPhone = state.managerPhone,
                         )
 
                         OutlinedTextField(

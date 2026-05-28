@@ -116,6 +116,10 @@ class Stage1FormViewModel(
                     updSupplierId = docMeta.supplierId,
                     updContractorId = docMeta.contractorId,
                     updRecipientMolId = docMeta.recipientMolId,
+                    // Телефон менеджера, загрузившего УПД. null для УПД из EDO/mail
+                    // и для тех, что загружены до серверной миграции 0039 — в этом
+                    // случае иконка звонка в шапке модалки «Материалы» не рисуется.
+                    managerPhone = docMeta.createdByUserPhone,
                 )
             }
         }
@@ -465,6 +469,11 @@ data class Stage1FormUiState(
     val updSupplierId: String? = null,
     val updContractorId: String? = null,
     val updRecipientMolId: String? = null,
+    // Телефон менеджера-автора УПД (тот, кто загрузил через веб /upload-upd*).
+    // null если УПД из EDO/mail, загружена до миграции 0039 или у пользователя
+    // не указан телефон в админ-разделе. UI рисует иконку звонка в шапке
+    // модалки «Материалы» только если phone != null && phone.isNotBlank().
+    val managerPhone: String? = null,
     val commentText: String = "",
     val licensePlate: String = "",
     val showPlateError: Boolean = false,

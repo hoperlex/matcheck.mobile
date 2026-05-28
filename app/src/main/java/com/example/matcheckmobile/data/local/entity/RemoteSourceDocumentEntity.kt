@@ -31,6 +31,12 @@ data class RemoteSourceDocumentEntity(
     val supplierName: String?,
     val contractorName: String?,
     val siteName: String?,
+    // Телефон автора УПД (того, кто загрузил её через веб-портал). Нужен
+    // на 1 Этапе приёмки для иконки звонка в шапке «Материалы». null для
+    // УПД из EDO/mail или загруженных до миграции 0039 — иконка просто
+    // не показывается. email/userId на мобиле пока не нужны, держим только
+    // в DTO; если понадобится — добавим колонки отдельной миграцией.
+    val createdByUserPhone: String?,
     val docNumber: String?,
     val docDate: String?,
     val totalSum: String?,
