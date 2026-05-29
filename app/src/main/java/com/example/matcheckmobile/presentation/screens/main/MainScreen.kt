@@ -95,6 +95,7 @@ fun MainScreen(
                     // дёргаем sync прямо сейчас, не дожидаясь периодики.
                     SyncStatusChip(
                         pending = status.totalPending,
+                        isSyncing = status.isSyncing,
                         // Без NetworkCallback (добавим отдельной задачей) считаем,
                         // что сеть есть — chip всегда трактуется как «можно синкнуть
                         // прямо сейчас». В оффлайне sync-Worker всё равно не упадёт,

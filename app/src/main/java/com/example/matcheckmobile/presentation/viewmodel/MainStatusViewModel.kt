@@ -2,12 +2,15 @@ package com.example.matcheckmobile.presentation.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import com.example.matcheckmobile.data.local.entity.RemoteDeliveryEntity
 import com.example.matcheckmobile.data.local.entity.RemoteSourceDocumentEntity
 import com.example.matcheckmobile.data.local.entity.Stage1DraftEntity
 import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.data.repository.OperationRepository
 import com.example.matcheckmobile.di.AppContainer
+import com.example.matcheckmobile.sync.MatcheckSyncScheduler
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -25,6 +28,7 @@ data class MainStatusUiState(
     val pendingAttachments: Int = 0,
     val pendingMutations: Int = 0,
     val pendingPhotos: Int = 0,
+    val isSyncing: Boolean = false,
     val expectedToday: Int = 0,
     val expectedFuture: Int = 0,
 ) {
@@ -126,6 +130,18 @@ class MainStatusViewModel(container: AppContainer) : ViewModel() {
         val filledDeliveries: List<RemoteDeliveryEntity>,
     )
 
+    // Индикатор «прямо сейчас идёт sync»: подписка на состояние обоих
+    // WorkManager-задач (one-time push-then-pull и 15-мин periodic).
+    // RUNNING у любой из них → chip в шапке рисует вращающуюся иконку,
+    // ENQUEUED/SUCCEEDED/FAILED — показывает статичный «Синхронизировать (N)».
+    private val workManager = WorkManager.getInstance(container.appContext)
+    private val isSyncingFlow = combine(
+        workManager.getWorkInfosForUniqueWorkFlow(MatcheckSyncScheduler.ONE_TIME),
+        workManager.getWorkInfosForUniqueWorkFlow(MatcheckSyncScheduler.PERIODIC),
+    ) { oneTime, periodic ->
+        (oneTime + periodic).any { it.state == WorkInfo.State.RUNNING }
+    }
+
     // Новая offline-first очередь: мутации приёмок/отгрузок (mutations таблица,
     // conflictPending=0) + фото в статусах PENDING_UPLOAD/UPLOAD_ERROR на обоих
     // entity. Группируем в один Pair, чтобы combine выше не уперся в ограничение
@@ -140,7 +156,11 @@ class MainStatusViewModel(container: AppContainer) : ViewModel() {
         mutations to (deliveryPhotos + shipmentPhotos)
     }
 
-    val status: StateFlow<MainStatusUiState> = combine(
+    // Сначала собираем «статичную» часть UI (счётчики из Room) пятиаргументным
+    // combine, потом доклеиваем isSyncingFlow отдельным шагом — combine на 6
+    // аргументов в Kotlin требует одинаковый тип Flow<T>, что нам не подходит
+    // (числа, пары, булеан вперемешку).
+    private val baseStatus = combine(
         container.operationRepository.observeUnsyncedCount(),
         container.database.receiptSessionDao()
             .observeCountBySyncStatuses(OperationRepository.UNSYNCED),
@@ -158,6 +178,13 @@ class MainStatusViewModel(container: AppContainer) : ViewModel() {
             expectedToday = expected.first,
             expectedFuture = expected.second,
         )
+    }
+
+    val status: StateFlow<MainStatusUiState> = combine(
+        baseStatus,
+        isSyncingFlow,
+    ) { base, syncing ->
+        base.copy(isSyncing = syncing)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),

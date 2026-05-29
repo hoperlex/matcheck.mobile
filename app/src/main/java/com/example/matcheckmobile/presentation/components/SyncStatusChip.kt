@@ -1,21 +1,26 @@
 package com.example.matcheckmobile.presentation.components
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudOff
-import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.ElevatedAssistChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.unit.dp
 
 /**
@@ -34,17 +39,40 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun SyncStatusChip(
     pending: Int,
+    isSyncing: Boolean,
     isOnline: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    if (pending <= 0) return
+    // Chip виден, пока есть что отправлять ИЛИ пока идёт активная отправка
+    // (даже если pending уже опустился до 0, инспектору видна анимация —
+    // подтверждение «sync прошёл и завершается»).
+    if (pending <= 0 && !isSyncing) return
 
-    val label = pending.toString()
     val (icon, contentDesc) = if (isOnline) {
-        Icons.Default.CloudSync to "Синхронизировать сейчас"
+        Icons.Default.Sync to "Синхронизировать сейчас"
     } else {
         Icons.Default.CloudOff to "Ожидает сети"
+    }
+
+    // Бесконечное вращение иконки во время активного sync — спинить против
+    // часовой стрелки (отрицательный угол), чтобы визуально читалось как
+    // «отдаём данные», а не «принимаем». Период 1 секунда — стандартный
+    // темп Material-индикаторов.
+    val infiniteTransition = rememberInfiniteTransition(label = "sync-rotation")
+    val rotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = -360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "sync-rotation-angle",
+    )
+
+    val labelText = when {
+        isSyncing -> "Синхронизация…"
+        else -> "Синхронизировать ($pending)"
     }
 
     ElevatedAssistChip(
@@ -55,12 +83,14 @@ fun SyncStatusChip(
             Icon(
                 imageVector = icon,
                 contentDescription = contentDesc,
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier
+                    .size(18.dp)
+                    .then(if (isSyncing) Modifier.rotate(rotation) else Modifier),
             )
         },
         label = {
             Text(
-                text = label,
+                text = labelText,
                 style = MaterialTheme.typography.labelLarge,
             )
         },

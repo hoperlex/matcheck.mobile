@@ -43,8 +43,11 @@ class MatcheckSyncWorker(
 }
 
 object MatcheckSyncScheduler {
-    private const val ONE_TIME = "matcheck_remote_sync_once"
-    private const val PERIODIC = "matcheck_remote_sync_periodic"
+    // Уникальные имена WorkManager-задач. Public, чтобы UI мог подписаться на
+    // состояние (RUNNING / ENQUEUED / SUCCEEDED) и показывать индикатор
+    // активности в чипе синхронизации.
+    const val ONE_TIME = "matcheck_remote_sync_once"
+    const val PERIODIC = "matcheck_remote_sync_periodic"
 
     private val constraints = Constraints.Builder()
         .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -57,7 +60,11 @@ object MatcheckSyncScheduler {
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
         WorkManager.getInstance(context)
-            .enqueueUniqueWork(ONE_TIME, ExistingWorkPolicy.REPLACE, request)
+            .enqueueUniqueWork(
+                ONE_TIME,
+                ExistingWorkPolicy.REPLACE,
+                request,
+            )
     }
 
     /**
