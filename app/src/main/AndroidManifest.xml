@@ -7,6 +7,12 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- In-app update: запуск системного installer'а APK через ACTION_VIEW.
+         С Android 8 для установки из не-Play источников требуется явное
+         permission, и при первом запуске инспектор должен один раз разрешить
+         «Установка из неизвестных источников» именно для нашего приложения
+         в системных настройках (Android сам выкинет туда диалогом). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <uses-feature
         android:name="android.hardware.camera.any"

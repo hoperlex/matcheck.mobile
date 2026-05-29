@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
     <files-path name="operation_photos" path="operation_photos/" />
+    <!-- Каталог скачанного APK обновления. Лежит в app-private external
+         storage (Context.getExternalFilesDir("updates")), не требует
+         WRITE_EXTERNAL_STORAGE и автоматически чистится при удалении
+         приложения. FileProvider раздаёт content://-URI системному
+         installer'у, чтобы ACTION_VIEW открыл диалог установки. -->
+    <external-files-path name="app_updates" path="updates/" />
 </paths>

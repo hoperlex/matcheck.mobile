@@ -11,6 +11,7 @@ import com.example.matcheckmobile.di.AppContainer
 import com.example.matcheckmobile.domain.model.SourceKind
 import com.example.matcheckmobile.domain.model.SourceOrigin
 import com.example.matcheckmobile.domain.model.SourceStatus
+import com.example.matcheckmobile.sync.AppUpdateWorker
 import com.example.matcheckmobile.sync.MatcheckSyncScheduler
 import com.example.matcheckmobile.sync.SyncScheduler
 import kotlinx.coroutines.CoroutineScope
@@ -31,6 +32,14 @@ class MatcheckApplication : Application() {
         super.onCreate()
         container = AppContainer(this)
         appScope.launch { seedDefaultsIfNeeded() }
+
+        // In-app updater: проверяем GH Releases при cold start (один раз,
+        // асинхронно, не блокирует UI) + раз в 6 часов через WorkManager,
+        // пока приложение живо. В debug-сборке UPDATE_CHECK_ENABLED=false,
+        // оба вызова no-op — разработка не отвлекается на проверки.
+        container.appUpdateRepository.checkForUpdate()
+        AppUpdateWorker.schedule(this)
+
         if (container.tokenStorage.isAuthenticated()) {
             // Холодный старт с валидной сессией → push-then-pull через
             // WorkManager, плюс периодика на каждые 15 мин.

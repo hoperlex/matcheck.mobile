@@ -6,6 +6,10 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
+import com.example.matcheckmobile.presentation.components.AppUpdateDialogHost
 import com.example.matcheckmobile.presentation.navigation.MatcheckNavHost
 import com.example.matcheckmobile.ui.theme.MatcheckmobileTheme
 
@@ -24,7 +28,13 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             MatcheckmobileTheme {
-                MatcheckNavHost()
+                Box(modifier = Modifier.fillMaxSize()) {
+                    MatcheckNavHost()
+                    // Глобальный overlay-диалог обновления приложения. Сам ничего
+                    // не рисует, пока AppUpdateRepository.state не Available —
+                    // тогда поверх любой страницы навигации всплывает AlertDialog.
+                    AppUpdateDialogHost()
+                }
             }
         }
     }

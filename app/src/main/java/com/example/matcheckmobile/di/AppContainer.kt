@@ -13,6 +13,10 @@ import com.example.matcheckmobile.data.remote.api.SourceDocumentsApi
 import com.example.matcheckmobile.data.remote.api.SyncApi
 import com.example.matcheckmobile.data.remote.net.NetworkFactory
 import com.example.matcheckmobile.data.remote.sse.SseConnectionManager
+import com.example.matcheckmobile.data.remote.update.AppUpdateFetcher
+import com.example.matcheckmobile.data.repository.AppUpdateDownloader
+import com.example.matcheckmobile.data.repository.AppUpdateInstaller
+import com.example.matcheckmobile.data.repository.AppUpdateRepository
 import com.example.matcheckmobile.data.repository.AttachmentRepository
 import com.example.matcheckmobile.data.repository.AuthRepository
 import com.example.matcheckmobile.data.repository.ConflictRepository
@@ -187,5 +191,16 @@ class AppContainer(val appContext: Context) {
         operationDao = database.materialOperationDao(),
         attachmentDao = database.operationAttachmentDao(),
         syncQueueDao = database.syncQueueDao(),
+    )
+
+    // In-app updater. URL манифеста зашит в BuildConfig per build type:
+    // в release указывает на GH Releases, в debug — пустая строка
+    // (fetcher вернёт Failure → AppUpdateRepository никогда не покажет
+    // диалог в dev-сборке).
+    val appUpdateRepository: AppUpdateRepository = AppUpdateRepository(
+        appContext = appContext,
+        fetcher = AppUpdateFetcher(manifestUrl = BuildConfig.UPDATE_MANIFEST_URL),
+        downloader = AppUpdateDownloader(appContext = appContext),
+        installer = AppUpdateInstaller(),
     )
 }
