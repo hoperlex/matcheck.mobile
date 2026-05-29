@@ -35,7 +35,15 @@ sealed class AppUpdateState {
     object Idle : AppUpdateState()
     object Checking : AppUpdateState()
     object UpToDate : AppUpdateState()
-    data class Available(val manifest: AppUpdateManifest) : AppUpdateState()
+    // dialogShown=true → AlertDialog «Доступно обновление» висит поверх главного
+    // экрана; false → диалог скрыт, но в шапке остаётся chip «Установить
+    // обновление», по тапу инспектор откроет диалог обратно или сразу запустит
+    // скачивание. Установка флага происходит из dismiss() (тап «Не сейчас») —
+    // сама запись Available остаётся в state.
+    data class Available(
+        val manifest: AppUpdateManifest,
+        val dialogShown: Boolean = true,
+    ) : AppUpdateState()
     data class Downloading(val manifest: AppUpdateManifest, val percent: Int) : AppUpdateState()
     data class ReadyToInstall(val manifest: AppUpdateManifest, val apkFile: File) : AppUpdateState()
     data class Failed(val message: String) : AppUpdateState()
@@ -109,8 +117,31 @@ class AppUpdateRepository(
         }
     }
 
-    /** Пользователь нажал «Не сейчас» / закрыл диалог. */
+    /**
+     * Пользователь нажал «Не сейчас» в AlertDialog. Состояние Available
+     * сохраняется (chip «Установить обновление» в шапке остаётся видимым),
+     * но dialogShown=false — поверх главного экрана модального окна нет.
+     * Для других состояний (Failed / UpToDate / Checking) — обычный сброс
+     * в Idle, чтобы chip пропал.
+     */
     fun dismiss() {
-        _state.value = AppUpdateState.Idle
+        _state.update { current ->
+            when (current) {
+                is AppUpdateState.Available -> current.copy(dialogShown = false)
+                else -> AppUpdateState.Idle
+            }
+        }
+    }
+
+    /**
+     * Тап на chip «Установить обновление» в шапке — снова показываем
+     * AlertDialog (если был закрыт через «Не сейчас»). Если state не
+     * Available — ничего не делаем.
+     */
+    fun reopenDialog() {
+        _state.update { current ->
+            if (current is AppUpdateState.Available) current.copy(dialogShown = true)
+            else current
+        }
     }
 }

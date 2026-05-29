@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.matcheckmobile.BuildConfig
+import com.example.matcheckmobile.presentation.components.AppUpdateChip
 import com.example.matcheckmobile.presentation.components.SyncStatusChip
 import com.example.matcheckmobile.presentation.viewmodel.MainStatusViewModel
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
@@ -102,6 +103,13 @@ fun MainScreen(
                     }
                 },
                 actions = {
+                    // Видимый индикатор «Установить обновление»: появляется,
+                    // когда AppUpdateRepository нашёл свежую версию на GitHub
+                    // Releases. Тап — открывает AlertDialog с changelog'ом
+                    // (см. AppUpdateDialogHost), оттуда инспектор запустит
+                    // скачивание. После «Не сейчас» chip остаётся, чтобы
+                    // инспектор мог вернуться к диалогу когда удобно.
+                    AppUpdateChip()
                     // Видимый индикатор очереди синхронизации: появляется, когда
                     // в Room есть неотправленные мутации/фото (был оффлайн или
                     // WorkManager ещё не успел проснуться). По тапу принудительно

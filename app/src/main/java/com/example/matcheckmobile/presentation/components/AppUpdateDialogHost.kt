@@ -41,7 +41,7 @@ fun AppUpdateDialogHost() {
     val state by repo.state.collectAsState()
 
     when (val s = state) {
-        is AppUpdateState.Available -> AlertDialog(
+        is AppUpdateState.Available -> if (s.dialogShown) AlertDialog(
             onDismissRequest = { repo.dismiss() },
             title = { Text("Доступно обновление") },
             text = {
