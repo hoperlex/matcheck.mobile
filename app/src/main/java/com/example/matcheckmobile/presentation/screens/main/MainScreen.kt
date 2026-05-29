@@ -42,12 +42,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.matcheckmobile.BuildConfig
 import com.example.matcheckmobile.presentation.components.SyncStatusChip
 import com.example.matcheckmobile.presentation.viewmodel.MainStatusViewModel
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
 import com.example.matcheckmobile.sync.MatcheckSyncScheduler
+import com.example.matcheckmobile.ui.theme.OswaldFontFamily
 import kotlinx.coroutines.launch
 
 private val TabletBreakpoint = 600.dp
@@ -85,7 +87,18 @@ fun MainScreen(
                         Modifier
                     }
                     Box(modifier = titleModifier) {
-                        Text("su10")
+                        // Брендовая надпись «su10»: Oswald — узкий заголовочный
+                        // шрифт от Google Fonts, грузится через GMS-провайдер
+                        // при первом запуске и кэшируется. При недоступности
+                        // (нет Play Services / сети при cold start) Compose
+                        // откатывается на системный sans-serif, текст всё
+                        // равно отрендерится.
+                        Text(
+                            text = "su10",
+                            fontFamily = OswaldFontFamily,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 26.sp,
+                        )
                     }
                 },
                 actions = {
