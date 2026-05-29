@@ -156,7 +156,7 @@ fun Stage1FormScreen(
             // упирались в нижнюю границу кнопки. 116dp даёт запас ~10dp.
             val photoButtonHeight = if (isTablet) 128.dp else 116.dp
             val vehicleIconHeight = if (isTablet) 96.dp else 72.dp
-            val finalizeButtonHeight = if (isTablet) 80.dp else 64.dp
+            val finalizeButtonHeight = if (isTablet) 64.dp else 52.dp
 
             val inputTextStyle = if (isTablet)
                 MaterialTheme.typography.headlineSmall
@@ -357,14 +357,14 @@ fun Stage1FormScreen(
                             onClick = { confirmFinalizeVisible = true },
                             enabled = !state.isSaving && !state.finalized,
                             modifier = Modifier.height(finalizeButtonHeight),
-                            contentPadding = PaddingValues(horizontal = 32.dp, vertical = 16.dp),
+                            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 10.dp),
                         ) {
                             Text(
                                 text = if (state.isSaving) "Сохранение..." else "Завершить 1 Этап",
                                 style = if (isTablet)
-                                    MaterialTheme.typography.headlineMedium
+                                    MaterialTheme.typography.titleLarge
                                 else
-                                    MaterialTheme.typography.headlineSmall,
+                                    MaterialTheme.typography.titleMedium,
                             )
                         }
                     }
