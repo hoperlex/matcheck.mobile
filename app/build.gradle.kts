@@ -245,7 +245,7 @@ val publishGithubRelease by tasks.registering {
             apkFile.absolutePath,
             manifestFile.absolutePath,
             "--repo", "hoperlex/matcheck.mobile-releases",
-            "--title", "matcheck $versionName",
+            "--title", "su10 $versionName",
             "--notes", "Release $versionName (versionCode=$versionCode)",
         ).inheritIO().start()
         val exitCode = process.waitFor()
