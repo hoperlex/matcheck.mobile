@@ -32,4 +32,7 @@ interface MutationDao {
 
     @Query("SELECT COUNT(*) FROM mutations WHERE conflictPending = 0")
     suspend fun countPending(): Int
+
+    @Query("SELECT COUNT(*) FROM mutations WHERE conflictPending = 0")
+    fun observePendingCount(): Flow<Int>
 }

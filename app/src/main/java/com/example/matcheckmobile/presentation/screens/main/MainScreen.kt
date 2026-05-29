@@ -23,6 +23,8 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -36,12 +38,16 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.matcheckmobile.BuildConfig
+import com.example.matcheckmobile.presentation.components.SyncStatusChip
 import com.example.matcheckmobile.presentation.viewmodel.MainStatusViewModel
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
+import com.example.matcheckmobile.sync.MatcheckSyncScheduler
 import kotlinx.coroutines.launch
 
 private val TabletBreakpoint = 600.dp
@@ -59,22 +65,54 @@ fun MainScreen(
     val vm: MainStatusViewModel = matcheckViewModel()
     val status by vm.status.collectAsStateWithLifecycle()
     var showAdminSheet by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    Box(
-                        modifier = Modifier.combinedClickable(
+                    // Долгий тап на заголовке открывает служебное меню только в
+                    // debug-сборках — инспектору в release-`matcheck` он не нужен,
+                    // вся синхронизация и навигация доступны через явные элементы UI.
+                    val titleModifier = if (BuildConfig.DEBUG) {
+                        Modifier.combinedClickable(
                             onClick = {},
                             onLongClick = { showAdminSheet = true },
-                        ),
-                    ) {
+                        )
+                    } else {
+                        Modifier
+                    }
+                    Box(modifier = titleModifier) {
                         Text("matcheck")
                     }
                 },
+                actions = {
+                    // Видимый индикатор очереди синхронизации: появляется, когда
+                    // в Room есть неотправленные мутации/фото (был оффлайн или
+                    // WorkManager ещё не успел проснуться). По тапу принудительно
+                    // дёргаем sync прямо сейчас, не дожидаясь периодики.
+                    SyncStatusChip(
+                        pending = status.totalPending,
+                        // Без NetworkCallback (добавим отдельной задачей) считаем,
+                        // что сеть есть — chip всегда трактуется как «можно синкнуть
+                        // прямо сейчас». В оффлайне sync-Worker всё равно не упадёт,
+                        // просто WorkManager отложит запуск до возврата сети.
+                        isOnline = true,
+                        onClick = {
+                            MatcheckSyncScheduler.requestImmediateSync(context)
+                            scope.launch {
+                                snackbarHostState.showSnackbar(
+                                    "Запустил синхронизацию",
+                                )
+                            }
+                        },
+                    )
+                },
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         BoxWithConstraints(
             modifier = Modifier
@@ -126,7 +164,6 @@ fun MainScreen(
 
     if (showAdminSheet) {
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        val scope = rememberCoroutineScope()
         fun dismissAnd(action: () -> Unit) {
             scope.launch {
                 sheetState.hide()

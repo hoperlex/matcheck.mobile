@@ -23,10 +23,18 @@ data class MainStatusUiState(
     val pendingOperations: Int = 0,
     val pendingSessions: Int = 0,
     val pendingAttachments: Int = 0,
+    val pendingMutations: Int = 0,
+    val pendingPhotos: Int = 0,
     val expectedToday: Int = 0,
     val expectedFuture: Int = 0,
 ) {
-    val totalPending: Int get() = pendingOperations + pendingSessions + pendingAttachments
+    // Кол-во ожидающих отправки сущностей: legacy (operations/sessions/attachments)
+    // + новые offline-first мутации (приёмки/отгрузки) + фото со статусами
+    // PENDING_UPLOAD / UPLOAD_ERROR. Используется индикатором синхронизации в
+    // шапке main-экрана: > 0 → видна chip с числом, == 0 → скрыта.
+    val totalPending: Int
+        get() = pendingOperations + pendingSessions + pendingAttachments +
+            pendingMutations + pendingPhotos
 }
 
 /**
@@ -118,6 +126,44 @@ class MainStatusViewModel(container: AppContainer) : ViewModel() {
         val filledDeliveries: List<RemoteDeliveryEntity>,
     )
 
+    // Новая offline-first очередь: мутации приёмок/отгрузок (mutations таблица,
+    // conflictPending=0) + фото в статусах PENDING_UPLOAD/UPLOAD_ERROR на обоих
+    // entity. Группируем в один Pair, чтобы combine выше не уперся в ограничение
+    // 5 аргументов.
+    private val newQueueCounts = combine(
+        container.database.mutationDao().observePendingCount(),
+        container.database.remoteDeliveryDao()
+            .observePhotoCountByStatus(PHOTO_PENDING_STATUSES),
+        container.database.remoteShipmentDao()
+            .observePhotoCountByStatus(PHOTO_PENDING_STATUSES),
+    ) { mutations, deliveryPhotos, shipmentPhotos ->
+        mutations to (deliveryPhotos + shipmentPhotos)
+    }
+
+    val status: StateFlow<MainStatusUiState> = combine(
+        container.operationRepository.observeUnsyncedCount(),
+        container.database.receiptSessionDao()
+            .observeCountBySyncStatuses(OperationRepository.UNSYNCED),
+        container.attachmentRepository.observePendingCount(),
+        expectedCounts,
+        newQueueCounts,
+    ) { ops, sessions, atts, expected, queue ->
+        val (mutations, photos) = queue
+        MainStatusUiState(
+            pendingOperations = ops,
+            pendingSessions = sessions,
+            pendingAttachments = atts,
+            pendingMutations = mutations,
+            pendingPhotos = photos,
+            expectedToday = expected.first,
+            expectedFuture = expected.second,
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = MainStatusUiState(),
+    )
+
     companion object {
         /**
          * Тикер локальной даты раз в минуту: гарантирует, что после полуночи
@@ -129,25 +175,10 @@ class MainStatusViewModel(container: AppContainer) : ViewModel() {
                 delay(60_000L)
             }
         }.distinctUntilChanged()
-    }
 
-    val status: StateFlow<MainStatusUiState> = combine(
-        container.operationRepository.observeUnsyncedCount(),
-        container.database.receiptSessionDao()
-            .observeCountBySyncStatuses(OperationRepository.UNSYNCED),
-        container.attachmentRepository.observePendingCount(),
-        expectedCounts,
-    ) { ops, sessions, atts, expected ->
-        MainStatusUiState(
-            pendingOperations = ops,
-            pendingSessions = sessions,
-            pendingAttachments = atts,
-            expectedToday = expected.first,
-            expectedFuture = expected.second,
-        )
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = MainStatusUiState(),
-    )
+        // Фото, ожидающие отправки на сервер: PENDING_UPLOAD — только что снято,
+        // UPLOAD_ERROR — упало при попытке (retry queue). UPLOADING — уже в
+        // процессе, считать его «висящим» бессмысленно. UPLOADED — отправлено.
+        private val PHOTO_PENDING_STATUSES = listOf("PENDING_UPLOAD", "UPLOAD_ERROR")
+    }
 }

@@ -44,6 +44,9 @@ interface RemoteShipmentDao {
     @Query("SELECT * FROM remote_shipment_photos WHERE uploadStatus IN (:statuses) ORDER BY takenAt DESC")
     fun observePhotosByStatus(statuses: List<String>): Flow<List<RemoteShipmentPhotoEntity>>
 
+    @Query("SELECT COUNT(*) FROM remote_shipment_photos WHERE uploadStatus IN (:statuses)")
+    fun observePhotoCountByStatus(statuses: List<String>): Flow<Int>
+
     @Query("SELECT * FROM remote_shipment_photos WHERE id = :id")
     suspend fun findPhotoById(id: String): RemoteShipmentPhotoEntity?
 
