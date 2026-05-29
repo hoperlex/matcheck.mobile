@@ -87,6 +87,24 @@ data class MaterialDraft(
 )
 
 /**
+ * Пересчитывает сумму НДС позиции по формуле веб-портала (см. computeVatSum
+ * в apps/web/.../KppPage.tsx): `vatSum = qty * price * vatRate / 100`.
+ * Цена price хранится как «за единицу без НДС», поэтому при изменении
+ * количества инспектором сумма НДС обязана пересчитаться.
+ *
+ * Возвращает строку с 2 знаками после точки (как сервер хранит DECIMAL) или
+ * null, если любого из аргументов нет / он невалиден. В этом случае
+ * вызывающий код использует сохранённое значение initial.vatSum.
+ */
+private fun computeVatSum(qty: String?, price: String?, vatRate: String?): String? {
+    val qtyN = qty?.replace(',', '.')?.toDoubleOrNull() ?: return null
+    val priceN = price?.replace(',', '.')?.toDoubleOrNull() ?: return null
+    val rateN = vatRate?.replace(',', '.')?.toDoubleOrNull() ?: return null
+    val result = qtyN * priceN * rateN / 100.0
+    return "%.2f".format(result).replace(',', '.')
+}
+
+/**
  * Убирает trailing-нули и точку у decimal-строки: "2.0000" → "2",
  * "2.5000" → "2.5". Сервер хранит Decimal как строку с фиксированной
  * точностью, инспектору удобнее короткий вид. Нечисловые строки возвращаются
@@ -264,8 +282,15 @@ private fun MaterialsEditorDialog(
         editingIndex?.let { idx ->
             val name = editingName.trim()
             val qty = editingQty.trim()
-            if (name.isEmpty() && qty.isEmpty()) items.removeAt(idx)
-            else items[idx] = MaterialDraft(name = name, qty = qty)
+            if (name.isEmpty() && qty.isEmpty()) {
+                items.removeAt(idx)
+            } else {
+                // Сохраняем id/unit/price/vatRate/vatSum из существующей строки —
+                // не теряем server-side финансы при правке. См. EditMaterialDialog
+                // ниже, тот же принцип.
+                val existing = items[idx]
+                items[idx] = existing.copy(name = name, qty = qty)
+            }
         }
         editingIndex = null
         editingName = ""
@@ -273,7 +298,7 @@ private fun MaterialsEditorDialog(
     }
 
     fun result(): List<MaterialDraft> = items
-        .map { MaterialDraft(name = it.name.trim(), qty = it.qty.trim()) }
+        .map { it.copy(name = it.name.trim(), qty = it.qty.trim()) }
         .filter { it.name.isNotEmpty() || it.qty.isNotEmpty() }
 
     Dialog(
@@ -947,11 +972,29 @@ private fun EditMaterialDialog(
                     }
                     Button(
                         onClick = {
+                            // Критично: при правке существующей строки на 2 Этапе
+                            // пробрасываем id и финансы (price/vatRate) из initial,
+                            // а vatSum пересчитываем под новый qty — иначе при
+                            // upsert на сервер уйдёт устаревший vatSum от старого
+                            // количества (или null, если поля не пробросить), и
+                            // веб-портал будет показывать неправильную сумму НДС.
+                            // Для add-сценария (новая строка) initial — пустой,
+                            // computeVatSum вернёт null, всё корректно null'ится.
+                            val newQty = qty.trim()
+                            val recomputedVatSum = computeVatSum(
+                                qty = newQty,
+                                price = initial.price,
+                                vatRate = initial.vatRate,
+                            )
                             onSave(
                                 MaterialDraft(
                                     name = name.trim(),
-                                    qty = qty.trim(),
+                                    qty = newQty,
                                     unit = unit.trim(),
+                                    id = initial.id,
+                                    price = initial.price,
+                                    vatRate = initial.vatRate,
+                                    vatSum = recomputedVatSum ?: initial.vatSum,
                                 )
                             )
                         },
