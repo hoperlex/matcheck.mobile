@@ -237,9 +237,12 @@ val publishGithubRelease by tasks.registering {
         println()
         println("Создаю GitHub release...")
 
-        // ProcessBuilder вместо устаревшего gradle exec{}. inheritIO()
-        // пробрасывает stdout/stderr `gh` напрямую в консоль gradle —
-        // видны запросы CLI на токен/подтверждение, если что.
+        // ProcessBuilder + redirectErrorStream — собираем stdout и stderr `gh`
+        // в один поток и читаем его строкой. inheritIO под Gradle daemon
+        // съедает stderr, поэтому при падении в Build Output не видно реальной
+        // причины (HTTP 422, tag exists, repository empty и пр.) — пришлось бы
+        // запускать `gh release create` руками в PowerShell. Теперь любая
+        // ошибка от gh попадает в текст исключения и видна сразу.
         val process = ProcessBuilder(
             "gh", "release", "create", tag,
             apkFile.absolutePath,
@@ -247,15 +250,18 @@ val publishGithubRelease by tasks.registering {
             "--repo", "hoperlex/matcheck.mobile-releases",
             "--title", "su10 $versionName",
             "--notes", "Release $versionName (versionCode=$versionCode)",
-        ).inheritIO().start()
+        ).redirectErrorStream(true).start()
+        val output = process.inputStream.bufferedReader().readText()
         val exitCode = process.waitFor()
+        if (output.isNotBlank()) println(output)
         if (exitCode != 0) {
-            throw GradleException("gh release create exit=$exitCode. " +
-                "Проверь авторизацию (gh auth status) и наличие репо " +
-                "hoperlex/matcheck.mobile-releases.")
+            throw GradleException(
+                "gh release create exit=$exitCode\n$output\n" +
+                    "Проверь авторизацию (gh auth status) и наличие репо " +
+                    "hoperlex/matcheck.mobile-releases.",
+            )
         }
 
-        println()
         println("Релиз $tag опубликован.")
         println("  https://github.com/hoperlex/matcheck.mobile-releases/releases/tag/$tag")
     }
