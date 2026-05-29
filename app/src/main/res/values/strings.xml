@@ -1,3 +1,8 @@
 <resources>
-    <string name="app_name">matcheck.mobile</string>
+    <!--
+      app_name теперь задаётся per-build-type через resValue в build.gradle.kts:
+      release → «su10», debug → «su10.dev». Это значит, что на твоём планшете
+      debug-сборка от Run app будет под подписью «su10.dev» (отдельная иконка),
+      инспекторская release из GH Releases — под «su10».
+    -->
 </resources>

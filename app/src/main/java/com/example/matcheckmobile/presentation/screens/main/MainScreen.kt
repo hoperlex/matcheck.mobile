@@ -85,7 +85,7 @@ fun MainScreen(
                         Modifier
                     }
                     Box(modifier = titleModifier) {
-                        Text("matcheck")
+                        Text("su10")
                     }
                 },
                 actions = {
