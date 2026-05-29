@@ -111,6 +111,11 @@ class PhotoUploadProcessor(
             // not_found и запись на сервере останется orphan (uploadedAt=null), а через
             // час будет вычищена cleanup-job'ом.
             confirmIfNeeded(presign.photoId, presign)
+            // После успешного UPLOADED локальный blob и thumb больше не нужны:
+            // в UI клиента фото показывается через PhotoFetcher с S3 (presigned
+            // URL), retry уже не пойдёт. Удаляем файлы и зануляем пути в Room,
+            // чтобы за активной работой не накапливались гигабайты «мёртвых»
+            // jpeg в app-private external storage.
             val updated = photo.copy(
                 id = presign.photoId,
                 s3Key = presign.s3Key,
@@ -118,12 +123,15 @@ class PhotoUploadProcessor(
                 uploadStatus = "UPLOADED",
                 uploadedAt = java.time.Instant.now().toString(),
                 lastUploadError = null,
+                localBlobPath = null,
+                localThumbPath = null,
             )
             if (presign.photoId != photo.id) {
                 // Меняем PK — Room не умеет это через upsert, удаляем старую и вставляем новую.
                 deliveryDao.deletePhotoById(photo.id)
             }
             deliveryDao.upsertPhoto(updated)
+            deleteLocalBlobsQuietly(photo.localBlobPath, photo.localThumbPath)
             UploadOutcome.Uploaded
         }.getOrElse { error ->
             deliveryDao.upsertPhoto(
@@ -151,6 +159,8 @@ class PhotoUploadProcessor(
             doUpload(blob = blob, thumb = photo.localThumbPath?.let(::File), presign = presign, contentType = photo.contentType)
             // См. комментарий в uploadDeliveryPhoto: confirm идёт по серверному photoId.
             confirmIfNeeded(presign.photoId, presign)
+            // См. uploadDeliveryPhoto — после UPLOADED локальный blob/thumb
+            // не нужны, чистим, чтобы не накапливать гигабайты на устройстве.
             val updated = photo.copy(
                 id = presign.photoId,
                 s3Key = presign.s3Key,
@@ -158,11 +168,14 @@ class PhotoUploadProcessor(
                 uploadStatus = "UPLOADED",
                 uploadedAt = java.time.Instant.now().toString(),
                 lastUploadError = null,
+                localBlobPath = null,
+                localThumbPath = null,
             )
             if (presign.photoId != photo.id) {
                 shipmentDao.deletePhotoById(photo.id)
             }
             shipmentDao.upsertPhoto(updated)
+            deleteLocalBlobsQuietly(photo.localBlobPath, photo.localThumbPath)
             UploadOutcome.Uploaded
         }.getOrElse { error ->
             shipmentDao.upsertPhoto(
@@ -170,6 +183,16 @@ class PhotoUploadProcessor(
             )
             UploadOutcome.Failed
         }
+    }
+
+    /**
+     * Удаляет локальные blob/thumb-файлы фотографии после успешного UPLOADED.
+     * runCatching — это best-effort cleanup: если файл уже удалён внешним
+     * процессом или путь невалидный, ничего не падает.
+     */
+    private fun deleteLocalBlobsQuietly(blobPath: String?, thumbPath: String?) {
+        runCatching { blobPath?.let { File(it).delete() } }
+        runCatching { thumbPath?.let { File(it).delete() } }
     }
 
     private suspend fun isParentReady(parentType: String, parentId: String, parentVersion: Int): Boolean {
