@@ -1,6 +1,11 @@
 package com.example.matcheckmobile
 
 import android.app.Application
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import com.example.matcheckmobile.data.local.entity.CounterpartyEntity
 import com.example.matcheckmobile.data.local.entity.MaterialEntity
 import com.example.matcheckmobile.data.local.entity.SiteEntity
@@ -49,6 +54,15 @@ class MatcheckApplication : Application() {
             // от WorkManager — fallback на случай отключения SSE.
             container.sseConnectionManager.start()
         }
+
+        // ConnectivityManager-callback: при первом появлении сети после
+        // оффлайн-сессии мгновенно дёргаем sync, не дожидаясь periodic-15мин
+        // или battery-optimization-окна WorkManager на realme/Samsung. На
+        // CONNECTED-constraint один WorkManager полагаться нельзя — у этих
+        // вендоров OneTimeWork может откладываться на 10–30 минут после
+        // возврата сети. Колбэк ставит OneTimeWork-задачу синка сразу, как
+        // система отдаёт onAvailable.
+        registerNetworkCallbackForAutoSync()
         // На logout/invalid_refresh глобально гасим SSE.
         appScope.launch {
             container.authRepository.sessionEvents.collect { event ->
@@ -63,6 +77,36 @@ class MatcheckApplication : Application() {
         // снимаем — иначе он пушит остаточные ReceiptSession и сервер
         // создаёт мусорные приёмки со статусом not_filled.
         SyncScheduler.cancelAll(this)
+    }
+
+    /**
+     * Подписывается на изменения сети и при каждом появлении валидного
+     * интернет-соединения (onAvailable) запускает push-then-pull синк.
+     *
+     * Гарантирует, что данные оффлайн-сессии уходят на сервер **сразу** при
+     * возврате сети, не дожидаясь WorkManager-periodic или его CONNECTED-
+     * constraint (на realme/Samsung из-за aggressive battery optimization
+     * задачи могут откладываться на 10–30 минут). Сам по себе requestImmediate
+     * Sync ставит OneTimeWork с REPLACE-политикой — повторные срабатывания
+     * не плодят дубли.
+     *
+     * Колбэк регистрируется на весь жизненный цикл Application — обычное
+     * соединение через NetworkRequest INTERNET, без специальных capabilities.
+     */
+    private fun registerNetworkCallbackForAutoSync() {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            .build()
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                if (!container.tokenStorage.isAuthenticated()) return
+                MatcheckSyncScheduler.requestImmediateSync(this@MatcheckApplication)
+            }
+        }
+        runCatching { cm.registerNetworkCallback(request, callback) }
     }
 
     private suspend fun seedDefaultsIfNeeded() {

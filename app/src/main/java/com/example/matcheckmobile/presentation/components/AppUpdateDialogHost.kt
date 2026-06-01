@@ -96,16 +96,14 @@ fun AppUpdateDialogHost() {
             confirmButton = { /* пусто, скрываем кнопку */ },
         )
 
-        is AppUpdateState.Failed -> AlertDialog(
-            onDismissRequest = { repo.dismiss() },
-            title = { Text("Не удалось обновить") },
-            text = { Text(s.message) },
-            confirmButton = {
-                TextButton(onClick = { repo.dismiss() }) {
-                    Text("Закрыть")
-                }
-            },
-        )
+        // Failed — это техническая ошибка фоновой проверки (таймаут на GitHub,
+        // нет сети при cold start и т.п.). Инспектору показывать «Не удалось
+        // обновить» бесполезно — он не понимает контекст («что не удалось?»),
+        // а следующая проверка через 6ч сама всё подтянет. Тихо игнорируем —
+        // state остаётся Failed внутри Repository (можно посмотреть в Logcat
+        // для диагностики), но UI чистый. Также не показываем при download-
+        // ошибке — там пользователь сам тапнет «Установить» ещё раз через chip.
+        is AppUpdateState.Failed -> Unit
 
         else -> Unit
     }
