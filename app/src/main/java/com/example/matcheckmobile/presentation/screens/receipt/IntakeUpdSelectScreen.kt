@@ -169,7 +169,10 @@ fun IntakeUpdSelectScreen(
 
 internal enum class IntakeUpdTab(val title: String) {
     Today(title = "Сегодня"),
-    Future(title = "Будущие"),
+    // «Остальные» включает УПД с любой датой кроме сегодняшней — будущие,
+    // прошедшие (просроченные) и без `expectedDate`. Назвать «Будущие» было
+    // некорректно: туда же попадали и просроченные.
+    Future(title = "Остальные"),
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

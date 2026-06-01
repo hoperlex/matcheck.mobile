@@ -165,7 +165,9 @@ fun DispatchUpdSelectScreen(
 
 internal enum class DispatchUpdTab(val title: String) {
     Today(title = "Сегодня"),
-    Future(title = "Будущие"),
+    // См. комментарий в IntakeUpdSelectScreen.IntakeUpdTab: «Остальные» — это
+    // всё кроме сегодняшней даты, включая просроченные и без даты поставки.
+    Future(title = "Остальные"),
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

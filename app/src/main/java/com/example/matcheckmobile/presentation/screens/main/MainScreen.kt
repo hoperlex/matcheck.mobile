@@ -286,7 +286,10 @@ private fun PlanCard(
                     color = MaterialTheme.colorScheme.outlineVariant,
                 )
                 PlanCell(
-                    label = "Будущие",
+                    // «Остальные» — УПД с любой `expectedDate` кроме сегодняшней
+                    // (включая просроченные и без даты). См. логику в
+                    // MainStatusViewModel.expectedCounts.
+                    label = "Остальные",
                     value = futureValue,
                     isTablet = isTablet,
                     modifier = Modifier.weight(1f),
