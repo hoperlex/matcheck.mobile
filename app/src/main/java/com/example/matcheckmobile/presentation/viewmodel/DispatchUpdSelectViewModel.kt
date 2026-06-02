@@ -71,6 +71,10 @@ class DispatchUpdSelectViewModel(container: AppContainer) : ViewModel() {
         val todayRows = mutableListOf<DispatchUpdRow>()
         val futureRows = mutableListOf<DispatchUpdRow>()
         for (d in docs) {
+            // Раздел «Выезд» в мобиле зеркалит «Отгрузку» веб-портала:
+            // только исходящие документы (direction='outbound'). Сервер /sync
+            // отдаёт оба направления для inspector_kpp, фильтруем на клиенте.
+            if (d.direction != "outbound") continue
             if (d.id in attachedIds) continue
             val draftId = draftsByUpdId[d.id]
             val row = DispatchUpdRow(

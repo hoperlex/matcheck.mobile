@@ -87,6 +87,13 @@ class IntakeUpdSelectViewModel(container: AppContainer) : ViewModel() {
         val todayRows = mutableListOf<IntakeUpdRow>()
         val futureRows = mutableListOf<IntakeUpdRow>()
         for (d in docs) {
+            // Раздел «Приёмка» в мобиле зеркалит раздел «Приёмка» на веб-портале:
+            // только входящие документы (УПД и ТН с direction='inbound').
+            // Без этого фильтра в Inbox попадали накладные из отгрузки (см.
+            // Д0000002518 — она в Отгрузке на портале, но появлялась здесь).
+            // На сервере /sync не фильтрует по direction для inspector_kpp,
+            // поэтому фильтруем на клиенте.
+            if (d.direction != "inbound") continue
             if (d.id in attachedIds) continue
             val draftId = draftsByUpdId[d.id]
             val row = IntakeUpdRow(

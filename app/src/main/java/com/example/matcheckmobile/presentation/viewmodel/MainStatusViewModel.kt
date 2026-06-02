@@ -89,9 +89,13 @@ class MainStatusViewModel(container: AppContainer) : ViewModel() {
 
         // Today — только `expectedDate == today`. Прочерк/null/любая другая
         // дата — Future. УПД-drafts принудительно Today (с ними уже работают).
+        // Считаем ТОЛЬКО входящие (direction='inbound') — плашка «Сегодня /
+        // Остальные» на главном экране относится к разделу «Приёмка». Исходящие
+        // (накладные на отгрузку) считаются отдельно в разделе «Выезд».
         var todayUnattachedCount = 0
         var futureUnattachedCount = 0
         for (d in docs) {
+            if (d.direction != "inbound") continue
             if (d.id in attachedIds) continue
             if (d.id in updWithDraft) {
                 todayUnattachedCount++
