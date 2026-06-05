@@ -59,16 +59,14 @@ fun LoginScreen(onLoggedIn: () -> Unit) {
                 .fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(
-                text = "MatCheck КПП",
-                style = MaterialTheme.typography.headlineLarge,
-                textAlign = TextAlign.Center,
-            )
+            // Бренд «MatCheck КПП» убран по запросу — на логин-экране
+            // достаточно тагалайна «Учёт движения материалов». Иконка/имя
+            // приложения (`su10`) подписаны системой над инпутами.
             Text(
                 text = "Учёт движения материалов",
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 8.dp, bottom = 32.dp),
+                modifier = Modifier.padding(bottom = 32.dp),
             )
 
             OutlinedTextField(
