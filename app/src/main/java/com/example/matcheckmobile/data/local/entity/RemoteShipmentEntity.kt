@@ -100,6 +100,9 @@ data class RemoteShipmentPhotoEntity(
     @PrimaryKey val id: String,
     val shipmentId: String,
     val kind: String,
+    // 'before' / 'after'. На сервере default 'before' (см. миграцию 0048),
+    // в БД мобилы новая колонка добавлена миграцией Room с тем же default.
+    val stage: String,
     val s3Key: String?,
     val thumbS3Key: String?,
     val contentHash: String?,

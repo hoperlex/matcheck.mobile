@@ -59,7 +59,12 @@ class PhotoRepository(
         return photoId
     }
 
-    suspend fun captureForShipment(shipmentId: String, kind: String, sourceUri: Uri): String {
+    suspend fun captureForShipment(
+        shipmentId: String,
+        kind: String,
+        sourceUri: Uri,
+        stage: String = "before",
+    ): String {
         val photoId = UUID.randomUUID().toString()
         val prepared = photoStorage.prepareFromUri(sourceUri, photoId)
         shipmentDao.upsertPhoto(
@@ -67,6 +72,7 @@ class PhotoRepository(
                 id = photoId,
                 shipmentId = shipmentId,
                 kind = kind,
+                stage = stage,
                 s3Key = null,
                 thumbS3Key = null,
                 contentHash = prepared.mainSha256Hex,

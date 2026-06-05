@@ -239,6 +239,24 @@ class DispatchStage1FormViewModel(
             return
         }
 
+        // Pre-flight: сервер validateKindLinks для kind='contractor' требует
+        // ровно одного получателя (receiverCounterpartyId XOR receiverMolId).
+        // Если у документа оба поля пусты — отправка обречена на 422
+        // receiver_required, mutation осядет в очереди как conflictPending.
+        // Ловим заранее и просим менеджера дозаполнить документ в портале.
+        val hasReceiver =
+            !cur.updReceiverCounterpartyId.isNullOrBlank() ||
+                !cur.updReceiverMolId.isNullOrBlank()
+        if (!hasReceiver) {
+            _state.update {
+                it.copy(
+                    error = "У накладной не указан получатель. " +
+                        "Попросите менеджера дозаполнить документ в портале.",
+                )
+            }
+            return
+        }
+
         _state.update { it.copy(isSaving = true, error = null) }
         viewModelScope.launch {
             try {
@@ -294,7 +312,9 @@ class DispatchStage1FormViewModel(
                 // нет, иначе терялось бы при /sync).
                 container.shipmentRepository.setVehicleType(shipmentId, cur.vehicleTypeCode)
 
-                // У shipment нет stage'ев фото — все capture'ы идут как обычные.
+                // Все фото 1-го этапа отгрузки помечаем stage='before' (зеркало
+                // приёмки). Stage2 будет ставить 'after' — тогда веб-портал
+                // разделит «1 Этап (N) / 2 Этап (M)» в шапке отгрузки.
                 val photoErrors = mutableListOf<String>()
                 cur.documentPhotoPaths.forEach { path ->
                     try {
@@ -303,6 +323,7 @@ class DispatchStage1FormViewModel(
                             shipmentId = shipmentId,
                             kind = "document",
                             sourceUri = uri,
+                            stage = "before",
                         )
                     } catch (t: Throwable) {
                         android.util.Log.e("DispatchStage1", "doc photo failed: $path", t)
@@ -316,6 +337,7 @@ class DispatchStage1FormViewModel(
                             shipmentId = shipmentId,
                             kind = "cargo",
                             sourceUri = uri,
+                            stage = "before",
                         )
                     } catch (t: Throwable) {
                         android.util.Log.e("DispatchStage1", "cargo photo failed: $path", t)

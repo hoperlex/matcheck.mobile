@@ -160,7 +160,7 @@ object RemoteMappers {
     )
 
     fun ShipmentPhotoDto.toEntity(shipmentId: String): RemoteShipmentPhotoEntity = RemoteShipmentPhotoEntity(
-        id = id, shipmentId = shipmentId, kind = kind, s3Key = s3Key,
+        id = id, shipmentId = shipmentId, kind = kind, stage = stage, s3Key = s3Key,
         thumbS3Key = thumbS3Key, contentHash = contentHash, takenAt = takenAt,
         uploadedAt = uploadedAt,
         idempotencyKey = "",

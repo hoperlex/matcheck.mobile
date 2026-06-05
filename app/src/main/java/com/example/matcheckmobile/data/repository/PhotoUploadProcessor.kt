@@ -231,6 +231,7 @@ class PhotoUploadProcessor(
         idempotencyKey = photo.idempotencyKey,
         contentType = photo.contentType,
         thumbContentHash = null,
+        stage = photo.stage,
     )
 
     private fun doUpload(blob: File, thumb: File?, presign: PhotoPresignResponse, contentType: String) {

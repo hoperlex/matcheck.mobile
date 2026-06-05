@@ -285,6 +285,8 @@ class DispatchStage2FormViewModel(
                     container.shipmentRepository.setVehicleType(cur.shipmentId, cur.vehicleTypeCode)
                 }
 
+                // Фото 2-го этапа отгрузки помечаем stage='after' — веб-портал
+                // разделит «1 Этап / 2 Этап» в шапке отгрузки.
                 val photoErrors = mutableListOf<String>()
                 cur.documentPhotoPaths.forEach { path ->
                     try {
@@ -293,6 +295,7 @@ class DispatchStage2FormViewModel(
                             shipmentId = cur.shipmentId,
                             kind = "document",
                             sourceUri = uri,
+                            stage = "after",
                         )
                     } catch (t: Throwable) {
                         android.util.Log.e("DispatchStage2", "document photo failed: $path", t)
@@ -306,6 +309,7 @@ class DispatchStage2FormViewModel(
                             shipmentId = cur.shipmentId,
                             kind = "vehicle",
                             sourceUri = uri,
+                            stage = "after",
                         )
                     } catch (t: Throwable) {
                         android.util.Log.e("DispatchStage2", "vehicle photo failed: $path", t)

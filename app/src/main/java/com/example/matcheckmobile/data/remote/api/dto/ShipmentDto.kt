@@ -61,6 +61,10 @@ data class ShipmentItemDto(
 data class ShipmentPhotoDto(
     val id: String,
     val kind: String,
+    // 'before' / 'after' — этап у фото отгрузки. Default 'before' для
+    // совместимости со старым сервером (миграция 0048): если поле не
+    // пришло — относим к 1-му этапу. См. зеркало DeliveryPhotoDto.stage.
+    val stage: String = "before",
     val s3Key: String,
     val thumbS3Key: String? = null,
     val contentHash: String? = null,

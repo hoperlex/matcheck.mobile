@@ -96,7 +96,7 @@ import com.example.matcheckmobile.data.local.entity.UserEntity
         ShipmentStage1DraftEntity::class,
         ShipmentStage2DraftEntity::class,
     ],
-    version = 17,
+    version = 18,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)
@@ -139,7 +139,7 @@ abstract class MatcheckDatabase : RoomDatabase() {
                     MatcheckDatabase::class.java,
                     DB_NAME,
                 )
-                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17)
+                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18)
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
                     .also { INSTANCE = it }
@@ -306,6 +306,19 @@ abstract class MatcheckDatabase : RoomDatabase() {
                             ON UPDATE NO ACTION ON DELETE CASCADE
                     )
                     """.trimIndent(),
+                )
+            }
+        }
+
+        // remote_shipment_photos.stage — этап у фото отгрузки ('before'/'after').
+        // Зеркало MIGRATION_13_14 для delivery_photos: на сервере та же
+        // колонка введена миграцией 0048. Default 'before' — старые фото
+        // относятся к 1-му Этапу (фичи «после» у отгрузки до этой миграции
+        // не было, capture'ы шли без разметки).
+        private val MIGRATION_17_18 = object : Migration(17, 18) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE `remote_shipment_photos` ADD COLUMN `stage` TEXT NOT NULL DEFAULT 'before'",
                 )
             }
         }
