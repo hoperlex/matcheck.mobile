@@ -683,9 +683,14 @@ fun MaterialsTableHeader(
             // Когда кнопка встроена в шапку, делаем слоты «Название» и «Кол-во»
             // равными по ширине, оба с textAlign=Center — тогда кнопка между
             // ними визуально стоит ровно по центру, а не «прижата» к Кол-во.
+            // На телефонах ~360dp вес 0.22 давал «Названи»: 8 кириллических
+            // символов labelLarge не помещались в ~67dp. Подняли до 0.28
+            // (~85dp), забрали 6% у кнопки — она уже умеет переноситься на
+            // 2 строки (softWrap+maxLines=2 ниже).
             textAlign = if (onAddClick != null) TextAlign.Center else TextAlign.Start,
-            modifier = Modifier.weight(if (onAddClick != null) 0.22f else 0.65f),
+            modifier = Modifier.weight(if (onAddClick != null) 0.28f else 0.65f),
             maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
         if (onAddClick != null) {
             // На планшете надпись помещается одной строкой, на узких телефонах
@@ -695,7 +700,7 @@ fun MaterialsTableHeader(
             OutlinedButton(
                 onClick = onAddClick,
                 modifier = Modifier
-                    .weight(0.45f)
+                    .weight(0.39f)
                     .heightIn(min = 48.dp),
                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
             ) {
@@ -722,6 +727,7 @@ fun MaterialsTableHeader(
             textAlign = TextAlign.Center,
             modifier = Modifier.weight(if (onAddClick != null) 0.22f else 0.2f),
             maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
         Text(
             text = "Ед.",
