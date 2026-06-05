@@ -9,6 +9,7 @@ import com.example.matcheckmobile.data.repository.ShipmentStage2DraftState
 import com.example.matcheckmobile.di.AppContainer
 import com.example.matcheckmobile.presentation.components.MaterialDraft
 import com.example.matcheckmobile.presentation.navigation.Routes
+import com.example.matcheckmobile.sync.MatcheckSyncScheduler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -326,6 +327,10 @@ class DispatchStage2FormViewModel(
                     }
                     return@launch
                 }
+                // Триггерим немедленный sync — без этого мутация stage2 сидит
+                // в очереди до периодического Worker'а (15 мин) или network
+                // callback'а. Зеркало Stage1/Stage2/DispatchStage1 finalize'ов.
+                MatcheckSyncScheduler.requestImmediateSync(container.appContext)
                 container.shipmentStage2DraftRepository.deleteById(shipmentId)
                 _state.update { it.copy(isSaving = false, finalized = true) }
             } catch (e: Throwable) {
