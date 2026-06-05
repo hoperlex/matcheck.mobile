@@ -48,17 +48,21 @@ class TokenStorage(context: Context) {
         siteId: String?,
     ) {
         val now = System.currentTimeMillis()
-        prefs.edit().apply {
-            putString(KEY_ACCESS_TOKEN, accessToken)
-            putLong(KEY_ACCESS_EXPIRES_AT, now + accessExpiresInSec * 1000L)
-            putString(KEY_REFRESH_TOKEN, refreshToken)
-            putLong(KEY_REFRESH_EXPIRES_AT, now + refreshExpiresInSec * 1000L)
-            putString(KEY_USER_ID, userId)
-            putString(KEY_USER_EMAIL, userEmail)
-            putString(KEY_ROLE, role)
-            putString(KEY_SITE_ID, siteId)
-            apply()
-        }
+        // commit(), а не apply(): сервер уже зафиксировал ротацию refresh,
+        // и если процесс умрёт до сброса на диск (OOM, установка нового APK,
+        // ребут), при следующем старте мобила прочитает старый refresh →
+        // сервер увидит reuse → kill сессии. commit() блокирует возврат до
+        // фактического fsync — токены и серверное состояние всегда консистентны.
+        prefs.edit()
+            .putString(KEY_ACCESS_TOKEN, accessToken)
+            .putLong(KEY_ACCESS_EXPIRES_AT, now + accessExpiresInSec * 1000L)
+            .putString(KEY_REFRESH_TOKEN, refreshToken)
+            .putLong(KEY_REFRESH_EXPIRES_AT, now + refreshExpiresInSec * 1000L)
+            .putString(KEY_USER_ID, userId)
+            .putString(KEY_USER_EMAIL, userEmail)
+            .putString(KEY_ROLE, role)
+            .putString(KEY_SITE_ID, siteId)
+            .commit()
         _state.value = readSnapshot()
     }
 
@@ -71,15 +75,19 @@ class TokenStorage(context: Context) {
         refreshExpiresInSec: Long?,
     ) {
         val now = System.currentTimeMillis()
-        prefs.edit().apply {
-            putString(KEY_ACCESS_TOKEN, accessToken)
-            putLong(KEY_ACCESS_EXPIRES_AT, now + accessExpiresInSec * 1000L)
-            if (refreshToken != null && refreshExpiresInSec != null) {
-                putString(KEY_REFRESH_TOKEN, refreshToken)
-                putLong(KEY_REFRESH_EXPIRES_AT, now + refreshExpiresInSec * 1000L)
-            }
-            apply()
+        // commit() обязателен: см. комментарий в saveSession. Особенно
+        // критично для refresh — сервер ротирует токен и инвалидирует
+        // старый. Гонка между сетевым ответом и .apply()-ом на диск
+        // приводила к «вылетам после обновления APK».
+        val editor = prefs.edit()
+            .putString(KEY_ACCESS_TOKEN, accessToken)
+            .putLong(KEY_ACCESS_EXPIRES_AT, now + accessExpiresInSec * 1000L)
+        if (refreshToken != null && refreshExpiresInSec != null) {
+            editor
+                .putString(KEY_REFRESH_TOKEN, refreshToken)
+                .putLong(KEY_REFRESH_EXPIRES_AT, now + refreshExpiresInSec * 1000L)
         }
+        editor.commit()
         _state.value = readSnapshot()
     }
 
