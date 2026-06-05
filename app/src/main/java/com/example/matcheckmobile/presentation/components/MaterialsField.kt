@@ -672,7 +672,17 @@ fun MaterialsTableHeader(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(start = 28.dp, end = 4.dp),
+            // На телефоне ~360dp при start = 28.dp «Название» не помещалось
+            // в свою ячейку (последняя «е» резалась). С кнопкой во встроенной
+            // ветке уменьшаем стартовый отступ до 4dp — вся шапка съезжает
+            // левее, ячейки получают +24dp на всех; других правок не делаем,
+            // чтобы не сломать кнопку «Добавить материал» (она ломалась при
+            // любом уменьшении её weight<0.45). Ветка без кнопки оставляет
+            // прежний 28dp — там Название уже помещается в weight=0.65.
+            .padding(
+                start = if (onAddClick != null) 4.dp else 28.dp,
+                end = 4.dp,
+            ),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -683,12 +693,8 @@ fun MaterialsTableHeader(
             // Когда кнопка встроена в шапку, делаем слоты «Название» и «Кол-во»
             // равными по ширине, оба с textAlign=Center — тогда кнопка между
             // ними визуально стоит ровно по центру, а не «прижата» к Кол-во.
-            // На телефонах ~360dp вес 0.22 давал «Названи»: 8 кириллических
-            // символов labelLarge не помещались в ~67dp. Подняли до 0.28
-            // (~85dp), забрали 6% у кнопки — она уже умеет переноситься на
-            // 2 строки (softWrap+maxLines=2 ниже).
             textAlign = if (onAddClick != null) TextAlign.Center else TextAlign.Start,
-            modifier = Modifier.weight(if (onAddClick != null) 0.28f else 0.65f),
+            modifier = Modifier.weight(if (onAddClick != null) 0.22f else 0.65f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -700,7 +706,7 @@ fun MaterialsTableHeader(
             OutlinedButton(
                 onClick = onAddClick,
                 modifier = Modifier
-                    .weight(0.39f)
+                    .weight(0.45f)
                     .heightIn(min = 48.dp),
                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
             ) {
