@@ -50,13 +50,11 @@ class DispatchUpdSelectViewModel(container: AppContainer) : ViewModel() {
         ),
         dayTicker,
     ) { src, today ->
-        val (_, cps, deliveryAttachedJsons, shipmentAttachedJsons, drafts) = src
-        // Подгрузка серверных «исходящих УПД» временно отключена: источник
-        // документов для отгрузки на портале ещё не определён. Когда
-        // появится — заменить пустой список на фильтр по нужному direction'у
-        // или другой признак (allDocs.filter { ... }). Empty-drafts
-        // (созданные кнопкой «Создать отгрузку») продолжают работать.
-        val docs = emptyList<com.example.matcheckmobile.data.local.entity.RemoteSourceDocumentEntity>()
+        val (docs, cps, deliveryAttachedJsons, shipmentAttachedJsons, drafts) = src
+        // Источник документов — `remote_source_documents` от /sync. Сервер
+        // отдаёт inspector_kpp всё (inbound + outbound), фильтрация по
+        // direction='outbound' — на клиенте в цикле ниже. Симметрично
+        // IntakeUpdSelectViewModel, который фильтрует inbound.
         val attachedIds: Set<String> = buildSet {
             (deliveryAttachedJsons + shipmentAttachedJsons).forEach { json ->
                 addAll(RemoteMappers.decodeIdList(json))

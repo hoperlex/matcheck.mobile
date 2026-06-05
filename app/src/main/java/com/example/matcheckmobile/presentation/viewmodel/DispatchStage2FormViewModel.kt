@@ -72,6 +72,10 @@ class DispatchStage2FormViewModel(
         val siteName = resolveSiteName(shipment.siteId)
         val originalComment = shipment.comment.orEmpty()
         val parsed = parseShipmentComment(originalComment)
+        // Тип транспорта — из локальной таблицы shipment_local_meta. На сервере
+        // у shipment DTO такого поля нет; на 1 Этапе мы его записываем, на 2
+        // Этапе восстанавливаем тут же. Зеркало Stage2FormViewModel:75.
+        val vehicleTypeCode = container.shipmentRepository.getVehicleType(shipmentId)
 
         _state.update {
             it.copy(
@@ -81,9 +85,11 @@ class DispatchStage2FormViewModel(
                 materials = materials,
                 originalMaterials = materials,
                 originalCommentText = parsed.stage2.orEmpty(),
+                originalVehicleTypeCode = vehicleTypeCode,
                 stage1Comment = parsed.stage1,
                 inheritedNote = parsed.note,
                 commentText = parsed.stage2.orEmpty(),
+                vehicleTypeCode = vehicleTypeCode,
                 vehiclePlate = shipment.vehiclePlate?.takeIf { p -> p.isNotBlank() },
                 kind = shipment.kind,
                 receiverCounterpartyId = shipment.receiverCounterpartyId,
@@ -130,6 +136,7 @@ class DispatchStage2FormViewModel(
     private fun DispatchStage2FormUiState.hasUnsavedChanges(): Boolean =
         materials != originalMaterials ||
             commentText != originalCommentText ||
+            vehicleTypeCode != originalVehicleTypeCode ||
             documentPhotoPaths.isNotEmpty() ||
             vehiclePhotoPaths.isNotEmpty()
 
@@ -272,6 +279,12 @@ class DispatchStage2FormViewModel(
                     ),
                 )
 
+                // Сохраняем тип транспорта, если поменялся на 2 Этапе. Зеркало
+                // Stage2FormViewModel:366. Локальное поле, на сервер не уходит.
+                if (cur.vehicleTypeCode != cur.originalVehicleTypeCode) {
+                    container.shipmentRepository.setVehicleType(cur.shipmentId, cur.vehicleTypeCode)
+                }
+
                 val photoErrors = mutableListOf<String>()
                 cur.documentPhotoPaths.forEach { path ->
                     try {
@@ -372,6 +385,8 @@ data class DispatchStage2FormUiState(
     val materials: List<MaterialDraft> = emptyList(),
     val originalMaterials: List<MaterialDraft> = emptyList(),
     val originalCommentText: String = "",
+    /** vehicleTypeCode на момент загрузки — для определения «есть изменения». */
+    val originalVehicleTypeCode: String? = null,
     val stage1Comment: String? = null,
     val inheritedNote: String? = null,
     val editedIndexes: Set<Int> = emptySet(),

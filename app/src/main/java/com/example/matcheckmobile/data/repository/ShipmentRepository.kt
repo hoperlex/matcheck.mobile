@@ -2,9 +2,11 @@ package com.example.matcheckmobile.data.repository
 
 import com.example.matcheckmobile.data.local.dao.MutationDao
 import com.example.matcheckmobile.data.local.dao.RemoteShipmentDao
+import com.example.matcheckmobile.data.local.dao.ShipmentLocalMetaDao
 import com.example.matcheckmobile.data.local.entity.MutationEntity
 import com.example.matcheckmobile.data.local.entity.RemoteShipmentEntity
 import com.example.matcheckmobile.data.local.entity.RemoteShipmentItemEntity
+import com.example.matcheckmobile.data.local.entity.ShipmentLocalMetaEntity
 import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.data.remote.api.dto.MarkDeletionRequest
 import com.example.matcheckmobile.data.remote.api.dto.ShipmentUpsertItem
@@ -17,6 +19,7 @@ import java.util.UUID
 class ShipmentRepository(
     private val shipmentDao: RemoteShipmentDao,
     private val mutationDao: MutationDao,
+    private val localMetaDao: ShipmentLocalMetaDao,
 ) {
 
     private val json: Json = Json { encodeDefaults = true; ignoreUnknownKeys = true }
@@ -30,6 +33,19 @@ class ShipmentRepository(
 
     suspend fun findItemsByShipment(shipmentId: String): List<RemoteShipmentItemEntity> =
         shipmentDao.findItemsByShipment(shipmentId)
+
+    // Локальная мета — vehicleTypeCode (Газель/Фура/…). В DTO отгрузки на
+    // сервере такого поля нет, иначе при /sync терялось бы между этапами.
+    // Зеркало DeliveryRepository.observeVehicleType / get / set.
+    fun observeVehicleType(shipmentId: String): Flow<String?> =
+        localMetaDao.observeVehicleTypeCode(shipmentId)
+
+    suspend fun getVehicleType(shipmentId: String): String? =
+        localMetaDao.getByShipmentId(shipmentId)?.vehicleTypeCode
+
+    suspend fun setVehicleType(shipmentId: String, code: String?) {
+        localMetaDao.upsert(ShipmentLocalMetaEntity(shipmentId = shipmentId, vehicleTypeCode = code))
+    }
 
     suspend fun upsert(input: UpsertInput): String {
         val id = input.id ?: UUID.randomUUID().toString()

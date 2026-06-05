@@ -152,6 +152,7 @@ class AppContainer(val appContext: Context) {
     val shipmentRepository: ShipmentRepository = ShipmentRepository(
         shipmentDao = database.remoteShipmentDao(),
         mutationDao = database.mutationDao(),
+        localMetaDao = database.shipmentLocalMetaDao(),
     )
 
     val conflictRepository: ConflictRepository = ConflictRepository(

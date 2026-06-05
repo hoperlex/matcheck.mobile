@@ -288,6 +288,12 @@ class DispatchStage1FormViewModel(
                     ),
                 )
 
+                // Зеркало Stage1FormViewModel — сохраняем выбранный тип
+                // транспорта в локальной таблице shipment_local_meta, чтобы
+                // на 2 Этапе восстановить выбор (в shipment DTO такого поля
+                // нет, иначе терялось бы при /sync).
+                container.shipmentRepository.setVehicleType(shipmentId, cur.vehicleTypeCode)
+
                 // У shipment нет stage'ев фото — все capture'ы идут как обычные.
                 val photoErrors = mutableListOf<String>()
                 cur.documentPhotoPaths.forEach { path ->

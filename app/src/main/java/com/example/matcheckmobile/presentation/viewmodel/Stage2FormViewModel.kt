@@ -479,7 +479,11 @@ class Stage2FormViewModel(
     )
 
     private companion object {
-        val MANUAL_UPD_REGEX = Regex("(?m)^УПД:\\s*(.+)$")
+        // Stage1FormViewModel пишет ручную метку как «Примечание: ...» (если
+        // у приёмки нет привязанной УПД), но кое-где использовалось «УПД: ...».
+        // Принимаем оба варианта — единый формат с DispatchStage2FormViewModel
+        // и обоими List-VM, иначе fallback-резолв тайтла молча промахивался.
+        val MANUAL_UPD_REGEX = Regex("(?m)^(?:УПД|Примечание):\\s*(.+)$")
         val STAGE1_REGEX = Regex("^1 Этап:\\s*\"(.*)\"$")
         val STAGE2_REGEX = Regex("^2 Этап:\\s*\"(.*)\"$")
         val NOTE_REGEX = Regex("^Примечание:\\s*(.+)$")

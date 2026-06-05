@@ -9,6 +9,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.matcheckmobile.data.local.dao.CounterpartyDao
 import com.example.matcheckmobile.data.local.dao.DeliveryLocalMetaDao
+import com.example.matcheckmobile.data.local.dao.ShipmentLocalMetaDao
 import com.example.matcheckmobile.data.local.dao.MaterialDao
 import com.example.matcheckmobile.data.local.dao.MaterialOperationDao
 import com.example.matcheckmobile.data.local.dao.MutationDao
@@ -31,6 +32,7 @@ import com.example.matcheckmobile.data.local.dao.SyncQueueDao
 import com.example.matcheckmobile.data.local.dao.UserDao
 import com.example.matcheckmobile.data.local.entity.CounterpartyEntity
 import com.example.matcheckmobile.data.local.entity.DeliveryLocalMetaEntity
+import com.example.matcheckmobile.data.local.entity.ShipmentLocalMetaEntity
 import com.example.matcheckmobile.data.local.entity.MaterialEntity
 import com.example.matcheckmobile.data.local.entity.MaterialOperationEntity
 import com.example.matcheckmobile.data.local.entity.MutationEntity
@@ -73,6 +75,7 @@ import com.example.matcheckmobile.data.local.entity.UserEntity
         SourceDocumentItemEntity::class,
         ReceiptSessionEntity::class,
         DeliveryLocalMetaEntity::class,
+        ShipmentLocalMetaEntity::class,
         // Серверная модель (источник правды — matcheck API).
         RemoteDeliveryEntity::class,
         RemoteDeliveryItemEntity::class,
@@ -93,7 +96,7 @@ import com.example.matcheckmobile.data.local.entity.UserEntity
         ShipmentStage1DraftEntity::class,
         ShipmentStage2DraftEntity::class,
     ],
-    version = 16,
+    version = 17,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)
@@ -117,6 +120,7 @@ abstract class MatcheckDatabase : RoomDatabase() {
     abstract fun remoteSourceDocumentDao(): RemoteSourceDocumentDao
     abstract fun mutationDao(): MutationDao
     abstract fun deliveryLocalMetaDao(): DeliveryLocalMetaDao
+    abstract fun shipmentLocalMetaDao(): ShipmentLocalMetaDao
     abstract fun stage1DraftDao(): Stage1DraftDao
     abstract fun stage2DraftDao(): Stage2DraftDao
     abstract fun shipmentStage1DraftDao(): ShipmentStage1DraftDao
@@ -135,7 +139,7 @@ abstract class MatcheckDatabase : RoomDatabase() {
                     MatcheckDatabase::class.java,
                     DB_NAME,
                 )
-                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16)
+                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17)
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
                     .also { INSTANCE = it }
@@ -283,6 +287,26 @@ abstract class MatcheckDatabase : RoomDatabase() {
         private val MIGRATION_15_16 = object : Migration(15, 16) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `remote_source_documents` ADD COLUMN `createdByUserPhone` TEXT")
+            }
+        }
+
+        // shipment_local_meta — зеркало delivery_local_meta для отгрузки.
+        // Хранит локальный vehicleTypeCode (Газель/Фура/…), который не
+        // приходит в shipment DTO от сервера и терялся бы между 1 и 2 этапом.
+        // FK на remote_shipments(id) с CASCADE: запись чистится при удалении.
+        private val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `shipment_local_meta` (
+                        `shipmentId` TEXT NOT NULL,
+                        `vehicleTypeCode` TEXT,
+                        PRIMARY KEY(`shipmentId`),
+                        FOREIGN KEY(`shipmentId`) REFERENCES `remote_shipments`(`id`)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
             }
         }
 
