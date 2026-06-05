@@ -77,6 +77,10 @@ object MatcheckViewModelFactories {
         }
         initializer {
             val app = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as MatcheckApplication
+            DispatchStagesViewModel(app.container)
+        }
+        initializer {
+            val app = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as MatcheckApplication
             DispatchStage1FormViewModel(app.container, createSavedStateHandle())
         }
         initializer {

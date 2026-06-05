@@ -52,6 +52,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.matcheckmobile.presentation.viewmodel.DispatchStagesViewModel
+import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
 import com.example.matcheckmobile.ui.theme.OpenSansFontFamily
 
 private val TabletBreakpoint = 600.dp
@@ -64,9 +67,9 @@ private val OverdueDotColor = Color(0xFFD32F2F)
 /**
  * Стартовый экран отгрузки. UI идентичен [IntakeStagesScreen], отличается
  * только заголовок («Отгрузка» вместо «Приёмка»). Счётчики на кнопке
- * «1 Этап» приходят снаружи через [DispatchStagesCounts]; пока shipment-
- * эквиваленты drafts/source-документов с направлением outbound на мобайле
- * не реализованы — счётчики дефолтятся в 0.
+ * «1 Этап» — «Всего / В отгрузке / Отгрузка >2ч» — приходят из
+ * [DispatchStagesViewModel] (зеркало IntakeStagesViewModel для outbound:
+ * direction='outbound' документы + shipment-drafts + status='shipped').
  */
 data class DispatchStagesCounts(
     val totalToday: Int = 0,
@@ -80,8 +83,9 @@ fun DispatchStagesScreen(
     onBack: () -> Unit,
     onStage1: () -> Unit,
     onStage2: () -> Unit,
-    counts: DispatchStagesCounts = DispatchStagesCounts(),
 ) {
+    val viewModel: DispatchStagesViewModel = matcheckViewModel()
+    val counts by viewModel.counts.collectAsStateWithLifecycle()
     Scaffold(
         topBar = {
             TopAppBar(
