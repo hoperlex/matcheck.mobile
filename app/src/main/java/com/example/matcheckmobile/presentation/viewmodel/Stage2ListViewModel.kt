@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.matcheckmobile.data.local.entity.RemoteDeliveryEntity
 import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.di.AppContainer
+import com.example.matcheckmobile.domain.model.sourceDocTitlePrefix
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -84,13 +85,20 @@ class Stage2ListViewModel(container: AppContainer) : ViewModel() {
             // Fallback: УПД могла исчезнуть из remote_source_documents после
             // привязки (сервер фильтрует «непривязанные»). Тогда тянем номер
             // из комментария — Stage1FormViewModel пишет туда «УПД: …»
-            // при ручном вводе или просто как маркер. Заголовок всегда
-            // начинается с «УПД» — единый стиль с 1 Этапом.
+            // при ручном вводе или просто как маркер.
             val updNumberText = when {
                 updNumbers.isNotEmpty() -> buildUpdSummary(updNumbers)
                 else -> extractManualUpd(d.comment)?.takeIf { it.isNotBlank() } ?: "—"
             }
-            val titleText = "УПД $updNumberText"
+            // Префикс по kind первой привязанной — УПД vs Накладная. Если все
+            // привязки одного типа, остальные подтянутся под тот же префикс;
+            // mixed-bundle (УПД + ТН на одной приёмке) на практике не бывает.
+            // Для ручных приёмок без привязки (только текст из комментария)
+            // оставляем «УПД» по умолчанию — Stage1 пишет ручную метку как
+            // «УПД: …», kind неизвестен, но семантически это УПД-реквизит.
+            val prefix = attachedDocs.firstOrNull()?.kind
+                ?.let(::sourceDocTitlePrefix) ?: "УПД"
+            val titleText = "$prefix $updNumberText"
 
             val supplierName = attachedDocs.firstOrNull()?.let { doc ->
                 doc.supplierName ?: doc.supplierId?.let { id -> cpById[id]?.name }

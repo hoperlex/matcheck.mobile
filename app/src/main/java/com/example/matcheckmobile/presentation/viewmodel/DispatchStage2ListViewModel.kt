@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.matcheckmobile.data.local.entity.RemoteShipmentEntity
 import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.di.AppContainer
+import com.example.matcheckmobile.domain.model.sourceDocTitlePrefix
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -66,7 +67,11 @@ class DispatchStage2ListViewModel(container: AppContainer) : ViewModel() {
                 updNumbers.isNotEmpty() -> buildUpdSummary(updNumbers)
                 else -> extractManualUpd(s.comment)?.takeIf { it.isNotBlank() } ?: "—"
             }
-            val titleText = "УПД $updNumberText"
+            // Префикс по kind — для отгрузки чаще «Накладная» (ТН-2116/ОС-2),
+            // но для ручных без привязки оставляем «УПД» (см. Stage2ListViewModel).
+            val prefix = attachedDocs.firstOrNull()?.kind
+                ?.let(::sourceDocTitlePrefix) ?: "УПД"
+            val titleText = "$prefix $updNumberText"
 
             val supplierName = attachedDocs.firstOrNull()?.let { doc ->
                 doc.supplierName ?: doc.supplierId?.let { id -> cpById[id]?.name }

@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.matcheckmobile.domain.model.sourceDocTitle
 import com.example.matcheckmobile.presentation.components.ContractorHeaderCard
 import com.example.matcheckmobile.presentation.components.UpdSummaryCard
 import com.example.matcheckmobile.presentation.viewmodel.DispatchUpdGroup
@@ -250,7 +251,11 @@ private fun DispatchUpdGroupSection(
                     val subtitle: String
                     val onClick: () -> Unit
                     if (doc != null) {
-                        title = "УПД ${doc.docNumber ?: "—"}"
+                        // Префикс зависит от kind документа: для исходящих
+                        // обычно это «Накладная» (ТН-2116/ОС-2), но веб
+                        // позволяет грузить и УПД на отгрузку — поэтому
+                        // не хардкодим, читаем kind.
+                        title = sourceDocTitle(doc.kind, doc.docNumber)
                         subtitle = "Поставщик: ${row.supplierName ?: "—"}"
                         onClick = { onOpenWithUpd(doc.id) }
                     } else {
