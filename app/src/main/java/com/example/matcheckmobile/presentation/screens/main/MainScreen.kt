@@ -73,7 +73,6 @@ fun MainScreen(
     var showAdminSheet by remember { mutableStateOf(false) }
     var confirmLogout by remember { mutableStateOf(false) }
     val settingsVm: SettingsViewModel = matcheckViewModel()
-    val settingsState by settingsVm.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -255,22 +254,6 @@ fun MainScreen(
         AlertDialog(
             onDismissRequest = { confirmLogout = false },
             title = { Text("Выйти из аккаунта?", fontWeight = FontWeight.SemiBold) },
-            text = {
-                Text(
-                    buildString {
-                        if (settingsState.userId.isNotEmpty()) {
-                            append("Текущий пользователь: ")
-                            append(settingsState.userId)
-                            append("\n\n")
-                        }
-                        append(
-                            "Локальные данные (УПД, приёмки, очередь, незавершённые " +
-                                "драфты) будут удалены с устройства. После повторного " +
-                                "входа всё подтянется заново с сервера.",
-                        )
-                    },
-                )
-            },
             confirmButton = {
                 TextButton(
                     onClick = {
