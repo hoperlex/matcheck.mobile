@@ -223,19 +223,24 @@ fun DispatchStage1FormScreen(
                             )
                         }
 
-                        VehicleTypeChips(
-                            selectedCode = state.vehicleTypeCode,
-                            onSelected = {
-                                focusManager.clearFocus()
-                                vm.selectVehicle(it.code)
-                            },
-                            maxItemsInRow = 2,
-                            iconHeight = vehicleIconHeight,
-                            showSubtitle = false,
-                            loadInfo = state.loadInfo ?: VehicleLoadInfo(null, null),
-                            labelStyle = vehicleLabelStyle,
-                            chipTitleStyle = vehicleChipTitleStyle,
-                        )
+                        // Блок «Тип транспорта» показываем только для отгрузки из
+                        // подгруженной УПД. В ручной отгрузке («Создать отгрузку»,
+                        // updId == null) он не нужен — по запросу скрыт.
+                        if (state.updId != null) {
+                            VehicleTypeChips(
+                                selectedCode = state.vehicleTypeCode,
+                                onSelected = {
+                                    focusManager.clearFocus()
+                                    vm.selectVehicle(it.code)
+                                },
+                                maxItemsInRow = 2,
+                                iconHeight = vehicleIconHeight,
+                                showSubtitle = false,
+                                loadInfo = state.loadInfo ?: VehicleLoadInfo(null, null),
+                                labelStyle = vehicleLabelStyle,
+                                chipTitleStyle = vehicleChipTitleStyle,
+                            )
+                        }
 
                         MaterialsField(
                             value = state.materials,

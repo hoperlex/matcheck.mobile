@@ -293,30 +293,28 @@ fun Stage1FormScreen(
                             )
                         }
 
-                        VehicleTypeChips(
-                            selectedCode = state.vehicleTypeCode,
-                            onSelected = {
-                                // Тап по чипу транспорта так же прячет клавиатуру,
-                                // как и тап по пустой зоне — чип съедает pointer-event
-                                // до корневого clickable, поэтому clearFocus вызываем
-                                // здесь явно.
-                                focusManager.clearFocus()
-                                vm.selectVehicle(it.code)
-                            },
-                            maxItemsInRow = 2,
-                            iconHeight = vehicleIconHeight,
-                            showSubtitle = false,
-                            // Ручная приёмка без УПД не имеет данных Объём/Масса
-                            // в материалах, но визуально хотим тот же «активный»
-                            // вид всех 4 чипов, что и при подгруженной УПД.
-                            // Подставляем пустой VehicleLoadInfo: gauge нарисуется
-                            // с подписью «нет данных» (см. LoadColumn), а чипы
-                            // получат жирный primary-бордер (showActive=true в
-                            // VehicleTypeChips, потому что loadInfo != null).
-                            loadInfo = state.loadInfo ?: VehicleLoadInfo(null, null),
-                            labelStyle = vehicleLabelStyle,
-                            chipTitleStyle = vehicleChipTitleStyle,
-                        )
+                        // Блок «Тип транспорта» показываем только для приёмки из
+                        // подгруженной УПД. В ручной приёмке («Создать приёмку»,
+                        // updId == null) он не нужен — по запросу скрыт.
+                        if (state.updId != null) {
+                            VehicleTypeChips(
+                                selectedCode = state.vehicleTypeCode,
+                                onSelected = {
+                                    // Тап по чипу транспорта так же прячет клавиатуру,
+                                    // как и тап по пустой зоне — чип съедает pointer-event
+                                    // до корневого clickable, поэтому clearFocus вызываем
+                                    // здесь явно.
+                                    focusManager.clearFocus()
+                                    vm.selectVehicle(it.code)
+                                },
+                                maxItemsInRow = 2,
+                                iconHeight = vehicleIconHeight,
+                                showSubtitle = false,
+                                loadInfo = state.loadInfo ?: VehicleLoadInfo(null, null),
+                                labelStyle = vehicleLabelStyle,
+                                chipTitleStyle = vehicleChipTitleStyle,
+                            )
+                        }
 
                         MaterialsField(
                             value = state.materials,
