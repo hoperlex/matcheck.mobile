@@ -22,7 +22,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -58,6 +61,7 @@ import com.example.matcheckmobile.presentation.components.VehicleTypeChips
 import com.example.matcheckmobile.presentation.components.rememberDocumentScanner
 import com.example.matcheckmobile.presentation.components.rememberPhotoCapture
 import com.example.matcheckmobile.presentation.viewmodel.DispatchStage1FormViewModel
+import com.example.matcheckmobile.presentation.viewmodel.SHIPMENT_PURPOSE_OPTIONS
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
 import kotlinx.coroutines.delay
 
@@ -221,6 +225,44 @@ fun DispatchStage1FormScreen(
                                 textStyle = inputTextStyle,
                                 modifier = Modifier.fillMaxWidth(),
                             )
+
+                            // Dropdown «Тип отгрузки» — только для empty-draft.
+                            // 4 фиксированных варианта (см. SHIPMENT_PURPOSE_OPTIONS).
+                            // Значение сохраняется в shipment_stage1_draft и на
+                            // finalize попадает префиксом «Тип: …» в comment.
+                            var purposeExpanded by remember { mutableStateOf(false) }
+                            ExposedDropdownMenuBox(
+                                expanded = purposeExpanded,
+                                onExpandedChange = { purposeExpanded = !purposeExpanded },
+                            ) {
+                                OutlinedTextField(
+                                    value = state.shipmentPurpose.orEmpty(),
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text("Тип отгрузки", style = inputLabelStyle) },
+                                    textStyle = inputTextStyle,
+                                    trailingIcon = {
+                                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = purposeExpanded)
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .menuAnchor(),
+                                )
+                                ExposedDropdownMenu(
+                                    expanded = purposeExpanded,
+                                    onDismissRequest = { purposeExpanded = false },
+                                ) {
+                                    SHIPMENT_PURPOSE_OPTIONS.forEach { option ->
+                                        DropdownMenuItem(
+                                            text = { Text(option, style = inputTextStyle) },
+                                            onClick = {
+                                                vm.setShipmentPurpose(option)
+                                                purposeExpanded = false
+                                            },
+                                        )
+                                    }
+                                }
+                            }
                         }
 
                         // Блок «Тип транспорта» показываем только для отгрузки из

@@ -39,6 +39,7 @@ class ShipmentStage1DraftRepository(private val dao: ShipmentStage1DraftDao) {
             commentText = entity.commentText,
             licensePlate = entity.licensePlate,
             manualUpdText = entity.manualUpdText,
+            shipmentPurpose = entity.shipmentPurpose,
             createdAt = entity.createdAt,
             updatedAt = entity.updatedAt,
         )
@@ -54,6 +55,7 @@ class ShipmentStage1DraftRepository(private val dao: ShipmentStage1DraftDao) {
             commentText = commentText,
             licensePlate = licensePlate,
             manualUpdText = manualUpdText,
+            shipmentPurpose = shipmentPurpose,
             createdAt = createdAt,
             updatedAt = updatedAt,
         )
@@ -109,6 +111,7 @@ data class ShipmentStage1DraftState(
     val commentText: String,
     val licensePlate: String,
     val manualUpdText: String,
+    val shipmentPurpose: String?,
     val createdAt: Long,
     val updatedAt: Long,
 )

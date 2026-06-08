@@ -69,6 +69,7 @@ class DispatchStage1FormViewModel(
                     commentText = restored.commentText,
                     licensePlate = restored.licensePlate,
                     manualUpdText = restored.manualUpdText,
+                    shipmentPurpose = restored.shipmentPurpose,
                 )
             }
         }
@@ -163,6 +164,7 @@ class DispatchStage1FormViewModel(
             commentText = commentText,
             licensePlate = licensePlate,
             manualUpdText = manualUpdText,
+            shipmentPurpose = shipmentPurpose,
             createdAt = now,
             updatedAt = now,
         )
@@ -220,6 +222,8 @@ class DispatchStage1FormViewModel(
         _state.update { it.copy(licensePlate = text, showPlateError = false) }
     }
     fun setManualUpd(text: String) { _state.update { it.copy(manualUpdText = text) } }
+    /** Выбор «Тип отгрузки» из выпадающего списка на empty-draft форме. */
+    fun setShipmentPurpose(value: String?) { _state.update { it.copy(shipmentPurpose = value) } }
     fun dismissError() { _state.update { it.copy(error = null) } }
 
     fun finalizeStage1() {
@@ -280,6 +284,12 @@ class DispatchStage1FormViewModel(
                 val sourceDocIds = cur.updId?.let { listOf(it) } ?: emptyList()
                 val userComment = cur.commentText.trim()
                 val manualUpd = cur.manualUpdText.trim()
+                // «Тип отгрузки» — теперь идёт отдельным полем в UpsertInput.purpose
+                // (сервер: миграция 0049, поле shipments.purpose). В comment больше
+                // не пихаем, чтобы на веб-портале можно было показать чипом
+                // и фильтровать. Только для empty-draft (updId == null) — для
+                // отгрузок с УПД тип определяется самим документом.
+                val finalPurpose = cur.shipmentPurpose?.takeIf { it.isNotBlank() && cur.updId == null }
                 val commentParts = buildList {
                     if (userComment.isNotEmpty()) add("1 Этап: \"$userComment\"")
                     if (manualUpd.isNotEmpty() && cur.updId == null) add("Примечание: $manualUpd")
@@ -301,6 +311,7 @@ class DispatchStage1FormViewModel(
                         vehiclePlate = plate.ifEmpty { null },
                         shippedAt = java.time.Instant.now().toString(),
                         comment = commentForServer,
+                        purpose = finalPurpose,
                         sourceDocumentIds = sourceDocIds,
                         items = items,
                     ),
@@ -380,6 +391,13 @@ data class DispatchStage1FormUiState(
     val licensePlate: String = "",
     val showPlateError: Boolean = false,
     val manualUpdText: String = "",
+    /**
+     * Выбор «Тип отгрузки» в выпадающем списке на форме «Новая отгрузка»
+     * (видна только при `updId == null`). Допустимые значения см.
+     * [SHIPMENT_PURPOSE_OPTIONS]. На finalize добавляется префиксом
+     * «Тип: ...» в comment, чтобы видеть на веб-портале.
+     */
+    val shipmentPurpose: String? = null,
     val loadInfo: VehicleLoadInfo? = null,
     val isSaving: Boolean = false,
     val finalized: Boolean = false,
@@ -394,4 +412,17 @@ private fun DispatchStage1FormUiState.draftPayloadEquals(other: DispatchStage1Fo
         materials == other.materials &&
         commentText == other.commentText &&
         licensePlate == other.licensePlate &&
-        manualUpdText == other.manualUpdText
+        manualUpdText == other.manualUpdText &&
+        shipmentPurpose == other.shipmentPurpose
+
+/**
+ * Допустимые значения dropdown «Тип отгрузки» на форме «Новая отгрузка»
+ * (empty-draft, updId=null). При finalize добавляется префиксом «Тип: …»
+ * в comment, чтобы видеть на веб-портале.
+ */
+val SHIPMENT_PURPOSE_OPTIONS = listOf(
+    "Вывоз материала",
+    "Перемещение на объект",
+    "Вывоз мусора",
+    "Другое",
+)

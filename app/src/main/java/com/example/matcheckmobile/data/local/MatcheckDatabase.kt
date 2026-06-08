@@ -96,7 +96,7 @@ import com.example.matcheckmobile.data.local.entity.UserEntity
         ShipmentStage1DraftEntity::class,
         ShipmentStage2DraftEntity::class,
     ],
-    version = 18,
+    version = 20,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)
@@ -139,7 +139,7 @@ abstract class MatcheckDatabase : RoomDatabase() {
                     MatcheckDatabase::class.java,
                     DB_NAME,
                 )
-                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18)
+                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20)
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
                     .also { INSTANCE = it }
@@ -306,6 +306,34 @@ abstract class MatcheckDatabase : RoomDatabase() {
                             ON UPDATE NO ACTION ON DELETE CASCADE
                     )
                     """.trimIndent(),
+                )
+            }
+        }
+
+        // remote_shipments.purpose — серверное поле «Тип отгрузки» (см.
+        // миграцию 0049 на web). 4 значения с мобилы: «Вывоз материала»,
+        // «Перемещение на объект», «Вывоз мусора», «Другое». NULL для
+        // отгрузок с привязанной УПД и для старых записей. Веб-портал
+        // показывает чипом «Тип отгрузки: …» справа от «Водитель» в шапке
+        // карточки отгрузки.
+        private val MIGRATION_19_20 = object : Migration(19, 20) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE `remote_shipments` ADD COLUMN `purpose` TEXT",
+                )
+            }
+        }
+
+        // shipment_stage1_drafts.shipmentPurpose — выбор пользователя в
+        // dropdown «Тип отгрузки» на форме «Новая отгрузка» (empty-draft,
+        // когда updId=null). 4 значения: «Вывоз материала / Перемещение на
+        // объект / Вывоз мусора / Другое». Хранится локально, сервер видит
+        // как префикс в comment'е («Тип: …»). NULL для старых draft'ов и
+        // когда инспектор ничего не выбрал.
+        private val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE `shipment_stage1_drafts` ADD COLUMN `shipmentPurpose` TEXT",
                 )
             }
         }

@@ -79,6 +79,7 @@ class ShipmentRepository(
             statusLabel = input.statusLabel ?: input.statusCode,
             statusColor = input.statusColor,
             kind = input.kind,
+            purpose = input.purpose,
             siteId = input.siteId,
             receiverCounterpartyId = input.receiverCounterpartyId,
             receiverMolId = input.receiverMolId,
@@ -117,6 +118,7 @@ class ShipmentRepository(
             driverName = input.driverName,
             shippedAt = input.shippedAt,
             comment = input.comment,
+            purpose = input.purpose,
             sourceDocumentIds = input.sourceDocumentIds,
             items = items.map {
                 ShipmentUpsertItem(
@@ -257,6 +259,8 @@ class ShipmentRepository(
         val shippedAt: String? = null,
         val inspectorId: String? = null,
         val comment: String? = null,
+        /** «Тип отгрузки» — см. ShipmentDto.purpose. */
+        val purpose: String? = null,
         val sourceDocumentIds: List<String> = emptyList(),
         val items: List<ItemInput> = emptyList(),
     )

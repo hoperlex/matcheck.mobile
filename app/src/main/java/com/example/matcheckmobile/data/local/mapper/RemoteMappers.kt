@@ -129,6 +129,7 @@ object RemoteMappers {
         statusLabel = status.label,
         statusColor = status.color,
         kind = kind,
+        purpose = purpose,
         siteId = siteId,
         receiverCounterpartyId = receiverCounterpartyId,
         receiverMolId = receiverMolId,

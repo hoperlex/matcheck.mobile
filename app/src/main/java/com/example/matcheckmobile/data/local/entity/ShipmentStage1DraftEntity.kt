@@ -29,6 +29,11 @@ data class ShipmentStage1DraftEntity(
     val commentText: String,
     val licensePlate: String,
     val manualUpdText: String,
+    // Выбор инспектора в dropdown «Тип отгрузки» на empty-draft форме
+    // («Новая отгрузка», updId=null). Значения: «Вывоз материала»,
+    // «Перемещение на объект», «Вывоз мусора», «Другое». При finalize
+    // префиксом добавляется в comment («Тип: …»). NULL — не выбрано.
+    val shipmentPurpose: String?,
     val createdAt: Long,
     val updatedAt: Long,
 )

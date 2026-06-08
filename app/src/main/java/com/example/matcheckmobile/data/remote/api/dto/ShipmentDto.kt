@@ -29,6 +29,14 @@ data class ShipmentDto(
     val pendingDeletionByUserId: String? = null,
     val pendingDeletionByUserEmail: String? = null,
     val pendingDeletionReason: String? = null,
+    /**
+     * «Тип отгрузки» — серверное поле, заполняется инспектором на форме
+     * «Новая отгрузка» (empty-draft). Значения: «Вывоз материала»,
+     * «Перемещение на объект», «Вывоз мусора», «Другое». NULL для
+     * отгрузок с УПД и legacy-записей. Default `null` для совместимости
+     * со старым сервером без миграции 0049.
+     */
+    val purpose: String? = null,
     val version: Int,
     val sourceDocumentIds: List<String> = emptyList(),
     val items: List<ShipmentItemDto> = emptyList(),
@@ -85,6 +93,8 @@ data class ShipmentUpsertRequest(
     val driverName: String? = null,
     val shippedAt: String? = null,
     val comment: String? = null,
+    /** «Тип отгрузки» — см. ShipmentDto.purpose. */
+    val purpose: String? = null,
     val sourceDocumentIds: List<String> = emptyList(),
     val items: List<ShipmentUpsertItem> = emptyList(),
     val baseVersion: Int? = null,

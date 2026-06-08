@@ -21,6 +21,11 @@ data class RemoteShipmentEntity(
     val statusLabel: String,
     val statusColor: String?,
     val kind: String, // 'contractor' | 'return' | 'transfer' | 'writeoff'
+    // «Тип отгрузки» — семантическая категория отдельно от `kind`. С мобилы
+    // приходит из dropdown'а на форме «Новая отгрузка»: «Вывоз материала»,
+    // «Перемещение на объект», «Вывоз мусора», «Другое». NULL для отгрузок
+    // с привязанной УПД и для legacy-записей. Сервер: миграция 0049.
+    val purpose: String?,
     val siteId: String,
     val receiverCounterpartyId: String?,
     val receiverMolId: String?,
