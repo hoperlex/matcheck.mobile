@@ -248,21 +248,24 @@ class DispatchStage1FormViewModel(
         }
 
         // Pre-flight: сервер validateKindLinks для kind='contractor' требует
-        // ровно одного получателя (receiverCounterpartyId XOR receiverMolId).
-        // Если у документа оба поля пусты — отправка обречена на 422
-        // receiver_required, mutation осядет в очереди как conflictPending.
-        // Ловим заранее и просим менеджера дозаполнить документ в портале.
-        val hasReceiver =
-            !cur.updReceiverCounterpartyId.isNullOrBlank() ||
-                !cur.updReceiverMolId.isNullOrBlank()
-        if (!hasReceiver) {
-            _state.update {
-                it.copy(
-                    error = "У накладной не указан получатель. " +
-                        "Попросите менеджера дозаполнить документ в портале.",
-                )
+        // получателя ТОЛЬКО для picked-UPD случая (когда привязан документ).
+        // Empty-draft (updId == null, «Создать отгрузку» без УПД) проходит
+        // без получателя — менеджер на портале может дозaпoлнить позже.
+        // См. server shipments.ts validateKindLinks: empty-draft пропускает
+        // проверку receiver_required.
+        if (cur.updId != null) {
+            val hasReceiver =
+                !cur.updReceiverCounterpartyId.isNullOrBlank() ||
+                    !cur.updReceiverMolId.isNullOrBlank()
+            if (!hasReceiver) {
+                _state.update {
+                    it.copy(
+                        error = "У накладной не указан получатель. " +
+                            "Попросите менеджера дозаполнить документ в портале.",
+                    )
+                }
+                return
             }
-            return
         }
 
         _state.update { it.copy(isSaving = true, error = null) }
