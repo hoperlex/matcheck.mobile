@@ -14,6 +14,7 @@ import kotlinx.coroutines.withContext
 data class SettingsUiState(
     val deviceId: String = "",
     val userId: String = "",
+    val userEmail: String = "",
     val siteId: String = "",
     val serverBaseUrl: String = "",
 )
@@ -24,8 +25,15 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
         container.deviceSettings.currentUserIdFlow,
         container.deviceSettings.currentSiteIdFlow,
         container.deviceSettings.serverBaseUrlFlow,
-    ) { device, user, site, server ->
-        SettingsUiState(device, user, site, server)
+        container.tokenStorage.state,
+    ) { device, user, site, server, token ->
+        SettingsUiState(
+            deviceId = device,
+            userId = user,
+            userEmail = token.userEmail.orEmpty(),
+            siteId = site,
+            serverBaseUrl = server,
+        )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),

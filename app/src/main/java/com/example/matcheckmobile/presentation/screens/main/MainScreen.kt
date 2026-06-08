@@ -73,6 +73,7 @@ fun MainScreen(
     var showAdminSheet by remember { mutableStateOf(false) }
     var confirmLogout by remember { mutableStateOf(false) }
     val settingsVm: SettingsViewModel = matcheckViewModel()
+    val settingsState by settingsVm.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -254,6 +255,11 @@ fun MainScreen(
         AlertDialog(
             onDismissRequest = { confirmLogout = false },
             title = { Text("Выйти из аккаунта?", fontWeight = FontWeight.SemiBold) },
+            text = {
+                if (settingsState.userEmail.isNotEmpty()) {
+                    Text("Вы вошли как ${settingsState.userEmail}")
+                }
+            },
             confirmButton = {
                 TextButton(
                     onClick = {
