@@ -21,6 +21,11 @@ data class DeliveryDto(
     val arrivedAt: String? = null,
     val inspectorId: String? = null,
     val comment: String? = null,
+    /**
+     * Транзит — флаг «машина является частью транзитного рейса».
+     * Default false для совместимости со старым сервером (миграция 0051).
+     */
+    val inTransit: Boolean = false,
     val confirmedByMolUserId: String? = null,
     val confirmedByMolUserEmail: String? = null,
     val confirmedByMolAt: String? = null,
@@ -88,6 +93,8 @@ data class DeliveryUpsertRequest(
     val driverName: String? = null,
     val arrivedAt: String? = null,
     val comment: String? = null,
+    /** Транзит — см. DeliveryDto.inTransit. Default false. */
+    val inTransit: Boolean = false,
     val sourceDocumentIds: List<String> = emptyList(),
     val items: List<DeliveryUpsertItem> = emptyList(),
     val baseVersion: Int? = null,

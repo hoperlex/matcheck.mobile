@@ -70,6 +70,7 @@ class DispatchStage1FormViewModel(
                     licensePlate = restored.licensePlate,
                     manualUpdText = restored.manualUpdText,
                     shipmentPurpose = restored.shipmentPurpose,
+                    inTransit = restored.inTransit,
                 )
             }
         }
@@ -165,6 +166,7 @@ class DispatchStage1FormViewModel(
             licensePlate = licensePlate,
             manualUpdText = manualUpdText,
             shipmentPurpose = shipmentPurpose,
+            inTransit = inTransit,
             createdAt = now,
             updatedAt = now,
         )
@@ -224,6 +226,8 @@ class DispatchStage1FormViewModel(
     fun setManualUpd(text: String) { _state.update { it.copy(manualUpdText = text) } }
     /** Выбор «Тип отгрузки» из выпадающего списка на empty-draft форме. */
     fun setShipmentPurpose(value: String?) { _state.update { it.copy(shipmentPurpose = value) } }
+    /** Чекбокс «Транзит» — см. DispatchStage1FormUiState.inTransit. */
+    fun setInTransit(value: Boolean) { _state.update { it.copy(inTransit = value) } }
     fun dismissError() { _state.update { it.copy(error = null) } }
 
     fun finalizeStage1() {
@@ -312,6 +316,7 @@ class DispatchStage1FormViewModel(
                         shippedAt = java.time.Instant.now().toString(),
                         comment = commentForServer,
                         purpose = finalPurpose,
+                        inTransit = cur.inTransit,
                         sourceDocumentIds = sourceDocIds,
                         items = items,
                     ),
@@ -398,6 +403,13 @@ data class DispatchStage1FormUiState(
      * «Тип: ...» в comment, чтобы видеть на веб-портале.
      */
     val shipmentPurpose: String? = null,
+    /**
+     * Транзит — чекбокс инспектора на 1 этапе. Default false.
+     * Сохраняется в shipment_stage1_draft, отправляется в
+     * ShipmentRepository.upsert. На веб-портале — тег «🚚 Транзит» в
+     * шапке карточки отгрузки.
+     */
+    val inTransit: Boolean = false,
     val loadInfo: VehicleLoadInfo? = null,
     val isSaving: Boolean = false,
     val finalized: Boolean = false,
@@ -413,7 +425,8 @@ private fun DispatchStage1FormUiState.draftPayloadEquals(other: DispatchStage1Fo
         commentText == other.commentText &&
         licensePlate == other.licensePlate &&
         manualUpdText == other.manualUpdText &&
-        shipmentPurpose == other.shipmentPurpose
+        shipmentPurpose == other.shipmentPurpose &&
+        inTransit == other.inTransit
 
 /**
  * Допустимые значения dropdown «Тип отгрузки» на форме «Новая отгрузка»

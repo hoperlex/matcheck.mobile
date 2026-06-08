@@ -33,6 +33,12 @@ data class Stage1DraftEntity(
     val commentText: String,
     val licensePlate: String,
     val manualUpdText: String,
+    /**
+     * Транзит — чекбокс инспектора на 1 этапе. Сохраняется в draft, чтобы
+     * пережить свернуть/открыть. На finalize отправляется в server.
+     * Default false (миграция Room 20→21).
+     */
+    val inTransit: Boolean = false,
     /** Момент создания draft = когда было добавлено первое фото («Начато»). */
     val createdAt: Long,
     val updatedAt: Long,

@@ -36,6 +36,9 @@ data class RemoteDeliveryEntity(
     val arrivedAt: String?,
     val inspectorId: String?,
     val comment: String?,
+    // Транзит — флаг «машина после нашей операции едет с другим грузом».
+    // Чекбокс на 1 этапе мобилы. Default false. См. миграцию 0051 + Room 20→21.
+    val inTransit: Boolean = false,
     val confirmedByMolUserId: String?,
     val confirmedByMolUserEmail: String?,
     val confirmedByMolAt: String?,

@@ -59,14 +59,30 @@ fun VehicleTypeChips(
     loadInfo: VehicleLoadInfo? = null,
     labelStyle: TextStyle? = null,
     chipTitleStyle: TextStyle? = null,
+    // Опциональный слот справа от label «Тип транспорта». Используется
+    // на 1 этапе для чекбокса «Транзит» — кладётся в одну строку с
+    // заголовком, не сдвигая chips ниже.
+    trailingHeader: (@Composable () -> Unit)? = null,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         if (label != null) {
-            Text(
-                text = label,
-                style = labelStyle ?: MaterialTheme.typography.labelMedium,
-                modifier = Modifier.padding(bottom = 6.dp, start = 4.dp),
-            )
+            androidx.compose.foundation.layout.Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 6.dp, start = 4.dp, end = 4.dp),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = label,
+                    style = labelStyle ?: MaterialTheme.typography.labelMedium,
+                )
+                if (trailingHeader != null) {
+                    androidx.compose.foundation.layout.Spacer(
+                        modifier = Modifier.weight(1f),
+                    )
+                    trailingHeader()
+                }
+            }
         }
         FlowRow(
             modifier = Modifier.fillMaxWidth(),

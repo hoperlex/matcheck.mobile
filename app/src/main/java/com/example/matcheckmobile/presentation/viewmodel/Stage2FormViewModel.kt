@@ -111,6 +111,7 @@ class Stage2FormViewModel(
                 supplierId = delivery.supplierId,
                 contractorId = delivery.contractorId,
                 recipientMolId = delivery.recipientMolId,
+                inTransit = delivery.inTransit,
                 driverName = delivery.driverName,
                 arrivedAt = delivery.arrivedAt,
                 updDisplay = updDisplay,
@@ -358,6 +359,9 @@ class Stage2FormViewModel(
                             stage2 = cur.commentText.trim().ifEmpty { null },
                             note = cur.inheritedNote,
                         ),
+                        // Транзит — read-only на 2 этапе, передаём из
+                        // server-snapshot, чтобы не обнулить при upsert.
+                        inTransit = cur.inTransit,
                         sourceDocumentIds = cur.sourceDocumentIds,
                         items = items,
                     ),
@@ -541,6 +545,8 @@ data class Stage2FormUiState(
     val recipientMolId: String? = null,
     val driverName: String? = null,
     val arrivedAt: String? = null,
+    /** Транзит — read-only снимок с сервера на 2 этапе. */
+    val inTransit: Boolean = false,
     /** Номер(а) привязанной УПД для сводки, либо ручной номер из comment. */
     val updDisplay: String? = null,
     val loaded: Boolean = false,

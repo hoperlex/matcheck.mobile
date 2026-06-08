@@ -45,6 +45,7 @@ class Stage1DraftRepository(private val dao: Stage1DraftDao) {
         commentText = entity.commentText,
         licensePlate = entity.licensePlate,
         manualUpdText = entity.manualUpdText,
+        inTransit = entity.inTransit,
         createdAt = entity.createdAt,
         updatedAt = entity.updatedAt,
     )
@@ -59,6 +60,7 @@ class Stage1DraftRepository(private val dao: Stage1DraftDao) {
         commentText = commentText,
         licensePlate = licensePlate,
         manualUpdText = manualUpdText,
+        inTransit = inTransit,
         createdAt = createdAt,
         updatedAt = updatedAt,
     )
@@ -113,6 +115,8 @@ class Stage1DraftRepository(private val dao: Stage1DraftDao) {
  * списком MaterialDraft (как в форме). Конвертация в [Stage1DraftEntity]
  * и обратно — внутри [Stage1DraftRepository].
  */
+// Транзит хранится в state класса ниже как новое поле — см. Stage1DraftState.inTransit.
+
 data class Stage1DraftState(
     val localDraftId: String,
     val updId: String?,
@@ -123,6 +127,8 @@ data class Stage1DraftState(
     val commentText: String,
     val licensePlate: String,
     val manualUpdText: String,
+    /** Транзит — чекбокс на 1 этапе. Сохраняется в draft, default false. */
+    val inTransit: Boolean = false,
     val createdAt: Long,
     val updatedAt: Long,
 )

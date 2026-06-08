@@ -80,6 +80,7 @@ class ShipmentRepository(
             statusColor = input.statusColor,
             kind = input.kind,
             purpose = input.purpose,
+            inTransit = input.inTransit,
             siteId = input.siteId,
             receiverCounterpartyId = input.receiverCounterpartyId,
             receiverMolId = input.receiverMolId,
@@ -119,6 +120,7 @@ class ShipmentRepository(
             shippedAt = input.shippedAt,
             comment = input.comment,
             purpose = input.purpose,
+            inTransit = input.inTransit,
             sourceDocumentIds = input.sourceDocumentIds,
             items = items.map {
                 ShipmentUpsertItem(
@@ -261,6 +263,8 @@ class ShipmentRepository(
         val comment: String? = null,
         /** «Тип отгрузки» — см. ShipmentDto.purpose. */
         val purpose: String? = null,
+        /** Транзит — см. ShipmentDto.inTransit. */
+        val inTransit: Boolean = false,
         val sourceDocumentIds: List<String> = emptyList(),
         val items: List<ItemInput> = emptyList(),
     )

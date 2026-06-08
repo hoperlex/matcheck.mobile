@@ -40,6 +40,7 @@ class ShipmentStage1DraftRepository(private val dao: ShipmentStage1DraftDao) {
             licensePlate = entity.licensePlate,
             manualUpdText = entity.manualUpdText,
             shipmentPurpose = entity.shipmentPurpose,
+            inTransit = entity.inTransit,
             createdAt = entity.createdAt,
             updatedAt = entity.updatedAt,
         )
@@ -56,6 +57,7 @@ class ShipmentStage1DraftRepository(private val dao: ShipmentStage1DraftDao) {
             licensePlate = licensePlate,
             manualUpdText = manualUpdText,
             shipmentPurpose = shipmentPurpose,
+            inTransit = inTransit,
             createdAt = createdAt,
             updatedAt = updatedAt,
         )
@@ -112,6 +114,8 @@ data class ShipmentStage1DraftState(
     val licensePlate: String,
     val manualUpdText: String,
     val shipmentPurpose: String?,
+    /** Транзит — чекбокс на 1 этапе. Сохраняется в draft, default false. */
+    val inTransit: Boolean = false,
     val createdAt: Long,
     val updatedAt: Long,
 )

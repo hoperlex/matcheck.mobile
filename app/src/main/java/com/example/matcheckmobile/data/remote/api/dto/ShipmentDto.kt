@@ -37,6 +37,11 @@ data class ShipmentDto(
      * со старым сервером без миграции 0049.
      */
     val purpose: String? = null,
+    /**
+     * Транзит — флаг «машина является частью транзитного рейса».
+     * Default false для совместимости со старым сервером (миграция 0051).
+     */
+    val inTransit: Boolean = false,
     val version: Int,
     val sourceDocumentIds: List<String> = emptyList(),
     val items: List<ShipmentItemDto> = emptyList(),
@@ -95,6 +100,8 @@ data class ShipmentUpsertRequest(
     val comment: String? = null,
     /** «Тип отгрузки» — см. ShipmentDto.purpose. */
     val purpose: String? = null,
+    /** Транзит — см. ShipmentDto.inTransit. Default false. */
+    val inTransit: Boolean = false,
     val sourceDocumentIds: List<String> = emptyList(),
     val items: List<ShipmentUpsertItem> = emptyList(),
     val baseVersion: Int? = null,

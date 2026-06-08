@@ -84,6 +84,7 @@ class Stage1FormViewModel(
                     commentText = restored.commentText,
                     licensePlate = restored.licensePlate,
                     manualUpdText = restored.manualUpdText,
+                    inTransit = restored.inTransit,
                 )
             }
         }
@@ -214,6 +215,7 @@ class Stage1FormViewModel(
             commentText = commentText,
             licensePlate = licensePlate,
             manualUpdText = manualUpdText,
+            inTransit = inTransit,
             createdAt = now,
             updatedAt = now,
         )
@@ -294,6 +296,11 @@ class Stage1FormViewModel(
 
     fun setLicensePlate(text: String) {
         _state.update { it.copy(licensePlate = text, showPlateError = false) }
+    }
+
+    /** Чекбокс «Транзит» — см. Stage1FormUiState.inTransit. */
+    fun setInTransit(value: Boolean) {
+        _state.update { it.copy(inTransit = value) }
     }
 
     fun setManualUpd(text: String) {
@@ -388,6 +395,7 @@ class Stage1FormViewModel(
                         // а веб-форма делает это только при создании из своего UI.
                         arrivedAt = java.time.Instant.now().toString(),
                         comment = commentForServer,
+                        inTransit = cur.inTransit,
                         sourceDocumentIds = sourceDocIds,
                         items = items,
                     ),
@@ -478,6 +486,12 @@ data class Stage1FormUiState(
     val licensePlate: String = "",
     val showPlateError: Boolean = false,
     val manualUpdText: String = "",
+    /**
+     * Транзит — чекбокс инспектора на 1 этапе. Default false.
+     * Сохраняется в Stage1Draft, отправляется в DeliveryRepository.upsert.
+     * На веб-портале показывается тегом «🚚 Транзит» в шапке карточки.
+     */
+    val inTransit: Boolean = false,
     val loadInfo: VehicleLoadInfo? = null,
     val isSaving: Boolean = false,
     val finalized: Boolean = false,
@@ -506,4 +520,5 @@ private fun Stage1FormUiState.draftPayloadEquals(other: Stage1FormUiState): Bool
         materials == other.materials &&
         commentText == other.commentText &&
         licensePlate == other.licensePlate &&
-        manualUpdText == other.manualUpdText
+        manualUpdText == other.manualUpdText &&
+        inTransit == other.inTransit

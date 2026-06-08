@@ -281,6 +281,26 @@ fun DispatchStage1FormScreen(
                                 loadInfo = state.loadInfo ?: VehicleLoadInfo(null, null),
                                 labelStyle = vehicleLabelStyle,
                                 chipTitleStyle = vehicleChipTitleStyle,
+                                trailingHeader = {
+                                    // Чекбокс «Транзит» справа от «Тип транспорта»
+                                    // header'а — для picked-UPD сценария Выезда.
+                                    androidx.compose.foundation.layout.Row(
+                                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                                        modifier = Modifier.clickable {
+                                            focusManager.clearFocus()
+                                            vm.setInTransit(!state.inTransit)
+                                        },
+                                    ) {
+                                        androidx.compose.material3.Checkbox(
+                                            checked = state.inTransit,
+                                            onCheckedChange = { vm.setInTransit(it) },
+                                        )
+                                        Text(
+                                            text = "Транзит",
+                                            style = MaterialTheme.typography.labelLarge,
+                                        )
+                                    }
+                                },
                             )
                         }
 
@@ -300,6 +320,29 @@ fun DispatchStage1FormScreen(
                             textStyle = inputTextStyle,
                             modifier = Modifier.fillMaxWidth(),
                         )
+
+                        // Чекбокс «Транзит» для empty-draft Выезда. На picked-UPD
+                        // сценарии чекбокс находится справа от «Тип транспорта»
+                        // (см. VehicleTypeChips trailingHeader выше).
+                        if (state.updId == null) {
+                            androidx.compose.foundation.layout.Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .clickable {
+                                        focusManager.clearFocus()
+                                        vm.setInTransit(!state.inTransit)
+                                    },
+                            ) {
+                                androidx.compose.material3.Checkbox(
+                                    checked = state.inTransit,
+                                    onCheckedChange = { vm.setInTransit(it) },
+                                )
+                                Text(
+                                    text = "Транзит",
+                                    style = MaterialTheme.typography.labelLarge,
+                                )
+                            }
+                        }
                     }
 
                     Box(

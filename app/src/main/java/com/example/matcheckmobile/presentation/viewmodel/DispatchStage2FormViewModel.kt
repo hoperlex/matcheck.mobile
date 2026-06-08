@@ -94,6 +94,7 @@ class DispatchStage2FormViewModel(
                 vehiclePlate = shipment.vehiclePlate?.takeIf { p -> p.isNotBlank() },
                 kind = shipment.kind,
                 purpose = shipment.purpose,
+                inTransit = shipment.inTransit,
                 receiverCounterpartyId = shipment.receiverCounterpartyId,
                 receiverMolId = shipment.receiverMolId,
                 destSiteId = shipment.destSiteId,
@@ -279,6 +280,8 @@ class DispatchStage2FormViewModel(
                         // Тип отгрузки read-only на 2 Этапе — передаём как-есть
                         // из server-snapshot, чтобы не обнулить при finalize.
                         purpose = cur.purpose,
+                        // Транзит — read-only на 2 этапе, передаём как-есть.
+                        inTransit = cur.inTransit,
                         sourceDocumentIds = cur.sourceDocumentIds,
                         items = items,
                     ),
@@ -408,6 +411,8 @@ data class DispatchStage2FormUiState(
     val kind: String? = null,
     /** «Тип отгрузки» — server-snapshot, read-only на 2 Этапе. */
     val purpose: String? = null,
+    /** Транзит — server-snapshot, read-only на 2 Этапе. */
+    val inTransit: Boolean = false,
     val receiverCounterpartyId: String? = null,
     val receiverMolId: String? = null,
     val destSiteId: String? = null,

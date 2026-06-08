@@ -26,6 +26,8 @@ data class RemoteShipmentEntity(
     // «Перемещение на объект», «Вывоз мусора», «Другое». NULL для отгрузок
     // с привязанной УПД и для legacy-записей. Сервер: миграция 0049.
     val purpose: String?,
+    // Транзит — зеркало RemoteDeliveryEntity.inTransit. Default false.
+    val inTransit: Boolean = false,
     val siteId: String,
     val receiverCounterpartyId: String?,
     val receiverMolId: String?,

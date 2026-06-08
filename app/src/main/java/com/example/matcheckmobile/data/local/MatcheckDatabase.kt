@@ -96,7 +96,7 @@ import com.example.matcheckmobile.data.local.entity.UserEntity
         ShipmentStage1DraftEntity::class,
         ShipmentStage2DraftEntity::class,
     ],
-    version = 20,
+    version = 21,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)
@@ -139,7 +139,7 @@ abstract class MatcheckDatabase : RoomDatabase() {
                     MatcheckDatabase::class.java,
                     DB_NAME,
                 )
-                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20)
+                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21)
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
                     .also { INSTANCE = it }
@@ -306,6 +306,30 @@ abstract class MatcheckDatabase : RoomDatabase() {
                             ON UPDATE NO ACTION ON DELETE CASCADE
                     )
                     """.trimIndent(),
+                )
+            }
+        }
+
+        // Транзит — флаг «приёмка/отгрузка является частью транзитного
+        // рейса» (машина после нашей операции едет с другим грузом).
+        // Чекбокс на 1 этапе мобилы. Сервер: миграция 0051.
+        // Колонка добавляется во ВСЕ четыре таблицы: серверные снапшоты
+        // (remote_deliveries, remote_shipments) и локальные черновики
+        // (stage1_drafts, shipment_stage1_drafts). Default 0 (false) —
+        // legacy записи получают false, ничего не теряется.
+        private val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE `remote_deliveries` ADD COLUMN `inTransit` INTEGER NOT NULL DEFAULT 0",
+                )
+                db.execSQL(
+                    "ALTER TABLE `remote_shipments` ADD COLUMN `inTransit` INTEGER NOT NULL DEFAULT 0",
+                )
+                db.execSQL(
+                    "ALTER TABLE `stage1_drafts` ADD COLUMN `inTransit` INTEGER NOT NULL DEFAULT 0",
+                )
+                db.execSQL(
+                    "ALTER TABLE `shipment_stage1_drafts` ADD COLUMN `inTransit` INTEGER NOT NULL DEFAULT 0",
                 )
             }
         }

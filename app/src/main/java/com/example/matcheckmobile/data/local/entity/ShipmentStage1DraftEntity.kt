@@ -34,6 +34,12 @@ data class ShipmentStage1DraftEntity(
     // «Перемещение на объект», «Вывоз мусора», «Другое». При finalize
     // префиксом добавляется в comment («Тип: …»). NULL — не выбрано.
     val shipmentPurpose: String?,
+    /**
+     * Транзит — чекбокс инспектора на 1 этапе. Сохраняется в draft, чтобы
+     * пережить свернуть/открыть. На finalize отправляется в server.
+     * Default false (миграция Room 20→21).
+     */
+    val inTransit: Boolean = false,
     val createdAt: Long,
     val updatedAt: Long,
 )
