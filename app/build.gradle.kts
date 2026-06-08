@@ -235,30 +235,52 @@ val publishGithubRelease by tasks.registering {
         println("Manifest: ${manifestFile.absolutePath}")
         println("Tag: $tag")
         println()
-        println("Создаю GitHub release...")
 
-        // ProcessBuilder + redirectErrorStream — собираем stdout и stderr `gh`
-        // в один поток и читаем его строкой. inheritIO под Gradle daemon
-        // съедает stderr, поэтому при падении в Build Output не видно реальной
-        // причины (HTTP 422, tag exists, repository empty и пр.) — пришлось бы
-        // запускать `gh release create` руками в PowerShell. Теперь любая
-        // ошибка от gh попадает в текст исключения и видна сразу.
-        val process = ProcessBuilder(
-            "gh", "release", "create", tag,
-            apkFile.absolutePath,
-            manifestFile.absolutePath,
-            "--repo", "hoperlex/matcheck.mobile-releases",
-            "--title", "su10 $versionName",
-            "--notes", "Release $versionName (versionCode=$versionCode)",
-        ).redirectErrorStream(true).start()
-        val output = process.inputStream.bufferedReader().readText()
-        val exitCode = process.waitFor()
+        val repo = "hoperlex/matcheck.mobile-releases"
+
+        // gh-обёртка: ProcessBuilder + redirectErrorStream собирает stdout и
+        // stderr `gh` в один поток. inheritIO под Gradle daemon съедает stderr,
+        // поэтому при падении в Build Output не видно реальной причины (HTTP 422,
+        // tag exists, repository empty и пр.). Возвращаем (exitCode, output),
+        // чтобы и залогировать, и при ошибке вшить вывод в текст исключения.
+        fun runGh(vararg args: String): Pair<Int, String> {
+            val p = ProcessBuilder(*args).redirectErrorStream(true).start()
+            val out = p.inputStream.bufferedReader().readText()
+            return p.waitFor() to out
+        }
+
+        // Идемпотентность: повторный запуск той же версии (или до-заливка после
+        // частично упавшего релиза) не должен падать на 422 «ReleaseAsset.name
+        // already exists». Если релиз с этим тегом уже есть — перезаписываем
+        // ассеты через `gh release upload --clobber`, иначе создаём заново.
+        val releaseExists = runGh("gh", "release", "view", tag, "--repo", repo).first == 0
+
+        val action = if (releaseExists) "upload" else "create"
+        val (exitCode, output) = if (releaseExists) {
+            println("Релиз $tag уже существует — перезаливаю ассеты (--clobber)...")
+            runGh(
+                "gh", "release", "upload", tag,
+                apkFile.absolutePath,
+                manifestFile.absolutePath,
+                "--repo", repo,
+                "--clobber",
+            )
+        } else {
+            println("Создаю GitHub release $tag...")
+            runGh(
+                "gh", "release", "create", tag,
+                apkFile.absolutePath,
+                manifestFile.absolutePath,
+                "--repo", repo,
+                "--title", "su10 $versionName",
+                "--notes", "Release $versionName (versionCode=$versionCode)",
+            )
+        }
         if (output.isNotBlank()) println(output)
         if (exitCode != 0) {
             throw GradleException(
-                "gh release create exit=$exitCode\n$output\n" +
-                    "Проверь авторизацию (gh auth status) и наличие репо " +
-                    "hoperlex/matcheck.mobile-releases.",
+                "gh release $action exit=$exitCode\n$output\n" +
+                    "Проверь авторизацию (gh auth status) и наличие репо $repo.",
             )
         }
 
