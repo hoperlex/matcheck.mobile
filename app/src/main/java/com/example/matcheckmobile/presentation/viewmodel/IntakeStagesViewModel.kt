@@ -58,9 +58,12 @@ class IntakeStagesViewModel(container: AppContainer) : ViewModel() {
         val today = LocalDate.now().toString()
         val updWithDraft: Set<String> = drafts.mapNotNull { it.updId }.toSet()
 
-        // Всего: непривязанные УПД на сегодня без draft + drafts + filled-приёмки.
+        // Всего: непривязанные ВХОДЯЩИЕ УПД на сегодня без draft + drafts +
+        // filled-приёмки. Фильтр direction='inbound' обязателен — иначе
+        // исходящие УПД (раздел «Выезд») задваивают счётчик Приёмки.
         val unattachedTodayWithoutDraft = docs.count { d ->
-            d.id !in attachedIds &&
+            d.direction == "inbound" &&
+                d.id !in attachedIds &&
                 d.id !in updWithDraft &&
                 d.expectedDate == today
         }

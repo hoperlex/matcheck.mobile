@@ -54,10 +54,7 @@ class DispatchStagesViewModel(container: AppContainer) : ViewModel() {
 
         // Всего: непривязанные OUTBOUND-документы на сегодня без draft + drafts
         // + 2-этапные отгрузки. Inbound-документы пропускаем — их обрабатывает
-        // Приёмка (симметричный фильтр в IntakeStagesViewModel выше отсутствует
-        // не потому что баг, а потому что в attachedIds учитывается и delivery,
-        // и shipment — поэтому inbound, попавший в outbound-список, тоже не
-        // двойной счёт. Но точная семантика всё равно требует direction-фильтра).
+        // Приёмка (там симметричный фильтр direction='inbound').
         val unattachedTodayWithoutDraft = docs.count { d ->
             d.direction == "outbound" &&
                 d.id !in attachedIds &&

@@ -4,9 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
-import com.example.matcheckmobile.data.local.entity.RemoteDeliveryEntity
-import com.example.matcheckmobile.data.local.entity.RemoteSourceDocumentEntity
-import com.example.matcheckmobile.data.local.entity.Stage1DraftEntity
 import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.data.repository.OperationRepository
 import com.example.matcheckmobile.di.AppContainer
@@ -44,17 +41,20 @@ data class MainStatusUiState(
 /**
  * План «Сегодня/Будущие» — счётчик ожидаемых УПД на сегодня.
  *
+ * Считается СУММА обоих направлений: «Приёмка» (inbound) + «Выезд» (outbound) —
+ * плашка на главном экране отражает весь план дня, а не только приёмку. Логика
+ * для каждого направления симметрична (свои draft-таблица и 2-Этап-статус).
+ *
  * Сегодня =
  *   (a) УПД из server-snapshot с `expectedDate == сегодня` (всё, что
  *       автоматически загружено с веб-портала на сегодня),
- * + (b) ручные приёмки (empty-drafts без updId),
- * + (c) delivery со статусом `filled` (1 этап завершён, 2 не пройден) у
- *       которой `arrivedAt` приходится на сегодняшнюю дату — это та же УПД
+ * + (b) ручные приёмки/отгрузки (empty-drafts без updId),
+ * + (c) delivery `filled` / shipment `shipped` (1 этап завершён, 2 не пройден)
+ *       у которых `arrivedAt`/`shippedAt` приходятся на сегодня — это та же УПД
  *       из (a), просто после «Завершить 1 Этап» она пропадает из server-
- *       snapshot для inspector_kpp; сюда её подхватываем, чтобы счётчик
- *       не «прыгал».
+ *       snapshot; сюда её подхватываем, чтобы счётчик не «прыгал».
  *
- * Будущие = УПД из server-snapshot с другой/пустой `expectedDate`.
+ * Будущие = УПД из server-snapshot с другой/пустой `expectedDate` (оба направления).
  *
  * Поведенческие требования:
  * - Создал ручную приёмку → +1 в Сегодня (через (b)).
@@ -65,37 +65,59 @@ data class MainStatusUiState(
  */
 class MainStatusViewModel(container: AppContainer) : ViewModel() {
 
+    // Пять источников «привязок/черновиков/2-Этапа» сворачиваем в три Pair-потока,
+    // чтобы уложиться в 5-арный combine вместе с docs и dayTicker.
+    private val attachedIdsFlow = combine(
+        container.database.remoteDeliveryDao().observeAttachedSourceDocumentIdsJson(),
+        container.database.remoteShipmentDao().observeAttachedSourceDocumentIdsJson(),
+    ) { deliveryJsons, shipmentJsons -> deliveryJsons to shipmentJsons }
+
+    // Входящая сторона (Приёмка): drafts + filled-приёмки на 2 Этапе.
+    private val inboundSideFlow = combine(
+        container.stage1DraftRepository.observeAll(),
+        container.database.remoteDeliveryDao().observeByStatus("filled"),
+    ) { drafts, filled -> drafts to filled }
+
+    // Исходящая сторона (Выезд): drafts + shipped-отгрузки на 2 Этапе.
+    private val outboundSideFlow = combine(
+        container.shipmentStage1DraftRepository.observeAll(),
+        container.database.remoteShipmentDao().observeByStatuses(listOf("shipped")),
+    ) { drafts, shipped -> drafts to shipped }
+
     private val expectedCounts = combine(
-        combine(
-            container.database.remoteSourceDocumentDao().observeAll(),
-            container.database.remoteDeliveryDao().observeAttachedSourceDocumentIdsJson(),
-            container.database.remoteShipmentDao().observeAttachedSourceDocumentIdsJson(),
-            container.stage1DraftRepository.observeAll(),
-            container.database.remoteDeliveryDao().observeByStatus("filled"),
-            ::PlanSources,
-        ),
+        container.database.remoteSourceDocumentDao().observeAll(),
+        attachedIdsFlow,
+        inboundSideFlow,
+        outboundSideFlow,
         dayTicker,
-    ) { src, today ->
-        val (docs, deliveryAttachedJsons, shipmentAttachedJsons, drafts, filledDeliveries) = src
+    ) { docs, attached, inboundSide, outboundSide, today ->
+        val (deliveryAttachedJsons, shipmentAttachedJsons) = attached
+        val (inboundDrafts, filledDeliveries) = inboundSide
+        val (outboundDrafts, shippedShipments) = outboundSide
 
         // Фильтр привязок — тот же, что в IntakeUpdSelectViewModel: иначе
-        // устаревший локальный кэш привязанных УПД задвоит счётчик «Будущие».
+        // устаревший локальный кэш привязанных УПД задвоит счётчик «Остальные».
         val attachedIds: Set<String> = buildSet {
             (deliveryAttachedJsons + shipmentAttachedJsons).forEach { json ->
                 addAll(RemoteMappers.decodeIdList(json))
             }
         }
-        val updWithDraft: Set<String> = drafts.mapNotNull { it.updId }.toSet()
+        val inboundUpdWithDraft: Set<String> = inboundDrafts.mapNotNull { it.updId }.toSet()
+        val outboundUpdWithDraft: Set<String> = outboundDrafts.mapNotNull { it.updId }.toSet()
 
         // Today — только `expectedDate == today`. Прочерк/null/любая другая
         // дата — Future. УПД-drafts принудительно Today (с ними уже работают).
-        // Считаем ТОЛЬКО входящие (direction='inbound') — плашка «Сегодня /
-        // Остальные» на главном экране относится к разделу «Приёмка». Исходящие
-        // (накладные на отгрузку) считаются отдельно в разделе «Выезд».
+        // Считаем ОБА направления: «Сегодня/Остальные» на главном экране = сумма
+        // «Приёмка» (inbound) + «Выезд» (outbound). Draft-таблицы у направлений
+        // разные, поэтому updWithDraft выбираем по direction документа.
         var todayUnattachedCount = 0
         var futureUnattachedCount = 0
         for (d in docs) {
-            if (d.direction != "inbound") continue
+            val updWithDraft = when (d.direction) {
+                "inbound" -> inboundUpdWithDraft
+                "outbound" -> outboundUpdWithDraft
+                else -> continue
+            }
             if (d.id in attachedIds) continue
             if (d.id in updWithDraft) {
                 todayUnattachedCount++
@@ -104,12 +126,15 @@ class MainStatusViewModel(container: AppContainer) : ViewModel() {
             if (d.expectedDate == today) todayUnattachedCount++ else futureUnattachedCount++
         }
 
-        // Empty-drafts (без УПД) — ручные приёмки, всегда Сегодня.
-        val emptyDraftsCount = drafts.count { it.updId == null }
+        // Empty-drafts (без УПД) — ручные приёмки и ручные отгрузки, всегда Сегодня.
+        val emptyDraftsCount = inboundDrafts.count { it.updId == null } +
+            outboundDrafts.count { it.updId == null }
 
-        // filled-deliveries с arrivedAt сегодня: «несут» УПД между 1 и 2 Этапом
-        // (после Завершить 1 Этап УПД пропадает из snapshot инспектора).
-        val filledTodayCount = filledDeliveries.count { isArrivedToday(it.arrivedAt, today) }
+        // 2-Этапные, прошедшие 1 Этап сегодня: filled-приёмка (arrivedAt) и
+        // shipped-отгрузка (shippedAt). «Несут» УПД между 1 и 2 Этапом — после
+        // «Завершить 1 Этап» исходный документ пропадает из server-snapshot.
+        val filledTodayCount = filledDeliveries.count { isArrivedToday(it.arrivedAt, today) } +
+            shippedShipments.count { isArrivedToday(it.shippedAt, today) }
 
         val todayCount = todayUnattachedCount + emptyDraftsCount + filledTodayCount
         todayCount to futureUnattachedCount
@@ -124,15 +149,6 @@ class MainStatusViewModel(container: AppContainer) : ViewModel() {
                 .toString()
         }.getOrNull() == todayLocal
     }
-
-    /** Holder для агрегата 5 источников, чтобы рядом подмесить [dayTicker]. */
-    private data class PlanSources(
-        val docs: List<RemoteSourceDocumentEntity>,
-        val deliveryAttachedJsons: List<String>,
-        val shipmentAttachedJsons: List<String>,
-        val drafts: List<Stage1DraftEntity>,
-        val filledDeliveries: List<RemoteDeliveryEntity>,
-    )
 
     // Индикатор «прямо сейчас идёт sync»: подписка на состояние обоих
     // WorkManager-задач (one-time push-then-pull и 15-мин periodic).
