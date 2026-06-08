@@ -52,6 +52,11 @@ class AppContainer(val appContext: Context) {
     val logoutAuditLog: com.example.matcheckmobile.data.auth.LogoutAuditLog =
         com.example.matcheckmobile.data.auth.LogoutAuditLog(appContext)
 
+    // Запомненные логин+пароль для автозаполнения экрана входа после logout.
+    // Отдельно от tokenStorage — переживает logout (см. класс).
+    val rememberedCredentialsStore: com.example.matcheckmobile.data.auth.RememberedCredentialsStore =
+        com.example.matcheckmobile.data.auth.RememberedCredentialsStore(appContext)
+
     // AuthRepository нужен раньше, чем NetworkFactory отдаёт authApi,
     // потому что NetworkFactory принимает callback "сессия умерла".
     // Решается через lateinit + provider: NetworkFactory зовёт repo.notify,

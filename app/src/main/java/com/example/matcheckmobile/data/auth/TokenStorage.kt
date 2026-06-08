@@ -35,6 +35,18 @@ class TokenStorage(context: Context) {
 
     fun isAuthenticated(): Boolean = _state.value.refreshToken != null
 
+    /**
+     * Жив ли ещё access-token с запасом [marginMillis]. Используется на cold
+     * start, чтобы НЕ дёргать проактивный /auth/refresh, когда access и так
+     * валиден: лишняя ротация refresh-токена на каждый запуск приводила к
+     * гонке с фоновым sync/SSE и reuse-detection 401 → ложный разлогин при
+     * простом закрытии-открытии приложения.
+     */
+    fun isAccessTokenValid(marginMillis: Long = ACCESS_VALID_MARGIN_MS): Boolean {
+        val expiresAt = _state.value.accessExpiresAt ?: return false
+        return expiresAt - marginMillis > System.currentTimeMillis()
+    }
+
     /** Полный набор данных после успешного login. */
     @Synchronized
     fun saveSession(
@@ -120,6 +132,9 @@ class TokenStorage(context: Context) {
     )
 
     private companion object {
+        // 60 сек запаса: если access истекает в ближайшую минуту — лучше
+        // обновить заранее, чем словить 401 на первом же бизнес-запросе.
+        const val ACCESS_VALID_MARGIN_MS = 60_000L
         const val FILE_NAME = "matcheck_secure_tokens"
         const val KEY_ACCESS_TOKEN = "access_token"
         const val KEY_ACCESS_EXPIRES_AT = "access_expires_at"

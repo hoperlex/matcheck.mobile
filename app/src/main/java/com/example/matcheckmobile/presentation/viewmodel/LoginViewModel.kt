@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.matcheckmobile.data.auth.RememberedCredentialsStore
 import com.example.matcheckmobile.data.remote.sse.SseConnectionManager
 import com.example.matcheckmobile.data.repository.AuthRepository
 import com.example.matcheckmobile.data.repository.LoginError
@@ -21,10 +22,18 @@ class LoginViewModel(
     private val authRepository: AuthRepository,
     private val deviceSettings: DeviceSettings,
     private val sseConnectionManager: SseConnectionManager,
+    private val rememberedCredentials: RememberedCredentialsStore,
     private val appContext: Context,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(LoginUiState())
+    // Автозаполнение: после logout подставляем последний успешный логин+пароль,
+    // чтобы инспектору не вбивать всё заново при повторном входе.
+    private val _state = MutableStateFlow(
+        LoginUiState(
+            email = rememberedCredentials.email.orEmpty(),
+            password = rememberedCredentials.password.orEmpty(),
+        ),
+    )
     val state: StateFlow<LoginUiState> = _state.asStateFlow()
 
     fun onEmailChanged(value: String) {
@@ -49,6 +58,8 @@ class LoginViewModel(
             val result = authRepository.login(email, password)
             result.fold(
                 onSuccess = { user ->
+                    // Запоминаем удачные креды для автозаполнения после logout.
+                    rememberedCredentials.save(email, password)
                     deviceSettings.setCurrentUser(user.id)
                     user.siteId?.let { deviceSettings.setCurrentSite(it) }
                     // Сразу планируем push-then-pull через WorkManager. Worker
@@ -77,6 +88,7 @@ class LoginViewModel(
                     authRepository = container.authRepository,
                     deviceSettings = container.deviceSettings,
                     sseConnectionManager = container.sseConnectionManager,
+                    rememberedCredentials = container.rememberedCredentialsStore,
                     appContext = container.appContext,
                 ) as T
             }

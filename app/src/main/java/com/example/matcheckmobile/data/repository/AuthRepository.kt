@@ -69,6 +69,12 @@ class AuthRepository(
      */
     suspend fun refreshNow(): RefreshOutcome {
         val refresh = tokenStorage.refreshToken ?: return RefreshOutcome.NoRefresh
+        // Access ещё живой → проактивный refresh не нужен. Это убирает лишнюю
+        // ротацию refresh-токена на каждый cold start и гонку со стартующими
+        // в onCreate sync-worker'ом и SSE, из-за которой сервер ловил reuse
+        // одного refresh-токена двумя одновременными запросами и отвечал 401
+        // (= ложный разлогин при простом закрытии-открытии приложения).
+        if (tokenStorage.isAccessTokenValid()) return RefreshOutcome.Ok
         return try {
             val r = authApi.refresh("Bearer $refresh")
             tokenStorage.saveRefreshedTokens(
