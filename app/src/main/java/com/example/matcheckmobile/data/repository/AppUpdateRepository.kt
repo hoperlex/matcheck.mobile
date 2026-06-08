@@ -46,6 +46,16 @@ sealed class AppUpdateState {
     ) : AppUpdateState()
     data class Downloading(val manifest: AppUpdateManifest, val percent: Int) : AppUpdateState()
     data class ReadyToInstall(val manifest: AppUpdateManifest, val apkFile: File) : AppUpdateState()
+    // APK скачан, но система не даёт запустить установку — нет разрешения
+    // «Установка неизвестных приложений» для su10. Установщик уже открыл
+    // нужный системный экран; пользователь включает тумблер и жмёт «Установить»
+    // (installNow) — повторного скачивания не требуется, apkFile уже на диске.
+    data class InstallBlocked(val manifest: AppUpdateManifest, val apkFile: File) : AppUpdateState()
+    // Ошибка СКАЧИВАНИЯ/запуска установки (user-initiated, в отличие от тихого
+    // Failed фоновой проверки). Показывается всегда: пользователь сам нажал
+    // «Установить» и ждёт результат. manifest хранится, чтобы «Повторить»
+    // перекачало без новой проверки версий.
+    data class DownloadFailed(val message: String, val manifest: AppUpdateManifest) : AppUpdateState()
     data class Failed(val message: String) : AppUpdateState()
 }
 
@@ -104,17 +114,55 @@ class AppUpdateRepository(
                 }
             }
             _state.value = result.fold(
-                onSuccess = { apk ->
-                    // Auto-launch installer — пользователь только что нажал
-                    // «Установить», лишний тап после прогресс-бара не нужен.
-                    installer.launchInstaller(appContext, apk)
-                    AppUpdateState.ReadyToInstall(manifest, apk)
-                },
+                onSuccess = { apk -> proceedToInstall(manifest, apk) },
                 onFailure = { err ->
-                    AppUpdateState.Failed(err.message ?: "Не удалось скачать обновление")
+                    AppUpdateState.DownloadFailed(
+                        err.message ?: "Не удалось скачать обновление",
+                        manifest,
+                    )
                 },
             )
         }
+    }
+
+    /**
+     * APK скачан, пробуем установить. Если нет разрешения «Установка
+     * неизвестных приложений» — открываем системный экран и встаём в
+     * InstallBlocked (пользователь включит и нажмёт «Установить» ещё раз,
+     * уже без скачивания). Если запуск установщика упал — DownloadFailed
+     * с видимым сообщением, а не молчаливый проброс.
+     */
+    private fun proceedToInstall(
+        manifest: AppUpdateManifest,
+        apk: File,
+    ): AppUpdateState {
+        if (!installer.canInstall(appContext)) {
+            installer.openUnknownSourcesSettings(appContext)
+            return AppUpdateState.InstallBlocked(manifest, apk)
+        }
+        return installer.launchInstaller(appContext, apk).fold(
+            onSuccess = { AppUpdateState.ReadyToInstall(manifest, apk) },
+            onFailure = { err ->
+                AppUpdateState.DownloadFailed(
+                    err.message ?: "Не удалось запустить установку",
+                    manifest,
+                )
+            },
+        )
+    }
+
+    /**
+     * Повторный запуск установки уже скачанного APK — из InstallBlocked после
+     * того, как пользователь включил разрешение. Если так и не включил —
+     * снова InstallBlocked (повторно откроем настройки).
+     */
+    fun installNow(manifest: AppUpdateManifest, apkFile: File) {
+        scope.launch { _state.value = proceedToInstall(manifest, apkFile) }
+    }
+
+    /** Открыть системный экран «Установка неизвестных приложений» для su10. */
+    fun openInstallSettings() {
+        installer.openUnknownSourcesSettings(appContext)
     }
 
     /**

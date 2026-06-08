@@ -96,13 +96,53 @@ fun AppUpdateDialogHost() {
             confirmButton = { /* пусто, скрываем кнопку */ },
         )
 
-        // Failed — это техническая ошибка фоновой проверки (таймаут на GitHub,
-        // нет сети при cold start и т.п.). Инспектору показывать «Не удалось
-        // обновить» бесполезно — он не понимает контекст («что не удалось?»),
-        // а следующая проверка через 6ч сама всё подтянет. Тихо игнорируем —
-        // state остаётся Failed внутри Repository (можно посмотреть в Logcat
-        // для диагностики), но UI чистый. Также не показываем при download-
-        // ошибке — там пользователь сам тапнет «Установить» ещё раз через chip.
+        // APK скачан, но нет разрешения «Установка неизвестных приложений».
+        // Установщик уже открыл нужный системный экран; здесь даём явный
+        // диалог: после включения тумблера — «Установить» (без перекачки),
+        // либо «Настройки», если экран потерялся.
+        is AppUpdateState.InstallBlocked -> AlertDialog(
+            onDismissRequest = { repo.dismiss() },
+            title = { Text("Нужно разрешение на установку") },
+            text = {
+                Text(
+                    "Разрешите «Установка неизвестных приложений» для su10, " +
+                        "затем нажмите «Установить».",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { repo.installNow(s.manifest, s.apkFile) }) {
+                    Text("Установить")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { repo.openInstallSettings() }) {
+                    Text("Настройки")
+                }
+            },
+        )
+
+        // Ошибка скачивания/запуска установки. Показываем всегда (пользователь
+        // сам нажал «Установить» и ждёт результат) с кнопкой «Повторить» —
+        // чтобы не переоткрывать приложение по 10 раз при флапающей сети/CDN.
+        is AppUpdateState.DownloadFailed -> AlertDialog(
+            onDismissRequest = { repo.dismiss() },
+            title = { Text("Не удалось обновить") },
+            text = { Text(s.message) },
+            confirmButton = {
+                TextButton(onClick = { repo.startDownload(s.manifest) }) {
+                    Text("Повторить")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { repo.dismiss() }) {
+                    Text("Закрыть")
+                }
+            },
+        )
+
+        // Failed — тихая ошибка ФОНОВОЙ проверки версии (таймаут на GitHub,
+        // нет сети при cold start). Инспектору показывать бесполезно — следующая
+        // проверка сама подтянет. UI чистый, причина видна в Logcat.
         is AppUpdateState.Failed -> Unit
 
         else -> Unit

@@ -3,6 +3,7 @@ package com.example.matcheckmobile.data.repository
 import android.content.Context
 import com.example.matcheckmobile.data.remote.update.AppUpdateManifest
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -39,7 +40,32 @@ class AppUpdateDownloader(private val appContext: Context) {
      * верифицируется; при несовпадении хэшей возвращает Failure и удаляет
      * битый файл.
      */
+    /**
+     * Качает APK с авто-ретраями: GitHub release-CDN
+     * (objects.githubusercontent.com) периодически отдаёт обрыв/таймаут, из-за
+     * чего раньше установку приходилось перезапускать вручную по многу раз.
+     * Делаем до [MAX_ATTEMPTS] попыток с короткой паузой; наружу отдаём ошибку
+     * только если все попытки провалились. SHA-mismatch тоже ретраим — это, как
+     * правило, недокачанный файл.
+     */
     suspend fun download(
+        manifest: AppUpdateManifest,
+        onProgress: (Int) -> Unit,
+    ): Result<File> = withContext(Dispatchers.IO) {
+        var lastError: Throwable? = null
+        repeat(MAX_ATTEMPTS) { attempt ->
+            val result = downloadOnce(manifest, onProgress)
+            if (result.isSuccess) return@withContext result
+            lastError = result.exceptionOrNull()
+            if (attempt < MAX_ATTEMPTS - 1) {
+                onProgress(0)
+                delay(RETRY_DELAY_MS)
+            }
+        }
+        Result.failure(lastError ?: IllegalStateException("Не удалось скачать обновление"))
+    }
+
+    private suspend fun downloadOnce(
         manifest: AppUpdateManifest,
         onProgress: (Int) -> Unit,
     ): Result<File> = withContext(Dispatchers.IO) {
@@ -108,5 +134,10 @@ class AppUpdateDownloader(private val appContext: Context) {
             }
         }
         return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    private companion object {
+        const val MAX_ATTEMPTS = 3
+        const val RETRY_DELAY_MS = 1500L
     }
 }
