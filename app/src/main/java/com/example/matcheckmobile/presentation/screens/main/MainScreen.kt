@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -27,6 +28,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -48,6 +50,7 @@ import com.example.matcheckmobile.BuildConfig
 import com.example.matcheckmobile.presentation.components.AppUpdateChip
 import com.example.matcheckmobile.presentation.components.SyncStatusChip
 import com.example.matcheckmobile.presentation.viewmodel.MainStatusViewModel
+import com.example.matcheckmobile.presentation.viewmodel.SettingsViewModel
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
 import com.example.matcheckmobile.sync.MatcheckSyncScheduler
 import com.example.matcheckmobile.ui.theme.OswaldFontFamily
@@ -68,6 +71,9 @@ fun MainScreen(
     val vm: MainStatusViewModel = matcheckViewModel()
     val status by vm.status.collectAsStateWithLifecycle()
     var showAdminSheet by remember { mutableStateOf(false) }
+    var confirmLogout by remember { mutableStateOf(false) }
+    val settingsVm: SettingsViewModel = matcheckViewModel()
+    val settingsState by settingsVm.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -76,17 +82,19 @@ fun MainScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    // Долгий тап на заголовке открывает служебное меню только в
-                    // debug-сборках — инспектору в release-`matcheck` он не нужен,
-                    // вся синхронизация и навигация доступны через явные элементы UI.
-                    val titleModifier = if (BuildConfig.DEBUG) {
-                        Modifier.combinedClickable(
-                            onClick = {},
-                            onLongClick = { showAdminSheet = true },
-                        )
-                    } else {
-                        Modifier
-                    }
+                    // Тап по «su10» открывает диалог выхода из аккаунта — чтобы
+                    // инспектор мог разлогиниться и зайти под другим логином прямо
+                    // с главного экрана (проверить, какие УПД подтянутся под другим
+                    // аккаунтом). Долгий тап в debug-сборке открывает служебное меню;
+                    // в release он не нужен — навигация доступна через явный UI.
+                    val titleModifier = Modifier.combinedClickable(
+                        onClick = { confirmLogout = true },
+                        onLongClick = if (BuildConfig.DEBUG) {
+                            { showAdminSheet = true }
+                        } else {
+                            null
+                        },
+                    )
                     Box(modifier = titleModifier) {
                         // Брендовая надпись «su10»: Oswald — узкий заголовочный
                         // шрифт от Google Fonts, грузится через GMS-провайдер
@@ -237,6 +245,50 @@ fun MainScreen(
                 )
             }
         }
+    }
+
+    if (confirmLogout) {
+        // Полный logout: чистит токены, syncCursor и Room (см.
+        // SettingsViewModel.logout). После него MatcheckNavHost автоматически
+        // уйдёт на LoginScreen через SessionEvent.LoggedOut — можно сразу
+        // войти под другим логином.
+        AlertDialog(
+            onDismissRequest = { confirmLogout = false },
+            title = { Text("Выйти из аккаунта?", fontWeight = FontWeight.SemiBold) },
+            text = {
+                Text(
+                    buildString {
+                        if (settingsState.userId.isNotEmpty()) {
+                            append("Текущий пользователь: ")
+                            append(settingsState.userId)
+                            append("\n\n")
+                        }
+                        append(
+                            "Локальные данные (УПД, приёмки, очередь, незавершённые " +
+                                "драфты) будут удалены с устройства. После повторного " +
+                                "входа всё подтянется заново с сервера.",
+                        )
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmLogout = false
+                        settingsVm.logout()
+                    },
+                ) {
+                    Text(
+                        "Выйти",
+                        color = MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmLogout = false }) { Text("Отмена") }
+            },
+        )
     }
 }
 
