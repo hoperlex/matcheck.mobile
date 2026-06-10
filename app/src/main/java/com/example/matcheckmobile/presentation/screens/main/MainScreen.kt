@@ -96,14 +96,14 @@ fun MainScreen(
                         },
                     )
                     Box(modifier = titleModifier) {
-                        // Брендовая надпись «su10»: Oswald — узкий заголовочный
-                        // шрифт от Google Fonts, грузится через GMS-провайдер
-                        // при первом запуске и кэшируется. При недоступности
-                        // (нет Play Services / сети при cold start) Compose
-                        // откатывается на системный sans-serif, текст всё
-                        // равно отрендерится.
+                        // Брендовая надпись «МАТБАЛАНС»: Oswald — узкий
+                        // заголовочный шрифт от Google Fonts, грузится через
+                        // GMS-провайдер при первом запуске и кэшируется. При
+                        // недоступности (нет Play Services / сети при cold
+                        // start) Compose откатывается на системный sans-serif,
+                        // текст всё равно отрендерится.
                         Text(
-                            text = "su10",
+                            text = "МАТБАЛАНС",
                             fontFamily = OswaldFontFamily,
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 26.sp,

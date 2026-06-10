@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Foreground адаптивной иконки «su10»: белая монограмма-«S» по центру 108×108
-  viewport. Safe zone (примерно 18..90) под Android-shape mask соблюдается —
-  буква умещается с запасом. Текст «su10» под иконкой Android выводит сам из
-  app_name (см. values/strings.xml).
+  Foreground адаптивной иконки «Матбаланс»: белая монограмма-«M» по центру
+  108×108 viewport. Safe zone (примерно 18..90) под Android-shape mask
+  соблюдается — буква умещается с запасом. Текст «Матбаланс» под иконкой
+  Android выводит сам из app_name (см. values/strings.xml).
 
-  «S» нарисована как stroke-path с скруглёнными концами и плавными изгибами
-  через Bezier-кривые — на разных формах иконки (круг / squircle / квадрат)
-  смотрится одинаково.
+  «M» нарисована как stroke-path с скруглёнными концами и стыками
+  (strokeLineCap/Join=round) — на разных формах иконки (круг / squircle /
+  квадрат) смотрится одинаково. Та же толщина (12) и тот же белый stroke
+  на синем фоне (#1565C0, см. ic_launcher_background.xml), что были у «S».
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -20,5 +21,5 @@
         android:strokeWidth="12"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M72,38 C72,32 65,30 58,30 L48,30 C40,30 36,34 36,42 C36,50 42,53 50,55 L58,57 C66,59 72,62 72,70 C72,76 66,80 58,80 L48,80 C40,80 36,76 36,70" />
+        android:pathData="M32,80 L32,30 L54,60 L76,30 L76,80" />
 </vector>

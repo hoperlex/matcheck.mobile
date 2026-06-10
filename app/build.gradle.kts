@@ -54,10 +54,10 @@ android {
             // «глазами инспектора» перед выкаткой.
             applicationIdSuffix = ".dev"
             versionNameSuffix = "-dev"
-            // На лаунчере подпись «su10.dev», чтобы визуально отличать от
-            // production-`su10` (по applicationId Android уже их разделяет,
-            // подпись делает то же самое наглядным для пользователя).
-            resValue("string", "app_name", "su10.dev")
+            // На лаунчере подпись «Матбаланс.dev», чтобы визуально отличать
+            // от production-«Матбаланс» (по applicationId Android уже их
+            // разделяет, подпись делает то же самое наглядным для пользователя).
+            resValue("string", "app_name", "Матбаланс.dev")
 
             buildConfigField("String", "API_BASE_URL", "\"https://matcheck.fvds.ru/\"")
             // In-app updater отключён в debug — Android Studio Run app
@@ -73,8 +73,8 @@ android {
                 "proguard-rules.pro"
             )
             signingConfig = signingConfigs.getByName("release")
-            // Подпись на лаунчере у инспекторов — «su10».
-            resValue("string", "app_name", "su10")
+            // Подпись на лаунчере у инспекторов — «Матбаланс».
+            resValue("string", "app_name", "Матбаланс")
 
             buildConfigField("String", "API_BASE_URL", "\"https://matcheck.fvds.ru/\"")
             // GH Releases раздаётся через публичный side-репо

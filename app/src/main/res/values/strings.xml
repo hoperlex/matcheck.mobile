@@ -1,8 +1,9 @@
 <resources>
     <!--
       app_name теперь задаётся per-build-type через resValue в build.gradle.kts:
-      release → «su10», debug → «su10.dev». Это значит, что на твоём планшете
-      debug-сборка от Run app будет под подписью «su10.dev» (отдельная иконка),
-      инспекторская release из GH Releases — под «su10».
+      release → «Матбаланс», debug → «Матбаланс.dev». Это значит, что на
+      планшете debug-сборка от Run app будет под подписью «Матбаланс.dev»
+      (отдельная иконка), инспекторская release из GH Releases — под
+      «Матбаланс».
     -->
 </resources>
