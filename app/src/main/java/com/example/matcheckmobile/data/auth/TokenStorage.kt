@@ -78,6 +78,22 @@ class TokenStorage(context: Context) {
         _state.value = readSnapshot()
     }
 
+    /**
+     * Обновление siteId без перезаписи токенов. Используется, когда
+     * админ поменял объект инспектора на сервере и мы узнаём об этом из
+     * /auth/me (см. SyncRepository.syncOnce). Без этого штамп на фото
+     * 1-го Этапа (Stage1FormViewModel.resolveSiteName читает siteId из
+     * tokenStorage) показывал бы старый объект до полного logout/login.
+     * Возвращает true, если значение действительно изменилось.
+     */
+    @Synchronized
+    fun updateSiteId(newSiteId: String?): Boolean {
+        if (_state.value.siteId == newSiteId) return false
+        prefs.edit().putString(KEY_SITE_ID, newSiteId).commit()
+        _state.value = readSnapshot()
+        return true
+    }
+
     /** Обновление пары токенов после успешного /auth/refresh. */
     @Synchronized
     fun saveRefreshedTokens(

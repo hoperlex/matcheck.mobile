@@ -43,6 +43,15 @@ class SyncRepository(
     private val sourceDocumentDao: RemoteSourceDocumentDao,
     private val mutationProcessor: MutationProcessor,
     private val photoUploadProcessor: PhotoUploadProcessor,
+    /**
+     * Side-effect: после успешного pull тихо подтягивает с /me актуальный
+     * user.siteId инспектора и обновляет tokenStorage. Если null —
+     * sync работает по-старому (без обновления siteId). Передаётся
+     * через лямбду, чтобы не плодить зависимость на AuthRepository.
+     * Любые ошибки внутри лямбды должны проглатываться её реализацией —
+     * SyncRepository вызывает её best-effort и не ждёт результата.
+     */
+    private val onAfterPullRefresh: (suspend () -> Unit)? = null,
 ) {
 
     private val pullMutex = Mutex()
@@ -77,6 +86,10 @@ class SyncRepository(
             mutationProcessor.processAll()
             val summary = pullAllPages(initialWindowDays)
             photoUploadProcessor.processAll()
+            // Best-effort обновление siteId инспектора. Делаем именно здесь
+            // (не до push/pull), чтобы возможный сбой /me никогда не блокировал
+            // основной sync. Лямбда сама обязана глотать исключения.
+            runCatching { onAfterPullRefresh?.invoke() }
             summary
         }.onSuccess { summary -> _state.value = _state.value.copy(lastError = null, lastSuccessSummary = summary) }
             .onFailure { error -> _state.value = _state.value.copy(lastError = error.message ?: "sync failed") }

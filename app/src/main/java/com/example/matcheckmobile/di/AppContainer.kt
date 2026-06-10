@@ -108,6 +108,11 @@ class AppContainer(val appContext: Context) {
         sourceDocumentDao = database.remoteSourceDocumentDao(),
         mutationProcessor = mutationProcessor,
         photoUploadProcessor = photoUploadProcessor,
+        // После успешного pull тихо подтягиваем актуальный user.siteId.
+        // Все ошибки внутри refreshSiteIdFromServer проглатываются — sync
+        // не пострадает; в худшем случае штамп на 1 Этапе останется как
+        // был, до следующей попытки.
+        onAfterPullRefresh = { authRepository.refreshSiteIdFromServer() },
     )
 
     val remotePhotoStorage: RemotePhotoStorage = RemotePhotoStorage(appContext)

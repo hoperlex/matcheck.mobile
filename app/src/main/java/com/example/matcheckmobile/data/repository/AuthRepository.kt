@@ -56,6 +56,26 @@ class AuthRepository(
     suspend fun me(): Result<UserDto> = runCatching { authApi.me() }
 
     /**
+     * Подтягивает с сервера актуального user.siteId и пишет в tokenStorage,
+     * если он изменился. Нужно, когда админ поменял объект инспектора —
+     * без перезапроса /me мобила хранила бы старый siteId до следующего
+     * полного logout/login, и штамп на фото 1-го Этапа писал бы старый
+     * объект (см. Stage1FormViewModel.resolveSiteName).
+     *
+     * Все ошибки (сеть, 401, 5xx, парсинг) тихо проглатываются: метод
+     * вызывается как side-effect после успешного syncOnce и не должен
+     * валить вызывающего. Если /me не удалось — siteId просто останется
+     * прежним до следующей попытки.
+     *
+     * Возвращает true, если значение действительно обновилось.
+     */
+    suspend fun refreshSiteIdFromServer(): Boolean {
+        val r = runCatching { authApi.me() }
+        val me = r.getOrNull() ?: return false
+        return tokenStorage.updateSiteId(me.siteId)
+    }
+
+    /**
      * Принудительный refresh access-token до выполнения бизнес-запросов.
      * Используется на сплеше: если refresh ещё валиден — пользователь
      * не увидит flicker LOGIN-MAIN при истёкшем access. Если сервер
