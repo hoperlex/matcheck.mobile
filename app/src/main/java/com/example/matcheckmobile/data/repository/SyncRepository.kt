@@ -100,6 +100,43 @@ class SyncRepository(
         photoUploadProcessor.processAll()
     }
 
+    /**
+     * Smart-reset серверного snapshot после смены user.siteId в админке.
+     *
+     * Почему нужно: pull-only sync только апсертит то, что пришло; УПД и
+     * приёмки старого объекта остаются в Room и попадают в счётчики/списки,
+     * хотя инспектор больше не работает на том объекте. Сервер их не вернёт
+     * в deletedIds (они не удалены, просто фильтр siteId сменился).
+     *
+     * Что чистим (server-snapshot, идемпотентно перетянется ре-синком):
+     *   - remote_source_documents (+ items/attachments каскадом по FK);
+     *   - remote_deliveries (+ items/photos каскадом);
+     *   - remote_shipments (+ items/photos каскадом);
+     *   - syncCursor — чтобы pull прошёл с windowDays=90 и подтянул всё под новый siteId.
+     *
+     * Что НЕ трогаем (локальные несинхронизированные данные инспектора):
+     *   - mutations (pending push в сервер);
+     *   - stage1_drafts / stage2_drafts / shipment_*_drafts;
+     *   - photos (локальные ещё не подтверждённые);
+     *   - delivery_local_meta / shipment_local_meta (vehicleTypeCode);
+     *   - токены / сессия;
+     *   - statuses / counterparties / materials / sites (общие справочники);
+     *   - sites — критично оставить, нужно для штампа объекта.
+     *
+     * НЕ под syncMutex: метод вызывается изнутри `onAfterPullRefresh` →
+     * `syncOnce` уже держит замок, повторный `withLock` дал бы deadlock.
+     * Room сам потокобезопасен, а параллельный pull тут невозможен
+     * (мы уже под текущим syncMutex). После сброса вызывающий код
+     * дёргает requestImmediateSync — WorkManager поставит новый job в
+     * очередь и он отработает после завершения текущего syncOnce.
+     */
+    suspend fun resetServerSnapshotOnSiteChange(): Result<Unit> = runCatching {
+        sourceDocumentDao.deleteAll()
+        deliveryDao.deleteAll()
+        shipmentDao.deleteAll()
+        deviceSettings.clearSyncCursor()
+    }.onFailure { error -> _state.value = _state.value.copy(lastError = error.message ?: "reset failed") }
+
     private suspend fun pullAllPages(initialWindowDays: Int): SyncSummary {
         _state.value = _state.value.copy(isRunning = true)
         try {

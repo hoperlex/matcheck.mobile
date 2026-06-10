@@ -92,6 +92,14 @@ interface RemoteShipmentDao {
     @Query("DELETE FROM remote_shipments WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<String>)
 
+    /**
+     * Полная очистка серверного snapshot — для smart-reset при смене
+     * user.siteId в админке. items/photos удалятся каскадом по FK с
+     * onDelete=CASCADE. См. SyncRepository.resetServerSnapshotOnSiteChange.
+     */
+    @Query("DELETE FROM remote_shipments")
+    suspend fun deleteAll()
+
     @Query("SELECT id FROM remote_shipments WHERE conflictPending = 1")
     suspend fun listConflictPendingIds(): List<String>
 

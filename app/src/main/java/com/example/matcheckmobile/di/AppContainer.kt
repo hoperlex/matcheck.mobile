@@ -37,6 +37,7 @@ import com.example.matcheckmobile.data.repository.ShipmentRepository
 import com.example.matcheckmobile.data.repository.SourceDocumentRepository
 import com.example.matcheckmobile.data.repository.SyncRepository
 import com.example.matcheckmobile.data.settings.DeviceSettings
+import com.example.matcheckmobile.sync.MatcheckSyncScheduler
 import com.example.matcheckmobile.media.LocationProvider
 import com.example.matcheckmobile.media.MetadataWatermark
 import com.example.matcheckmobile.media.PhotoStorage
@@ -109,11 +110,32 @@ class AppContainer(val appContext: Context) {
         mutationProcessor = mutationProcessor,
         photoUploadProcessor = photoUploadProcessor,
         // После успешного pull тихо подтягиваем актуальный user.siteId.
-        // Все ошибки внутри refreshSiteIdFromServer проглатываются — sync
-        // не пострадает; в худшем случае штамп на 1 Этапе останется как
-        // был, до следующей попытки.
-        onAfterPullRefresh = { authRepository.refreshSiteIdFromServer() },
+        // Если siteId реально изменился — чистим server-snapshot (УПД/
+        // приёмки/отгрузки) и планируем новый sync под новый siteId
+        // (см. handleSiteIdRefresh). Все ошибки проглатываются внутри —
+        // sync основного цикла не пострадает.
+        onAfterPullRefresh = ::handleSiteIdRefresh,
     )
+
+    /**
+     * Side-effect после успешного syncOnce: подтянуть актуальный
+     * user.siteId. Если значение изменилось — server-snapshot УПД/
+     * приёмок/отгрузок относится к старому объекту и должен быть
+     * перечитан под новый siteId. Чистим snapshot, дёргаем
+     * MatcheckSyncScheduler.requestImmediateSync — WorkManager поставит
+     * новый job в очередь, он отработает после завершения текущего
+     * syncOnce (REPLACE policy) и подтянет данные нового объекта.
+     *
+     * Локальные мутации, черновики, фото, токены и общие справочники
+     * (sites/statuses/counterparties/materials) НЕ ТРОГАЕМ —
+     * см. SyncRepository.resetServerSnapshotOnSiteChange комментарий.
+     */
+    private suspend fun handleSiteIdRefresh() {
+        val changed = authRepository.refreshSiteIdFromServer()
+        if (!changed) return
+        syncRepository.resetServerSnapshotOnSiteChange()
+        MatcheckSyncScheduler.requestImmediateSync(appContext)
+    }
 
     val remotePhotoStorage: RemotePhotoStorage = RemotePhotoStorage(appContext)
 
