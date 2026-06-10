@@ -130,7 +130,12 @@ class SseConnectionManager(
                 "source_document_updated",
                 "counterparty_updated",
                 "material_updated",
-                "site_updated" -> {
+                "site_updated",
+                // user_updated приходит, когда админ сменил siteId/isActive
+                // у инспектора. SyncRepository.syncOnce внутри подтянет
+                // свежий /me → tokenStorage.updateSiteId, и штамп объекта
+                // на фото 1 Этапа сразу станет актуальным — без logout/login.
+                "user_updated" -> {
                     // Дернуть фоновый sync — WorkManager сам сделает debounce
                     // через ExistingWorkPolicy.REPLACE.
                     MatcheckSyncScheduler.requestImmediateSync(appContext)
