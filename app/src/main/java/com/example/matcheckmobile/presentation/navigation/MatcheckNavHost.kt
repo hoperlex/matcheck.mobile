@@ -27,6 +27,7 @@ import com.example.matcheckmobile.presentation.screens.receipt.IntakeStagesScree
 import com.example.matcheckmobile.presentation.screens.receipt.IntakeUpdSelectScreen
 import com.example.matcheckmobile.presentation.screens.receipt.ReceiptScreen
 import com.example.matcheckmobile.presentation.screens.receipt.SavedReceiptsScreen
+import com.example.matcheckmobile.presentation.screens.receipt.ManualEntryFormScreen
 import com.example.matcheckmobile.presentation.screens.receipt.Stage1FormScreen
 import com.example.matcheckmobile.presentation.screens.receipt.Stage2FormScreen
 import com.example.matcheckmobile.presentation.screens.receipt.Stage2ListScreen
@@ -91,6 +92,7 @@ fun MatcheckNavHost() {
                 onBack = { navController.popBackStack() },
                 onStage1 = { navController.navigate(Routes.INTAKE_UPD_SELECT) },
                 onStage2 = { navController.navigate(Routes.INTAKE_STAGE2) },
+                onManualEntry = { navController.navigate(Routes.MANUAL_ENTRY_FORM) },
             )
         }
         composable(Routes.INTAKE_STAGE2) {
@@ -146,6 +148,16 @@ fun MatcheckNavHost() {
                 onFinalized = {
                     // Возвращаемся сразу на экран этапов — список УПД и сама форма уйдут
                     // из бэк-стека, чтобы кнопка «Назад» не открывала уже сохранённую приёмку.
+                    navController.popBackStack(Routes.INTAKE_STAGES, inclusive = false)
+                },
+            )
+        }
+        composable(Routes.MANUAL_ENTRY_FORM) {
+            ManualEntryFormScreen(
+                onBack = { navController.popBackStack() },
+                onFinalized = {
+                    // На завершении возвращаемся на стартовый экран приёмки.
+                    // Сама приёмка ушла в фон через sync → веб-портал.
                     navController.popBackStack(Routes.INTAKE_STAGES, inclusive = false)
                 },
             )

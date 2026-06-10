@@ -7,6 +7,8 @@ object Routes {
     const val INTAKE_STAGES = "intake_stages"
     const val INTAKE_STAGE2 = "intake_stage2"
     const val INTAKE_UPD_SELECT = "intake_upd_select"
+    /** «Ручной внос»: приёмка без УПД и автотранспорта. Сразу confirmed_mol. */
+    const val MANUAL_ENTRY_FORM = "manual_entry_form"
     const val SAVED_RECEIPTS = "saved_receipts"
     const val RECEIPT_BASE = "receipt"
     const val ARG_UPD_ID = "updId"

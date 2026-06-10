@@ -67,10 +67,13 @@ private val ActiveDotColor = Color(0xFF2E7D32)
 private val OverdueDotColor = Color(0xFFD32F2F)
 
 /**
- * Стартовый экран приёмки: две большие кнопки выбора этапа.
+ * Стартовый экран приёмки: три равные кнопки выбора режима.
  *
  * - 1 Этап — выбор УПД с веб-портала и оформление приёмки (статус `filled`).
  * - 2 Этап — подтверждение МОЛ ранее оформленных приёмок (`filled → confirmed_mol`).
+ * - Ручной внос — приёмка без УПД и без автотранспорта, инспектор сразу
+ *   подтверждает её собой (создаётся со статусом `confirmed_mol`, на портале
+ *   попадает в «Принятые / Подтверждено МОЛ» с тегом «Без документа»).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -78,6 +81,7 @@ fun IntakeStagesScreen(
     onBack: () -> Unit,
     onStage1: () -> Unit,
     onStage2: () -> Unit,
+    onManualEntry: () -> Unit,
 ) {
     val viewModel: IntakeStagesViewModel = matcheckViewModel()
     val counts by viewModel.counts.collectAsStateWithLifecycle()
@@ -122,6 +126,7 @@ fun IntakeStagesScreen(
                 ) {
                     StageButton(
                         title = "1 Этап",
+                        subtitle = "Автотранспорт",
                         description = "Описание: фотофиксация госномера, груза, документов",
                         counts = counts,
                         showStats = true,
@@ -133,10 +138,24 @@ fun IntakeStagesScreen(
                     )
                     StageButton(
                         title = "2 Этап",
+                        subtitle = "Автотранспорт",
                         description = "Описание: фотофиксация разгруженной машины, МОЛ, госномер",
                         counts = counts,
                         showStats = false,
                         onClick = onStage2,
+                        isTablet = isTablet,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                    )
+                    StageButton(
+                        title = "Ручной внос",
+                        subtitle = null,
+                        description = "Описание: приёмка без УПД и без автотранспорта. " +
+                            "Инспектор сразу подтверждает её собой.",
+                        counts = counts,
+                        showStats = false,
+                        onClick = onManualEntry,
                         isTablet = isTablet,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -157,6 +176,7 @@ private fun StageButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     isTablet: Boolean,
+    subtitle: String? = null,
 ) {
     var infoDialogVisible by remember { mutableStateOf(false) }
 
@@ -177,15 +197,29 @@ private fun StageButton(
                 verticalArrangement = Arrangement.SpaceBetween,
                 horizontalAlignment = Alignment.Start,
             ) {
-                // Заголовок ×1.5 от исходного displayMedium/displaySmall, центрируется
-                // на всю ширину кнопки.
+                // Заголовок. На трёх кнопках высота меньше — слегка уменьшил
+                // кегль (52sp на планшете, 42sp на телефоне) чтобы влезал и
+                // оставалось место под subtitle и статы.
                 Text(
                     text = title,
                     modifier = Modifier.fillMaxWidth(),
                     textAlign = TextAlign.Center,
                     fontFamily = OpenSansFontFamily,
-                    fontSize = if (isTablet) 68.sp else 54.sp,
+                    fontSize = if (isTablet) 52.sp else 42.sp,
                 )
+                // Подзаголовок — категория кнопки («Автотранспорт» для 1/2 Этапа).
+                // Для «Ручной внос» subtitle=null — место занимает Spacer ниже,
+                // чтобы выравнивание заголовков на всех трёх кнопках было одинаковым.
+                if (subtitle != null) {
+                    Text(
+                        text = subtitle,
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Center,
+                        fontFamily = OpenSansFontFamily,
+                        fontSize = if (isTablet) 22.sp else 18.sp,
+                        color = Color(0xFF555555),
+                    )
+                }
                 if (showStats) {
                     StageStats(counts = counts, isTablet = isTablet)
                 } else {
