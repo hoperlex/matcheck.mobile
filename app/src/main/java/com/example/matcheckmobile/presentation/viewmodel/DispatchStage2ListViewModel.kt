@@ -73,10 +73,10 @@ class DispatchStage2ListViewModel(container: AppContainer) : ViewModel() {
                 ?.let(::sourceDocTitlePrefix) ?: "УПД"
             val titleText = "$prefix $updNumberText"
 
-            val supplierName = attachedDocs.firstOrNull()?.let { doc ->
-                doc.supplierName ?: doc.supplierId?.let { id -> cpById[id]?.name }
-            }
-            val subtitleText = "Поставщик: ${supplierName ?: "—"}"
+            // Подзаголовок — госномер авто, введённый инспектором на 1 Этапе.
+            // На этом экране он точно известен (без госномера 1 Этап не
+            // завершается). Без префикса «Госномер:» — короче и нагляднее.
+            val subtitleText = s.vehiclePlate?.takeIf { it.isNotBlank() } ?: "—"
 
             // Для shipment «подрядчик-группировка» — это получатель: либо
             // recipientId/recipientMolId УПД, либо receiverCounterpartyId

@@ -100,10 +100,11 @@ class Stage2ListViewModel(container: AppContainer) : ViewModel() {
                 ?.let(::sourceDocTitlePrefix) ?: "УПД"
             val titleText = "$prefix $updNumberText"
 
-            val supplierName = attachedDocs.firstOrNull()?.let { doc ->
-                doc.supplierName ?: doc.supplierId?.let { id -> cpById[id]?.name }
-            } ?: d.supplierId?.let { cpById[it]?.name }
-            val subtitleText = "Поставщик: ${supplierName ?: "—"}"
+            // Подзаголовок — госномер авто, введённый инспектором на 1 Этапе.
+            // На этом экране он уже точно известен (без госномера 1 Этап не
+            // финализируется), поэтому показываем сразу номер, без префикса
+            // «Госномер:» — экономит место и читается быстрее.
+            val subtitleText = d.vehiclePlate?.takeIf { it.isNotBlank() } ?: "—"
 
             val contractorName = d.contractorId?.let { cpById[it]?.name }
                 ?: attachedDocs.firstOrNull()?.contractorName
