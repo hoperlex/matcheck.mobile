@@ -95,6 +95,10 @@ object MatcheckViewModelFactories {
             val app = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as MatcheckApplication
             ManualEntryFormViewModel(app.container)
         }
+        initializer {
+            val app = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as MatcheckApplication
+            ManualDispatchFormViewModel(app.container)
+        }
     }
 }
 

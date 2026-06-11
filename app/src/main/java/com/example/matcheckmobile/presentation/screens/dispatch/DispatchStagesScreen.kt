@@ -83,6 +83,7 @@ fun DispatchStagesScreen(
     onBack: () -> Unit,
     onStage1: () -> Unit,
     onStage2: () -> Unit,
+    onManualEntry: () -> Unit,
 ) {
     val viewModel: DispatchStagesViewModel = matcheckViewModel()
     val counts by viewModel.counts.collectAsStateWithLifecycle()
@@ -126,6 +127,7 @@ fun DispatchStagesScreen(
                 ) {
                     StageButton(
                         title = "1 Этап",
+                        subtitle = "Автотранспорт",
                         description = "Описание: фотофиксация госномера, груза, документов",
                         counts = counts,
                         showStats = true,
@@ -137,10 +139,24 @@ fun DispatchStagesScreen(
                     )
                     StageButton(
                         title = "2 Этап",
+                        subtitle = "Автотранспорт",
                         description = "Описание: фотофиксация выгрузки, МОЛ, госномер",
                         counts = counts,
                         showStats = false,
                         onClick = onStage2,
+                        isTablet = isTablet,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                    )
+                    StageButton(
+                        title = "Ручной вынос",
+                        subtitle = null,
+                        description = "Описание: отгрузка без автотранспорта. " +
+                            "Инспектор сразу подтверждает её собой.",
+                        counts = counts,
+                        showStats = false,
+                        onClick = onManualEntry,
                         isTablet = isTablet,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -161,6 +177,7 @@ private fun StageButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     isTablet: Boolean,
+    subtitle: String? = null,
 ) {
     var infoDialogVisible by remember { mutableStateOf(false) }
 
@@ -181,13 +198,29 @@ private fun StageButton(
                 verticalArrangement = Arrangement.SpaceBetween,
                 horizontalAlignment = Alignment.Start,
             ) {
+                // На трёх кнопках высота меньше — кегль 52sp/42sp (как на
+                // IntakeStagesScreen), чтобы заголовок + subtitle + статы
+                // влезали без обрезания.
                 Text(
                     text = title,
                     modifier = Modifier.fillMaxWidth(),
                     textAlign = TextAlign.Center,
                     fontFamily = OpenSansFontFamily,
-                    fontSize = if (isTablet) 68.sp else 54.sp,
+                    fontSize = if (isTablet) 52.sp else 42.sp,
                 )
+                // Подзаголовок — категория кнопки («Автотранспорт» для 1/2 Этапа).
+                // Для «Ручной вынос» subtitle=null — место занимает Spacer ниже,
+                // чтобы выравнивание заголовков на всех трёх кнопках было одинаковым.
+                if (subtitle != null) {
+                    Text(
+                        text = subtitle,
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Center,
+                        fontFamily = OpenSansFontFamily,
+                        fontSize = if (isTablet) 22.sp else 18.sp,
+                        color = Color(0xFF555555),
+                    )
+                }
                 if (showStats) {
                     StageStats(counts = counts, isTablet = isTablet)
                 } else {

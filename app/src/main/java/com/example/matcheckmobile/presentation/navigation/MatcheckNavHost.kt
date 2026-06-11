@@ -17,6 +17,7 @@ import com.example.matcheckmobile.presentation.screens.dispatch.DispatchStage2Fo
 import com.example.matcheckmobile.presentation.screens.dispatch.DispatchStage2ListScreen
 import com.example.matcheckmobile.presentation.screens.dispatch.DispatchStagesScreen
 import com.example.matcheckmobile.presentation.screens.dispatch.DispatchUpdSelectScreen
+import com.example.matcheckmobile.presentation.screens.dispatch.ManualDispatchFormScreen
 import com.example.matcheckmobile.presentation.screens.documents.DocumentDetailsScreen
 import com.example.matcheckmobile.presentation.screens.documents.DocumentsScreen
 import com.example.matcheckmobile.presentation.screens.details.OperationDetailsScreen
@@ -195,6 +196,17 @@ fun MatcheckNavHost() {
                 onBack = { navController.popBackStack() },
                 onStage1 = { navController.navigate(Routes.DISPATCH_UPD_SELECT) },
                 onStage2 = { navController.navigate(Routes.DISPATCH_STAGE2) },
+                onManualEntry = { navController.navigate(Routes.MANUAL_DISPATCH_FORM) },
+            )
+        }
+        composable(Routes.MANUAL_DISPATCH_FORM) {
+            ManualDispatchFormScreen(
+                onBack = { navController.popBackStack() },
+                onFinalized = {
+                    // На завершении возвращаемся на стартовый экран отгрузки.
+                    // Сама отгрузка ушла в фон через sync → веб-портал.
+                    navController.popBackStack(Routes.DISPATCH_STAGES, inclusive = false)
+                },
             )
         }
         composable(Routes.DISPATCH_UPD_SELECT) {

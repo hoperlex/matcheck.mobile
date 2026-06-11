@@ -56,6 +56,9 @@ object Routes {
     const val DISPATCH_STAGE2_FORM_BASE = "dispatch_stage2_form"
     const val DISPATCH_STAGE2_FORM = "$DISPATCH_STAGE2_FORM_BASE/{$ARG_SHIPMENT_ID}"
     fun dispatchStage2Form(shipmentId: String): String = "$DISPATCH_STAGE2_FORM_BASE/$shipmentId"
+
+    /** «Ручной вынос»: отгрузка без УПД и автотранспорта. Сразу confirmed_mol. */
+    const val MANUAL_DISPATCH_FORM = "manual_dispatch_form"
     const val JOURNAL = "journal"
     const val SYNC_QUEUE = "sync_queue"
     const val SETTINGS = "settings"

@@ -151,7 +151,7 @@ fun IntakeStagesScreen(
                     StageButton(
                         title = "Ручной внос",
                         subtitle = null,
-                        description = "Описание: приёмка без УПД и без автотранспорта. " +
+                        description = "Описание: приёмка без автотранспорта. " +
                             "Инспектор сразу подтверждает её собой.",
                         counts = counts,
                         showStats = false,
