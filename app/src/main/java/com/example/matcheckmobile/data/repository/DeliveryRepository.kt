@@ -103,6 +103,7 @@ class DeliveryRepository(
             inspectorId = input.inspectorId,
             comment = input.comment,
             inTransit = input.inTransit,
+            isAssets = input.isAssets,
             confirmedByMolUserId = null,
             confirmedByMolUserEmail = null,
             confirmedByMolAt = null,
@@ -132,6 +133,7 @@ class DeliveryRepository(
             arrivedAt = input.arrivedAt,
             comment = input.comment,
             inTransit = input.inTransit,
+            isAssets = input.isAssets,
             sourceDocumentIds = input.sourceDocumentIds,
             items = items.map {
                 DeliveryUpsertItem(
@@ -285,6 +287,8 @@ class DeliveryRepository(
         val comment: String? = null,
         /** Транзит — см. DeliveryDto.inTransit. */
         val inTransit: Boolean = false,
+        /** ОС — см. DeliveryDto.isAssets. */
+        val isAssets: Boolean = false,
         val sourceDocumentIds: List<String> = emptyList(),
         val items: List<ItemInput> = emptyList(),
     )

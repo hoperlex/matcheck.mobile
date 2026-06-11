@@ -7,6 +7,7 @@ import com.example.matcheckmobile.data.local.entity.RemoteCounterpartyEntity
 import com.example.matcheckmobile.data.local.entity.RemoteMaterialEntity
 import com.example.matcheckmobile.data.local.entity.RemoteSiteEntity
 import com.example.matcheckmobile.data.local.entity.RemoteStatusEntity
+import com.example.matcheckmobile.data.local.entity.RemoteUnitEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -66,5 +67,18 @@ interface RemoteStatusDao {
     suspend fun find(type: String, code: String): RemoteStatusEntity?
 
     @Query("SELECT COUNT(*) FROM remote_statuses")
+    suspend fun count(): Int
+}
+
+@Dao
+interface RemoteUnitDao {
+    @Upsert
+    suspend fun upsertAll(entities: List<RemoteUnitEntity>)
+
+    /** Активные единицы, по name. Используется dropdown'ом в модалке материалов. */
+    @Query("SELECT * FROM remote_units WHERE isActive = 1 ORDER BY name")
+    fun observeActive(): Flow<List<RemoteUnitEntity>>
+
+    @Query("SELECT COUNT(*) FROM remote_units")
     suspend fun count(): Int
 }

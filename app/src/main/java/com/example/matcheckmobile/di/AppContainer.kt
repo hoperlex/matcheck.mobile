@@ -106,6 +106,7 @@ class AppContainer(val appContext: Context) {
         materialDao = database.remoteMaterialDao(),
         siteDao = database.remoteSiteDao(),
         statusDao = database.remoteStatusDao(),
+        unitDao = database.remoteUnitDao(),
         sourceDocumentDao = database.remoteSourceDocumentDao(),
         mutationProcessor = mutationProcessor,
         photoUploadProcessor = photoUploadProcessor,

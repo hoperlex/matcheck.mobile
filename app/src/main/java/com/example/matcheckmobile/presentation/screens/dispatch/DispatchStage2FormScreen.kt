@@ -76,6 +76,10 @@ fun DispatchStage2FormScreen(
     val container = (context.applicationContext as MatcheckApplication).container
     val vm: DispatchStage2FormViewModel = matcheckViewModel()
     val state by vm.state.collectAsStateWithLifecycle()
+    // Справочник единиц измерения из Room (см. Stage2FormScreen).
+    val availableUnits by container.database.remoteUnitDao().observeActive()
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+    val unitCodes = remember(availableUnits) { availableUnits.map { it.code } }
     val snackbar = remember { SnackbarHostState() }
     var previewPath by remember { mutableStateOf<String?>(null) }
     var previewDelete by remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -228,6 +232,7 @@ fun DispatchStage2FormScreen(
                                 showHeader = false,
                                 originalMaterials = state.originalMaterials,
                                 editingShowUnitField = false,
+                                availableUnits = unitCodes,
                             )
                         }
 
@@ -311,6 +316,7 @@ fun DispatchStage2FormScreen(
                     vm.addMaterial(draft)
                     addMaterialOpen = false
                 },
+                availableUnits = unitCodes,
             )
         }
 

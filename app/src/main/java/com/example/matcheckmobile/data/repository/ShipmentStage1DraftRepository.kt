@@ -41,6 +41,7 @@ class ShipmentStage1DraftRepository(private val dao: ShipmentStage1DraftDao) {
             manualUpdText = entity.manualUpdText,
             shipmentPurpose = entity.shipmentPurpose,
             inTransit = entity.inTransit,
+            isAssets = entity.isAssets,
             createdAt = entity.createdAt,
             updatedAt = entity.updatedAt,
         )
@@ -58,6 +59,7 @@ class ShipmentStage1DraftRepository(private val dao: ShipmentStage1DraftDao) {
             manualUpdText = manualUpdText,
             shipmentPurpose = shipmentPurpose,
             inTransit = inTransit,
+            isAssets = isAssets,
             createdAt = createdAt,
             updatedAt = updatedAt,
         )
@@ -116,6 +118,8 @@ data class ShipmentStage1DraftState(
     val shipmentPurpose: String?,
     /** Транзит — чекбокс на 1 этапе. Сохраняется в draft, default false. */
     val inTransit: Boolean = false,
+    /** ОС — чекбокс «основные средства» на 1 этапе. Default false. */
+    val isAssets: Boolean = false,
     val createdAt: Long,
     val updatedAt: Long,
 )

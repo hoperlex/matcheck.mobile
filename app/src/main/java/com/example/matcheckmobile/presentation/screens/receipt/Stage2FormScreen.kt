@@ -75,6 +75,12 @@ fun Stage2FormScreen(
     val container = (context.applicationContext as MatcheckApplication).container
     val vm: Stage2FormViewModel = matcheckViewModel()
     val state by vm.state.collectAsStateWithLifecycle()
+    // Справочник единиц измерения из Room (приходит /sync'ом). Используется
+    // дропдауном «Ед.» в модалках добавления/правки материала. Пустой список
+    // в начале → MaterialEditDialog отрендерит fallback text-input.
+    val availableUnits by container.database.remoteUnitDao().observeActive()
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+    val unitCodes = remember(availableUnits) { availableUnits.map { it.code } }
     val snackbar = remember { SnackbarHostState() }
     var previewPath by remember { mutableStateOf<String?>(null) }
     // Колбэк удаления для текущего превью — каждая PhotoCaptureSection
@@ -307,6 +313,7 @@ fun Stage2FormScreen(
                                 // единицу инспектор не меняет. В диалоге «Добавить
                                 // материал» (отдельный MaterialEditDialog) оно есть.
                                 editingShowUnitField = false,
+                                availableUnits = unitCodes,
                             )
 
                             // Плашка «1 Этап: ...» — справочная, скроллится
@@ -404,6 +411,7 @@ fun Stage2FormScreen(
                     vm.addMaterial(draft)
                     addMaterialOpen = false
                 },
+                availableUnits = unitCodes,
             )
         }
 

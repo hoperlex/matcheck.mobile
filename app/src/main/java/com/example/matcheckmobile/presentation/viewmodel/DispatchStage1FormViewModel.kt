@@ -71,6 +71,7 @@ class DispatchStage1FormViewModel(
                     manualUpdText = restored.manualUpdText,
                     shipmentPurpose = restored.shipmentPurpose,
                     inTransit = restored.inTransit,
+                    isAssets = restored.isAssets,
                 )
             }
         }
@@ -167,6 +168,7 @@ class DispatchStage1FormViewModel(
             manualUpdText = manualUpdText,
             shipmentPurpose = shipmentPurpose,
             inTransit = inTransit,
+            isAssets = isAssets,
             createdAt = now,
             updatedAt = now,
         )
@@ -228,6 +230,8 @@ class DispatchStage1FormViewModel(
     fun setShipmentPurpose(value: String?) { _state.update { it.copy(shipmentPurpose = value) } }
     /** Чекбокс «Транзит» — см. DispatchStage1FormUiState.inTransit. */
     fun setInTransit(value: Boolean) { _state.update { it.copy(inTransit = value) } }
+    /** Чекбокс «ОС» — см. DispatchStage1FormUiState.isAssets. */
+    fun setIsAssets(value: Boolean) { _state.update { it.copy(isAssets = value) } }
     fun dismissError() { _state.update { it.copy(error = null) } }
 
     fun finalizeStage1() {
@@ -320,6 +324,7 @@ class DispatchStage1FormViewModel(
                         comment = commentForServer,
                         purpose = finalPurpose,
                         inTransit = cur.inTransit,
+                        isAssets = cur.isAssets,
                         sourceDocumentIds = sourceDocIds,
                         items = items,
                     ),
@@ -413,6 +418,13 @@ data class DispatchStage1FormUiState(
      * шапке карточки отгрузки.
      */
     val inTransit: Boolean = false,
+    /**
+     * ОС — чекбокс «основные средства» рядом с Транзитом. Default false.
+     * Сохраняется в shipment_stage1_draft, отправляется в
+     * ShipmentRepository.upsert. На веб-портале — тег «📦 ОС».
+     * См. серверную миграцию 0065.
+     */
+    val isAssets: Boolean = false,
     val loadInfo: VehicleLoadInfo? = null,
     val isSaving: Boolean = false,
     val finalized: Boolean = false,
@@ -429,7 +441,8 @@ private fun DispatchStage1FormUiState.draftPayloadEquals(other: DispatchStage1Fo
         licensePlate == other.licensePlate &&
         manualUpdText == other.manualUpdText &&
         shipmentPurpose == other.shipmentPurpose &&
-        inTransit == other.inTransit
+        inTransit == other.inTransit &&
+        isAssets == other.isAssets
 
 /**
  * Допустимые значения dropdown «Тип отгрузки» на форме «Новая отгрузка»

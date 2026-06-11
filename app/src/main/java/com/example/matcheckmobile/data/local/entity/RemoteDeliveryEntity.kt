@@ -39,6 +39,10 @@ data class RemoteDeliveryEntity(
     // Транзит — флаг «машина после нашей операции едет с другим грузом».
     // Чекбокс на 1 этапе мобилы. Default false. См. миграцию 0051 + Room 20→21.
     val inTransit: Boolean = false,
+    // ОС — флаг «накладная на движение основных средств». Чекбокс на
+    // 1 этапе мобилы рядом с Транзитом. Default false (legacy-записи
+    // не страдают). См. серверную миграцию 0065 + Room 21→22.
+    val isAssets: Boolean = false,
     val confirmedByMolUserId: String?,
     val confirmedByMolUserEmail: String?,
     val confirmedByMolAt: String?,

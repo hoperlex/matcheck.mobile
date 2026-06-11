@@ -13,6 +13,7 @@ import com.example.matcheckmobile.data.local.entity.RemoteSourceDocumentAttachme
 import com.example.matcheckmobile.data.local.entity.RemoteSourceDocumentEntity
 import com.example.matcheckmobile.data.local.entity.RemoteSourceDocumentItemEntity
 import com.example.matcheckmobile.data.local.entity.RemoteStatusEntity
+import com.example.matcheckmobile.data.local.entity.RemoteUnitEntity
 import com.example.matcheckmobile.data.remote.api.dto.CounterpartyDto
 import com.example.matcheckmobile.data.remote.api.dto.DeliveryDto
 import com.example.matcheckmobile.data.remote.api.dto.DeliveryItemDto
@@ -26,6 +27,7 @@ import com.example.matcheckmobile.data.remote.api.dto.SourceAttachmentDto
 import com.example.matcheckmobile.data.remote.api.dto.SourceDocumentDto
 import com.example.matcheckmobile.data.remote.api.dto.SourceItemDto
 import com.example.matcheckmobile.data.remote.api.dto.StatusDto
+import com.example.matcheckmobile.data.remote.api.dto.UnitDto
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
@@ -68,6 +70,11 @@ object RemoteMappers {
         color = color, sortOrder = sortOrder,
     )
 
+    fun UnitDto.toEntity(): RemoteUnitEntity = RemoteUnitEntity(
+        id = id, code = code, name = name, okeiCode = okeiCode,
+        isActive = isActive, createdAt = createdAt, updatedAt = updatedAt,
+    )
+
     fun DeliveryDto.toEntity(): RemoteDeliveryEntity = RemoteDeliveryEntity(
         id = id,
         statusCode = status.code,
@@ -83,6 +90,7 @@ object RemoteMappers {
         inspectorId = inspectorId,
         comment = comment,
         inTransit = inTransit,
+        isAssets = isAssets,
         confirmedByMolUserId = confirmedByMolUserId,
         confirmedByMolUserEmail = confirmedByMolUserEmail,
         confirmedByMolAt = confirmedByMolAt,
@@ -132,6 +140,7 @@ object RemoteMappers {
         kind = kind,
         purpose = purpose,
         inTransit = inTransit,
+        isAssets = isAssets,
         siteId = siteId,
         receiverCounterpartyId = receiverCounterpartyId,
         receiverMolId = receiverMolId,

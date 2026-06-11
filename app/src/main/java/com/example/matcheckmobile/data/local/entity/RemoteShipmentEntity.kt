@@ -28,6 +28,9 @@ data class RemoteShipmentEntity(
     val purpose: String?,
     // Транзит — зеркало RemoteDeliveryEntity.inTransit. Default false.
     val inTransit: Boolean = false,
+    // ОС — зеркало RemoteDeliveryEntity.isAssets. Default false. Чекбокс
+    // на 1 этапе отгрузки рядом с Транзитом. См. Room 21→22.
+    val isAssets: Boolean = false,
     val siteId: String,
     val receiverCounterpartyId: String?,
     val receiverMolId: String?,

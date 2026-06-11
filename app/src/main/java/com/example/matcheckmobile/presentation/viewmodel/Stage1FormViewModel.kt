@@ -85,6 +85,7 @@ class Stage1FormViewModel(
                     licensePlate = restored.licensePlate,
                     manualUpdText = restored.manualUpdText,
                     inTransit = restored.inTransit,
+                    isAssets = restored.isAssets,
                 )
             }
         }
@@ -216,6 +217,7 @@ class Stage1FormViewModel(
             licensePlate = licensePlate,
             manualUpdText = manualUpdText,
             inTransit = inTransit,
+            isAssets = isAssets,
             createdAt = now,
             updatedAt = now,
         )
@@ -301,6 +303,11 @@ class Stage1FormViewModel(
     /** Чекбокс «Транзит» — см. Stage1FormUiState.inTransit. */
     fun setInTransit(value: Boolean) {
         _state.update { it.copy(inTransit = value) }
+    }
+
+    /** Чекбокс «ОС» — см. Stage1FormUiState.isAssets. */
+    fun setIsAssets(value: Boolean) {
+        _state.update { it.copy(isAssets = value) }
     }
 
     fun setManualUpd(text: String) {
@@ -396,6 +403,7 @@ class Stage1FormViewModel(
                         arrivedAt = java.time.Instant.now().toString(),
                         comment = commentForServer,
                         inTransit = cur.inTransit,
+                        isAssets = cur.isAssets,
                         sourceDocumentIds = sourceDocIds,
                         items = items,
                     ),
@@ -492,6 +500,13 @@ data class Stage1FormUiState(
      * На веб-портале показывается тегом «🚚 Транзит» в шапке карточки.
      */
     val inTransit: Boolean = false,
+    /**
+     * ОС — чекбокс «основные средства» рядом с Транзитом на 1 этапе.
+     * Default false. Сохраняется в Stage1Draft, отправляется в
+     * DeliveryRepository.upsert. На веб-портале показывается тегом
+     * «📦 ОС» в шапке карточки. См. серверную миграцию 0065.
+     */
+    val isAssets: Boolean = false,
     val loadInfo: VehicleLoadInfo? = null,
     val isSaving: Boolean = false,
     val finalized: Boolean = false,
@@ -521,4 +536,5 @@ private fun Stage1FormUiState.draftPayloadEquals(other: Stage1FormUiState): Bool
         commentText == other.commentText &&
         licensePlate == other.licensePlate &&
         manualUpdText == other.manualUpdText &&
-        inTransit == other.inTransit
+        inTransit == other.inTransit &&
+        isAssets == other.isAssets

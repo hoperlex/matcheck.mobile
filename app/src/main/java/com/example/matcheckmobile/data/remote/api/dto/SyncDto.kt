@@ -18,6 +18,12 @@ data class SyncDeltaResponse(
     val materials: List<MaterialDto> = emptyList(),
     val sites: List<SiteDto> = emptyList(),
     val statuses: List<StatusDto> = emptyList(),
+    /**
+     * Справочник единиц измерения для дропдауна «Ед.» в модалке
+     * материалов. Default emptyList() — старый сервер поле не присылает,
+     * мобила работает по-прежнему с ручным вводом. См. серверный sync.ts.
+     */
+    val units: List<UnitDto> = emptyList(),
     val deletedIds: SyncDeletedIds = SyncDeletedIds(),
 )
 

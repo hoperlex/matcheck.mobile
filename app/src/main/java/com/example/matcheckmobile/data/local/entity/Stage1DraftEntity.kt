@@ -39,6 +39,12 @@ data class Stage1DraftEntity(
      * Default false (миграция Room 20→21).
      */
     val inTransit: Boolean = false,
+    /**
+     * ОС — чекбокс «основные средства» рядом с Транзитом. Сохраняется в
+     * draft, чтобы пережить свернуть/открыть. На finalize отправляется
+     * в server. Default false (миграция Room 21→22).
+     */
+    val isAssets: Boolean = false,
     /** Момент создания draft = когда было добавлено первое фото («Начато»). */
     val createdAt: Long,
     val updatedAt: Long,

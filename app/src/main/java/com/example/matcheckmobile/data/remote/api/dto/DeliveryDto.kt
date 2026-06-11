@@ -26,6 +26,12 @@ data class DeliveryDto(
      * Default false для совместимости со старым сервером (миграция 0051).
      */
     val inTransit: Boolean = false,
+    /**
+     * ОС — флаг «накладная на движение основных средств». Default false
+     * для совместимости со старым сервером (миграция 0065). Веб-портал
+     * показывает бейдж рядом с «Транзит».
+     */
+    val isAssets: Boolean = false,
     val confirmedByMolUserId: String? = null,
     val confirmedByMolUserEmail: String? = null,
     val confirmedByMolAt: String? = null,
@@ -95,6 +101,8 @@ data class DeliveryUpsertRequest(
     val comment: String? = null,
     /** Транзит — см. DeliveryDto.inTransit. Default false. */
     val inTransit: Boolean = false,
+    /** ОС — см. DeliveryDto.isAssets. Default false. */
+    val isAssets: Boolean = false,
     val sourceDocumentIds: List<String> = emptyList(),
     val items: List<DeliveryUpsertItem> = emptyList(),
     val baseVersion: Int? = null,

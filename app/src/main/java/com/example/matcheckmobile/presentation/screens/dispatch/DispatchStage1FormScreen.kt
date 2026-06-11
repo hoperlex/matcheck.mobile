@@ -51,11 +51,13 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.matcheckmobile.MatcheckApplication
+import com.example.matcheckmobile.presentation.components.AssetsCheckbox
 import com.example.matcheckmobile.presentation.components.FinalizeConfirmDialog
 import com.example.matcheckmobile.presentation.components.FinalizeSuccessOverlay
 import com.example.matcheckmobile.presentation.components.MaterialsField
 import com.example.matcheckmobile.presentation.components.PhotoCaptureSection
 import com.example.matcheckmobile.presentation.components.PhotoPreviewDialog
+import com.example.matcheckmobile.presentation.components.TransitCheckbox
 import com.example.matcheckmobile.presentation.components.VehicleLoadInfo
 import com.example.matcheckmobile.presentation.components.VehicleTypeChips
 import com.example.matcheckmobile.presentation.components.rememberDocumentScanner
@@ -282,22 +284,26 @@ fun DispatchStage1FormScreen(
                                 labelStyle = vehicleLabelStyle,
                                 chipTitleStyle = vehicleChipTitleStyle,
                                 trailingHeader = {
-                                    // Чекбокс «Транзит» справа от «Тип транспорта»
-                                    // header'а — для picked-UPD сценария Выезда.
+                                    // Picked-UPD сценарий Выезда: чекбоксы ОС +
+                                    // Транзит справа от «Тип транспорта». ОС
+                                    // стоит ПЕРЕД Транзитом (для подгруженных
+                                    // УПД). Empty-draft — строка ниже комментария.
                                     androidx.compose.foundation.layout.Row(
                                         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                                        modifier = Modifier.clickable {
-                                            focusManager.clearFocus()
-                                            vm.setInTransit(!state.inTransit)
-                                        },
                                     ) {
-                                        androidx.compose.material3.Checkbox(
-                                            checked = state.inTransit,
-                                            onCheckedChange = { vm.setInTransit(it) },
+                                        AssetsCheckbox(
+                                            checked = state.isAssets,
+                                            onCheckedChange = {
+                                                focusManager.clearFocus()
+                                                vm.setIsAssets(it)
+                                            },
                                         )
-                                        Text(
-                                            text = "Транзит",
-                                            style = MaterialTheme.typography.labelLarge,
+                                        TransitCheckbox(
+                                            checked = state.inTransit,
+                                            onCheckedChange = {
+                                                focusManager.clearFocus()
+                                                vm.setInTransit(it)
+                                            },
                                         )
                                     }
                                 },
@@ -321,25 +327,27 @@ fun DispatchStage1FormScreen(
                             modifier = Modifier.fillMaxWidth(),
                         )
 
-                        // Чекбокс «Транзит» для empty-draft Выезда. На picked-UPD
-                        // сценарии чекбокс находится справа от «Тип транспорта»
-                        // (см. VehicleTypeChips trailingHeader выше).
+                        // Empty-draft Выезда («Создать отгрузку»): чекбоксы
+                        // Транзит и ОС в одной строке ниже комментария.
+                        // На picked-UPD сценарии оба чекбокса находятся справа
+                        // от «Тип транспорта» (см. VehicleTypeChips trailingHeader).
                         if (state.updId == null) {
                             androidx.compose.foundation.layout.Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .clickable {
-                                        focusManager.clearFocus()
-                                        vm.setInTransit(!state.inTransit)
-                                    },
                             ) {
-                                androidx.compose.material3.Checkbox(
+                                TransitCheckbox(
                                     checked = state.inTransit,
-                                    onCheckedChange = { vm.setInTransit(it) },
+                                    onCheckedChange = {
+                                        focusManager.clearFocus()
+                                        vm.setInTransit(it)
+                                    },
                                 )
-                                Text(
-                                    text = "Транзит",
-                                    style = MaterialTheme.typography.labelLarge,
+                                AssetsCheckbox(
+                                    checked = state.isAssets,
+                                    onCheckedChange = {
+                                        focusManager.clearFocus()
+                                        vm.setIsAssets(it)
+                                    },
                                 )
                             }
                         }

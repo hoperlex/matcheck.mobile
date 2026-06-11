@@ -48,3 +48,20 @@ data class StatusDto(
     val color: String? = null,
     val sortOrder: Int,
 )
+
+/**
+ * Единица измерения из серверного справочника. Возвращается /sync в
+ * массиве `units` для дропдауна «Ед.» в модалке материалов на мобиле.
+ * okeiCode nullable: для пользовательских единиц («бухта», «мешок»)
+ * общероссийского кода может не быть.
+ */
+@Serializable
+data class UnitDto(
+    val id: String,
+    val code: String,
+    val name: String,
+    val okeiCode: String? = null,
+    val isActive: Boolean = true,
+    val createdAt: String,
+    val updatedAt: String,
+)

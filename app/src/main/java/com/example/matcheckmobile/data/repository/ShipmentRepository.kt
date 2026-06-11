@@ -81,6 +81,7 @@ class ShipmentRepository(
             kind = input.kind,
             purpose = input.purpose,
             inTransit = input.inTransit,
+            isAssets = input.isAssets,
             siteId = input.siteId,
             receiverCounterpartyId = input.receiverCounterpartyId,
             receiverMolId = input.receiverMolId,
@@ -121,6 +122,7 @@ class ShipmentRepository(
             comment = input.comment,
             purpose = input.purpose,
             inTransit = input.inTransit,
+            isAssets = input.isAssets,
             sourceDocumentIds = input.sourceDocumentIds,
             items = items.map {
                 ShipmentUpsertItem(
@@ -265,6 +267,8 @@ class ShipmentRepository(
         val purpose: String? = null,
         /** Транзит — см. ShipmentDto.inTransit. */
         val inTransit: Boolean = false,
+        /** ОС — см. ShipmentDto.isAssets. */
+        val isAssets: Boolean = false,
         val sourceDocumentIds: List<String> = emptyList(),
         val items: List<ItemInput> = emptyList(),
     )

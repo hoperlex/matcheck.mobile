@@ -29,7 +29,10 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -759,6 +762,13 @@ fun MaterialEditDialog(
     onSave: (MaterialDraft) -> Unit,
     title: String = "Редактировать материал",
     showUnitField: Boolean = true,
+    /**
+     * Whitelist единиц измерения для дропдауна «Ед.». Приходит с сервера
+     * через /sync (см. RemoteUnitDao.observeActive). Если пуст — поле
+     * остаётся обычным TextField (graceful fallback на первом запуске
+     * до прихода справочника), чтобы инспектор мог ввести руками.
+     */
+    availableUnits: List<String> = emptyList(),
 ) {
     EditMaterialDialog(
         initial = initial,
@@ -766,6 +776,7 @@ fun MaterialEditDialog(
         onSave = onSave,
         title = title,
         showUnitField = showUnitField,
+        availableUnits = availableUnits,
     )
 }
 
@@ -787,6 +798,8 @@ fun EditableMaterialsInlineList(
     // редактируется только Название + Количество. Для add-сценария поле
     // отображается через отдельный вызов MaterialEditDialog.
     editingShowUnitField: Boolean = true,
+    /** Whitelist единиц с сервера — см. MaterialEditDialog.availableUnits. */
+    availableUnits: List<String> = emptyList(),
 ) {
     var editingIndex by remember { mutableStateOf<Int?>(null) }
 
@@ -840,6 +853,7 @@ fun EditableMaterialsInlineList(
                     editingIndex = null
                 },
                 showUnitField = editingShowUnitField,
+                availableUnits = availableUnits,
             )
         } else {
             editingIndex = null
@@ -902,6 +916,7 @@ private fun SwipeableMaterialRow(
     }
 }
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun EditMaterialDialog(
     initial: MaterialDraft,
@@ -909,6 +924,7 @@ private fun EditMaterialDialog(
     onSave: (MaterialDraft) -> Unit,
     title: String = "Редактировать материал",
     showUnitField: Boolean = true,
+    availableUnits: List<String> = emptyList(),
 ) {
     var name by remember { mutableStateOf(initial.name) }
     var qty by remember { mutableStateOf(initial.qty.compactDecimal()) }
@@ -957,13 +973,57 @@ private fun EditMaterialDialog(
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             modifier = Modifier.weight(2f),
                         )
-                        OutlinedTextField(
-                            value = unit,
-                            onValueChange = { unit = it },
-                            label = { Text("Ед.") },
-                            singleLine = true,
-                            modifier = Modifier.weight(1f),
-                        )
+                        // Дропдаун «Ед.» — whitelist единиц измерения с
+                        // сервера (см. RemoteUnitDao). Инспектор выбирает из
+                        // списка, чтобы не написать руками что-нибудь
+                        // непредусмотренное. Fallback на text-input, если
+                        // список ещё не пришёл (первый запуск до /sync).
+                        if (availableUnits.isNotEmpty()) {
+                            var unitExpanded by remember { mutableStateOf(false) }
+                            ExposedDropdownMenuBox(
+                                expanded = unitExpanded,
+                                onExpandedChange = { unitExpanded = !unitExpanded },
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                OutlinedTextField(
+                                    value = unit,
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text("Ед.") },
+                                    singleLine = true,
+                                    trailingIcon = {
+                                        ExposedDropdownMenuDefaults.TrailingIcon(
+                                            expanded = unitExpanded,
+                                        )
+                                    },
+                                    modifier = Modifier
+                                        .menuAnchor()
+                                        .fillMaxWidth(),
+                                )
+                                ExposedDropdownMenu(
+                                    expanded = unitExpanded,
+                                    onDismissRequest = { unitExpanded = false },
+                                ) {
+                                    availableUnits.forEach { code ->
+                                        DropdownMenuItem(
+                                            text = { Text(code) },
+                                            onClick = {
+                                                unit = code
+                                                unitExpanded = false
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            OutlinedTextField(
+                                value = unit,
+                                onValueChange = { unit = it },
+                                label = { Text("Ед.") },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
                     }
                 } else {
                     OutlinedTextField(

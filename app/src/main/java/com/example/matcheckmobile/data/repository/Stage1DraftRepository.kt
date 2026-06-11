@@ -46,6 +46,7 @@ class Stage1DraftRepository(private val dao: Stage1DraftDao) {
         licensePlate = entity.licensePlate,
         manualUpdText = entity.manualUpdText,
         inTransit = entity.inTransit,
+        isAssets = entity.isAssets,
         createdAt = entity.createdAt,
         updatedAt = entity.updatedAt,
     )
@@ -61,6 +62,7 @@ class Stage1DraftRepository(private val dao: Stage1DraftDao) {
         licensePlate = licensePlate,
         manualUpdText = manualUpdText,
         inTransit = inTransit,
+        isAssets = isAssets,
         createdAt = createdAt,
         updatedAt = updatedAt,
     )
@@ -129,6 +131,8 @@ data class Stage1DraftState(
     val manualUpdText: String,
     /** Транзит — чекбокс на 1 этапе. Сохраняется в draft, default false. */
     val inTransit: Boolean = false,
+    /** ОС — чекбокс «основные средства» на 1 этапе. Default false. */
+    val isAssets: Boolean = false,
     val createdAt: Long,
     val updatedAt: Long,
 )

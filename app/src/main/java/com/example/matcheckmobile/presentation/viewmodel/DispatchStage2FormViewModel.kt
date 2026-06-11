@@ -95,6 +95,7 @@ class DispatchStage2FormViewModel(
                 kind = shipment.kind,
                 purpose = shipment.purpose,
                 inTransit = shipment.inTransit,
+                isAssets = shipment.isAssets,
                 receiverCounterpartyId = shipment.receiverCounterpartyId,
                 receiverMolId = shipment.receiverMolId,
                 destSiteId = shipment.destSiteId,
@@ -280,8 +281,9 @@ class DispatchStage2FormViewModel(
                         // Тип отгрузки read-only на 2 Этапе — передаём как-есть
                         // из server-snapshot, чтобы не обнулить при finalize.
                         purpose = cur.purpose,
-                        // Транзит — read-only на 2 этапе, передаём как-есть.
+                        // Транзит и ОС — read-only на 2 этапе, передаём как-есть.
                         inTransit = cur.inTransit,
+                        isAssets = cur.isAssets,
                         sourceDocumentIds = cur.sourceDocumentIds,
                         items = items,
                     ),
@@ -413,6 +415,8 @@ data class DispatchStage2FormUiState(
     val purpose: String? = null,
     /** Транзит — server-snapshot, read-only на 2 Этапе. */
     val inTransit: Boolean = false,
+    /** ОС — server-snapshot, read-only на 2 Этапе (см. inTransit). */
+    val isAssets: Boolean = false,
     val receiverCounterpartyId: String? = null,
     val receiverMolId: String? = null,
     val destSiteId: String? = null,

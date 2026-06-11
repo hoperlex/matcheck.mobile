@@ -7,6 +7,7 @@ import com.example.matcheckmobile.data.local.dao.RemoteShipmentDao
 import com.example.matcheckmobile.data.local.dao.RemoteSiteDao
 import com.example.matcheckmobile.data.local.dao.RemoteSourceDocumentDao
 import com.example.matcheckmobile.data.local.dao.RemoteStatusDao
+import com.example.matcheckmobile.data.local.dao.RemoteUnitDao
 import com.example.matcheckmobile.data.local.mapper.RemoteMappers.toEntity
 import com.example.matcheckmobile.data.remote.api.SyncApi
 import com.example.matcheckmobile.data.remote.api.dto.SyncDeltaResponse
@@ -40,6 +41,7 @@ class SyncRepository(
     private val materialDao: RemoteMaterialDao,
     private val siteDao: RemoteSiteDao,
     private val statusDao: RemoteStatusDao,
+    private val unitDao: RemoteUnitDao,
     private val sourceDocumentDao: RemoteSourceDocumentDao,
     private val mutationProcessor: MutationProcessor,
     private val photoUploadProcessor: PhotoUploadProcessor,
@@ -177,6 +179,12 @@ class SyncRepository(
         }
         if (r.sites.isNotEmpty()) {
             siteDao.upsertAll(r.sites.map { it.toEntity() })
+        }
+        if (r.units.isNotEmpty()) {
+            // Справочник единиц измерения для дропдауна «Ед.» в модалке
+            // материалов. Меняется редко (~20 строк), отдаётся целиком —
+            // дельта-фильтр не нужен. См. серверный sync.ts.
+            unitDao.upsertAll(r.units.map { it.toEntity() })
         }
         for (sd in r.sourceDocuments) {
             sourceDocumentDao.saveAggregate(

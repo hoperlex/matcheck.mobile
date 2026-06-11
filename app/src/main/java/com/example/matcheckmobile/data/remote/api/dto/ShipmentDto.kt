@@ -42,6 +42,12 @@ data class ShipmentDto(
      * Default false для совместимости со старым сервером (миграция 0051).
      */
     val inTransit: Boolean = false,
+    /**
+     * ОС — флаг «накладная на движение основных средств». Default false
+     * для совместимости со старым сервером (миграция 0065). Веб-портал
+     * показывает бейдж рядом с «Транзит».
+     */
+    val isAssets: Boolean = false,
     val version: Int,
     val sourceDocumentIds: List<String> = emptyList(),
     val items: List<ShipmentItemDto> = emptyList(),
@@ -102,6 +108,8 @@ data class ShipmentUpsertRequest(
     val purpose: String? = null,
     /** Транзит — см. ShipmentDto.inTransit. Default false. */
     val inTransit: Boolean = false,
+    /** ОС — см. ShipmentDto.isAssets. Default false. */
+    val isAssets: Boolean = false,
     val sourceDocumentIds: List<String> = emptyList(),
     val items: List<ShipmentUpsertItem> = emptyList(),
     val baseVersion: Int? = null,
