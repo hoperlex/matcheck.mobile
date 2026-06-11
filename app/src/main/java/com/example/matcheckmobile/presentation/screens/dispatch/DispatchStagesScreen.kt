@@ -201,12 +201,18 @@ private fun StageButton(
                 // На трёх кнопках высота меньше — кегль 52sp/42sp (как на
                 // IntakeStagesScreen), чтобы заголовок + subtitle + статы
                 // влезали без обрезания.
+                // lineHeight явно задан больше fontSize: при переносе на 2
+                // строки («Ручной\nвынос» на узких экранах) строки не наезжают
+                // друг на друга. Без этого Compose использует «текстовый»
+                // lineHeight, который для крупного кегля получается слишком
+                // плотным.
                 Text(
                     text = title,
                     modifier = Modifier.fillMaxWidth(),
                     textAlign = TextAlign.Center,
                     fontFamily = OpenSansFontFamily,
                     fontSize = if (isTablet) 52.sp else 42.sp,
+                    lineHeight = if (isTablet) 60.sp else 50.sp,
                 )
                 // Подзаголовок — категория кнопки («Автотранспорт» для 1/2 Этапа).
                 // Для «Ручной вынос» subtitle=null — место занимает Spacer ниже,
