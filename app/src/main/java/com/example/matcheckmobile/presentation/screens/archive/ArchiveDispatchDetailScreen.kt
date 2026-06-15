@@ -33,26 +33,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.matcheckmobile.data.local.entity.RemoteDeliveryPhotoEntity
+import com.example.matcheckmobile.data.local.entity.RemoteShipmentPhotoEntity
 import com.example.matcheckmobile.presentation.components.RemotePhotoPreviewDialog
 import com.example.matcheckmobile.presentation.components.RemotePhotoRef
 import com.example.matcheckmobile.presentation.components.RemoteS3PhotoThumb
 import com.example.matcheckmobile.presentation.util.formatLocalTime
-import com.example.matcheckmobile.presentation.viewmodel.ArchiveIntakeDetailViewModel
+import com.example.matcheckmobile.presentation.viewmodel.ArchiveDispatchDetailViewModel
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ArchiveIntakeDetailScreen(
+fun ArchiveDispatchDetailScreen(
     onBack: () -> Unit,
 ) {
-    val vm: ArchiveIntakeDetailViewModel = matcheckViewModel()
+    val vm: ArchiveDispatchDetailViewModel = matcheckViewModel()
     val state by vm.state.collectAsStateWithLifecycle()
 
-    // Полноэкранный preview по тапу на миниатюру: набор листающихся фото и
-    // стартовый индекс. Перелистывание ограничено той же колонкой (стадия +
-    // категория), на которую тапнул пользователь, чтобы «Документ» и «Груз»
-    // не перемешивались в одном свайпе.
     var previewPhotos by remember { mutableStateOf<List<RemotePhotoRef>>(emptyList()) }
     var previewIndex by remember { mutableStateOf(0) }
     var showPreview by remember { mutableStateOf(false) }
@@ -62,7 +58,7 @@ fun ArchiveIntakeDetailScreen(
             TopAppBar(
                 title = {
                     val plate = state.vehiclePlate ?: "—"
-                    Text("Приёмка · $plate")
+                    Text("Отгрузка · $plate")
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack, modifier = Modifier.size(72.dp)) {
@@ -109,7 +105,7 @@ fun ArchiveIntakeDetailScreen(
                             )
                         }
 
-                        val openPreview = { photos: List<RemoteDeliveryPhotoEntity>, index: Int ->
+                        val openPreview = { photos: List<RemoteShipmentPhotoEntity>, index: Int ->
                             previewPhotos = photos.map {
                                 RemotePhotoRef(photoId = it.id, localBlobPath = it.localBlobPath)
                             }
@@ -117,20 +113,22 @@ fun ArchiveIntakeDetailScreen(
                             showPreview = true
                         }
 
+                        // 1 Этап — время выезда (`shippedAt`). Это симметрия с
+                        // приёмочным `arrivedAt`: момент «Завершить 1 Этап»
+                        // ставит его в DispatchStage1FormViewModel.finalizeStage1.
                         StageSection(
                             stageLabel = "1 Этап",
                             count = state.stage1DocumentPhotos.size + state.stage1VehiclePhotos.size,
-                            timeLabel = "Время",
-                            timeValue = formatLocalTime(state.arrivedAtMs),
+                            timeValue = formatLocalTime(state.shippedAtMs),
                             documentPhotos = state.stage1DocumentPhotos,
                             vehiclePhotos = state.stage1VehiclePhotos,
                             onPhotoClick = openPreview,
                         )
 
+                        // 2 Этап — время подтверждения МОЛ (`confirmedByMolAt`).
                         StageSection(
                             stageLabel = "2 Этап",
                             count = state.stage2DocumentPhotos.size + state.stage2VehiclePhotos.size,
-                            timeLabel = "Время",
                             timeValue = formatLocalTime(state.confirmedAtMs),
                             documentPhotos = state.stage2DocumentPhotos,
                             vehiclePhotos = state.stage2VehiclePhotos,
@@ -159,11 +157,10 @@ fun ArchiveIntakeDetailScreen(
 private fun StageSection(
     stageLabel: String,
     count: Int,
-    timeLabel: String,
     timeValue: String?,
-    documentPhotos: List<RemoteDeliveryPhotoEntity>,
-    vehiclePhotos: List<RemoteDeliveryPhotoEntity>,
-    onPhotoClick: (List<RemoteDeliveryPhotoEntity>, Int) -> Unit,
+    documentPhotos: List<RemoteShipmentPhotoEntity>,
+    vehiclePhotos: List<RemoteShipmentPhotoEntity>,
+    onPhotoClick: (List<RemoteShipmentPhotoEntity>, Int) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -174,7 +171,7 @@ private fun StageSection(
             )
             if (timeValue != null) {
                 Text(
-                    text = "    $timeLabel: $timeValue",
+                    text = "    Время: $timeValue",
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -204,8 +201,8 @@ private fun StageSection(
 @Composable
 private fun PhotoColumn(
     caption: String,
-    photos: List<RemoteDeliveryPhotoEntity>,
-    onPhotoClick: (List<RemoteDeliveryPhotoEntity>, Int) -> Unit,
+    photos: List<RemoteShipmentPhotoEntity>,
+    onPhotoClick: (List<RemoteShipmentPhotoEntity>, Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -213,8 +210,6 @@ private fun PhotoColumn(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         if (photos.isEmpty()) {
-            // Empty-state — лаконичная плашка, чтобы строка с подписями
-            // оставалась горизонтально выровненной с соседней колонкой.
             Box(
                 modifier = Modifier
                     .fillMaxWidth()

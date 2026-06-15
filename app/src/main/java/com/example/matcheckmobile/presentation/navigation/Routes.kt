@@ -65,6 +65,12 @@ object Routes {
 
     /** «Ручной вынос»: отгрузка без УПД и автотранспорта. Сразу confirmed_mol. */
     const val MANUAL_DISPATCH_FORM = "manual_dispatch_form"
+
+    /** Архив отгрузок (последние 7 дней, без сетевого запроса). */
+    const val DISPATCH_ARCHIVE = "dispatch_archive"
+    const val DISPATCH_ARCHIVE_DETAIL_BASE = "dispatch_archive_detail"
+    const val DISPATCH_ARCHIVE_DETAIL = "$DISPATCH_ARCHIVE_DETAIL_BASE/{$ARG_SHIPMENT_ID}"
+    fun dispatchArchiveDetail(shipmentId: String): String = "$DISPATCH_ARCHIVE_DETAIL_BASE/$shipmentId"
     const val JOURNAL = "journal"
     const val SYNC_QUEUE = "sync_queue"
     const val SETTINGS = "settings"

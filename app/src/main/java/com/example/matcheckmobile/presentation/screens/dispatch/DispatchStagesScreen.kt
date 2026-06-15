@@ -8,6 +8,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -32,6 +33,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -84,13 +86,32 @@ fun DispatchStagesScreen(
     onStage1: () -> Unit,
     onStage2: () -> Unit,
     onManualEntry: () -> Unit,
+    onArchive: () -> Unit,
 ) {
     val viewModel: DispatchStagesViewModel = matcheckViewModel()
     val counts by viewModel.counts.collectAsStateWithLifecycle()
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Отгрузка") },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Отгрузка")
+                        Text(
+                            text = " / ",
+                            color = Color(0xFF888888),
+                        )
+                        // Стиль ссылки тот же, что в IntakeStagesScreen «Приёмка / Архив»:
+                        // primary color + underline + clickable.
+                        Text(
+                            text = "Архив",
+                            color = MaterialTheme.colorScheme.primary,
+                            textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+                            modifier = Modifier
+                                .clickable(onClick = onArchive)
+                                .padding(horizontal = 4.dp, vertical = 2.dp),
+                        )
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack, modifier = Modifier.size(72.dp)) {
                         Icon(

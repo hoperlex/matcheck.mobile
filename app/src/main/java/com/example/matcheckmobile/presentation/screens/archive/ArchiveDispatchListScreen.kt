@@ -36,30 +36,30 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.matcheckmobile.presentation.components.ContractorHeaderCard
 import com.example.matcheckmobile.presentation.components.UpdSummaryCard
 import com.example.matcheckmobile.presentation.util.formatLocalTime
-import com.example.matcheckmobile.presentation.viewmodel.ArchiveIntakeListViewModel
+import com.example.matcheckmobile.presentation.viewmodel.ArchiveDispatchListViewModel
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
 
 private val ContentMaxWidth = 720.dp
 
 /**
- * Архив приёмок за последнюю неделю. Структура UI = «Выбор УПД для приёмки»
- * ([IntakeUpdSelectScreen]), но группировка по локальной дате, а в карточке
- * — номер УПД, госномер и времена заезда/выезда.
+ * Архив завершённых отгрузок за последнюю неделю — UI зеркалит
+ * [ArchiveIntakeListScreen]: даты вместо контрагентов, кликабельные карточки
+ * с переходом в детальный экран по `shipmentId`.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ArchiveIntakeListScreen(
+fun ArchiveDispatchListScreen(
     onBack: () -> Unit,
-    onOpenDetail: (deliveryId: String) -> Unit,
+    onOpenDetail: (shipmentId: String) -> Unit,
 ) {
-    val vm: ArchiveIntakeListViewModel = matcheckViewModel()
+    val vm: ArchiveDispatchListViewModel = matcheckViewModel()
     val groups by vm.groups.collectAsStateWithLifecycle()
     val expandedMap = remember { mutableStateMapOf<Long, Boolean>() }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Архив приёмок") },
+                title = { Text("Архив отгрузок") },
                 navigationIcon = {
                     IconButton(onClick = onBack, modifier = Modifier.size(72.dp)) {
                         Icon(
@@ -98,7 +98,7 @@ fun ArchiveIntakeListScreen(
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
-                                text = "За последнюю неделю приёмок нет",
+                                text = "За последнюю неделю отгрузок нет",
                                 style = MaterialTheme.typography.titleMedium,
                                 textAlign = TextAlign.Center,
                             )
@@ -109,8 +109,6 @@ fun ArchiveIntakeListScreen(
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             groups.forEach { group ->
-                                // По умолчанию сегодняшний день раскрыт, остальные
-                                // свёрнуты — экономит вертикальное место в архиве.
                                 val isToday = isTodayLocal(group.dayStartMs)
                                 val expanded = expandedMap[group.dayStartMs] ?: isToday
                                 item(key = "day:${group.dayStartMs}") {
@@ -135,17 +133,17 @@ fun ArchiveIntakeListScreen(
                                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                                             ) {
                                                 group.rows.forEach { row ->
-                                                    val arrivedTxt = formatLocalTime(row.arrivedAtMs)
+                                                    val shippedTxt = formatLocalTime(row.shippedAtMs)
                                                     val confirmedTxt = formatLocalTime(row.confirmedAtMs)
                                                     val timeLine = buildString {
                                                         append("Госномер: ").append(row.vehiclePlate)
-                                                        if (arrivedTxt != null) append("  ·  заезд ").append(arrivedTxt)
-                                                        if (confirmedTxt != null) append("  ·  выезд ").append(confirmedTxt)
+                                                        if (shippedTxt != null) append("  ·  выезд ").append(shippedTxt)
+                                                        if (confirmedTxt != null) append("  ·  подтв. ").append(confirmedTxt)
                                                     }
                                                     UpdSummaryCard(
                                                         title = row.updNumber,
                                                         subtitle = timeLine,
-                                                        onClick = { onOpenDetail(row.delivery.id) },
+                                                        onClick = { onOpenDetail(row.shipment.id) },
                                                     )
                                                 }
                                             }

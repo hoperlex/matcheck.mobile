@@ -125,4 +125,7 @@ interface RemoteShipmentDao {
 
     @Query("SELECT * FROM remote_shipment_items WHERE shipmentId = :shipmentId ORDER BY lineNo ASC")
     suspend fun findItemsByShipment(shipmentId: String): List<RemoteShipmentItemEntity>
+
+    @Query("SELECT * FROM remote_shipment_photos WHERE shipmentId = :shipmentId ORDER BY takenAt ASC")
+    suspend fun findPhotosByShipment(shipmentId: String): List<RemoteShipmentPhotoEntity>
 }
