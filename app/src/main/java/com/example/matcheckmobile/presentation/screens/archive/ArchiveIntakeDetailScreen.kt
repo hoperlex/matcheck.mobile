@@ -11,7 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -34,6 +34,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.matcheckmobile.data.local.entity.RemoteDeliveryPhotoEntity
+import com.example.matcheckmobile.presentation.components.RemotePhotoPreviewDialog
+import com.example.matcheckmobile.presentation.components.RemotePhotoRef
 import com.example.matcheckmobile.presentation.components.RemoteS3PhotoThumb
 import com.example.matcheckmobile.presentation.viewmodel.ArchiveIntakeDetailViewModel
 import com.example.matcheckmobile.presentation.viewmodel.formatLocalTime
@@ -47,10 +49,13 @@ fun ArchiveIntakeDetailScreen(
     val vm: ArchiveIntakeDetailViewModel = matcheckViewModel()
     val state by vm.state.collectAsStateWithLifecycle()
 
-    // Полноразмерный preview по тапу — реюзаем существующий PhotoPreviewDialog
-    // через временный кэш файла (если фото только в S3) или прямой path
-    // (если есть локальный blob).
-    var previewPhotoId by remember { mutableStateOf<String?>(null) }
+    // Полноэкранный preview по тапу на миниатюру: набор листающихся фото и
+    // стартовый индекс. Перелистывание ограничено той же колонкой (стадия +
+    // категория), на которую тапнул пользователь, чтобы «Документ» и «Груз»
+    // не перемешивались в одном свайпе.
+    var previewPhotos by remember { mutableStateOf<List<RemotePhotoRef>>(emptyList()) }
+    var previewIndex by remember { mutableStateOf(0) }
+    var showPreview by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -104,6 +109,14 @@ fun ArchiveIntakeDetailScreen(
                             )
                         }
 
+                        val openPreview = { photos: List<RemoteDeliveryPhotoEntity>, index: Int ->
+                            previewPhotos = photos.map {
+                                RemotePhotoRef(photoId = it.id, localBlobPath = it.localBlobPath)
+                            }
+                            previewIndex = index
+                            showPreview = true
+                        }
+
                         StageSection(
                             stageLabel = "1 Этап",
                             count = state.stage1DocumentPhotos.size + state.stage1VehiclePhotos.size,
@@ -111,6 +124,7 @@ fun ArchiveIntakeDetailScreen(
                             timeValue = formatLocalTime(state.arrivedAtMs),
                             documentPhotos = state.stage1DocumentPhotos,
                             vehiclePhotos = state.stage1VehiclePhotos,
+                            onPhotoClick = openPreview,
                         )
 
                         StageSection(
@@ -120,10 +134,23 @@ fun ArchiveIntakeDetailScreen(
                             timeValue = formatLocalTime(state.confirmedAtMs),
                             documentPhotos = state.stage2DocumentPhotos,
                             vehiclePhotos = state.stage2VehiclePhotos,
+                            onPhotoClick = openPreview,
                         )
                     }
                 }
             }
+        }
+
+        if (showPreview && previewPhotos.isNotEmpty()) {
+            RemotePhotoPreviewDialog(
+                photos = previewPhotos,
+                initialIndex = previewIndex,
+                onDismiss = {
+                    showPreview = false
+                    previewPhotos = emptyList()
+                    previewIndex = 0
+                },
+            )
         }
     }
 }
@@ -136,6 +163,7 @@ private fun StageSection(
     timeValue: String?,
     documentPhotos: List<RemoteDeliveryPhotoEntity>,
     vehiclePhotos: List<RemoteDeliveryPhotoEntity>,
+    onPhotoClick: (List<RemoteDeliveryPhotoEntity>, Int) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -160,11 +188,13 @@ private fun StageSection(
             PhotoColumn(
                 caption = "Документ",
                 photos = documentPhotos,
+                onPhotoClick = onPhotoClick,
                 modifier = Modifier.weight(1f),
             )
             PhotoColumn(
                 caption = "Груз/машина",
                 photos = vehiclePhotos,
+                onPhotoClick = onPhotoClick,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -175,6 +205,7 @@ private fun StageSection(
 private fun PhotoColumn(
     caption: String,
     photos: List<RemoteDeliveryPhotoEntity>,
+    onPhotoClick: (List<RemoteDeliveryPhotoEntity>, Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -200,12 +231,13 @@ private fun PhotoColumn(
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                items(items = photos, key = { it.id }) { p ->
+                itemsIndexed(items = photos, key = { _, p -> p.id }) { idx, p ->
                     RemoteS3PhotoThumb(
                         photoId = p.id,
                         localBlobPath = p.localBlobPath,
                         size = 96.dp,
                         thumb = true,
+                        onClick = { onPhotoClick(photos, idx) },
                     )
                 }
             }
