@@ -66,13 +66,22 @@ class ArchiveDispatchListViewModel(container: AppContainer) : ViewModel() {
     val groups: StateFlow<List<ArchiveDispatchDayGroup>> = combine(
         container.shipmentRepository.observeByStatuses(ARCHIVE_STATUSES),
         container.database.remoteSourceDocumentDao().observeAll(),
-    ) { shipments, sourceDocs ->
+        container.tokenStorage.state,
+    ) { shipments, sourceDocs, tokenSnapshot ->
+        // Defense-in-depth: даже если /sync уже фильтрует записи по siteId
+        // инспектора, явно отсекаем чужие siteId на уровне UI. При
+        // currentSiteId == null (объект не привязан / только что отвязан /
+        // токен сброшен) показываем пустой архив, а не «все, что лежит в БД».
+        val currentSiteId = tokenSnapshot.siteId
+        if (currentSiteId.isNullOrBlank()) return@combine emptyList()
+
+        val ownShipments = shipments.filter { it.siteId == currentSiteId }
         val docById = sourceDocs.associateBy { it.id }
         val nowMs = System.currentTimeMillis()
         val windowStartMs = nowMs - WINDOW_DURATION.toMillis()
         val zone = ZoneId.systemDefault()
 
-        val rows = shipments.mapNotNull { s ->
+        val rows = ownShipments.mapNotNull { s ->
             val shippedAtMs = parseMs(s.shippedAt)
             val confirmedAtMs = parseMs(s.confirmedByMolAt)
             val updatedAtMs = parseMs(s.updatedAt)

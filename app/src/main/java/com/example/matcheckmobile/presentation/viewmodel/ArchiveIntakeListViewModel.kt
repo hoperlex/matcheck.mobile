@@ -53,7 +53,9 @@ class ArchiveIntakeListViewModel(container: AppContainer) : ViewModel() {
     init {
         // Архив тянет docNumber через тот же путь, что и Stage2List, поэтому
         // также прогреваем backfill — иначе у не-привязанных УПД заголовок
-        // будет «—» до следующего sync.
+        // будет «—» до следующего sync. Backfill безопасно вызывать и для
+        // чужих siteId (внутри идёт find-or-fetch по id), но всё равно фильтр
+        // ниже не пускает чужие записи в UI.
         viewModelScope.launch {
             container.deliveryRepository.observeByStatuses(ARCHIVE_STATUSES)
                 .map { list ->
@@ -68,13 +70,22 @@ class ArchiveIntakeListViewModel(container: AppContainer) : ViewModel() {
     val groups: StateFlow<List<ArchiveIntakeDayGroup>> = combine(
         container.deliveryRepository.observeByStatuses(ARCHIVE_STATUSES),
         container.database.remoteSourceDocumentDao().observeAll(),
-    ) { deliveries, sourceDocs ->
+        container.tokenStorage.state,
+    ) { deliveries, sourceDocs, tokenSnapshot ->
+        // Defense-in-depth: даже если /sync уже фильтрует записи по siteId
+        // инспектора, явно отсекаем чужие siteId на уровне UI. При
+        // currentSiteId == null (объект не привязан / только что отвязан /
+        // токен сброшен) показываем пустой архив, а не «все, что лежит в БД».
+        val currentSiteId = tokenSnapshot.siteId
+        if (currentSiteId.isNullOrBlank()) return@combine emptyList()
+
+        val ownDeliveries = deliveries.filter { it.siteId == currentSiteId }
         val docById = sourceDocs.associateBy { it.id }
         val nowMs = System.currentTimeMillis()
         val windowStartMs = nowMs - WINDOW_DURATION.toMillis()
         val zone = ZoneId.systemDefault()
 
-        val rows = deliveries.mapNotNull { d ->
+        val rows = ownDeliveries.mapNotNull { d ->
             val arrivedAtMs = parseMs(d.arrivedAt)
             val confirmedAtMs = parseMs(d.confirmedByMolAt)
             val updatedAtMs = parseMs(d.updatedAt)
