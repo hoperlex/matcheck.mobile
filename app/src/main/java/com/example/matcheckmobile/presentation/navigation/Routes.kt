@@ -26,6 +26,12 @@ object Routes {
     const val STAGE2_FORM = "$STAGE2_FORM_BASE/{$ARG_DELIVERY_ID}"
     fun stage2Form(deliveryId: String): String = "$STAGE2_FORM_BASE/$deliveryId"
 
+    /** Архив приёмок (последние 7 дней по локальной БД, без сетевого запроса). */
+    const val INTAKE_ARCHIVE = "intake_archive"
+    const val INTAKE_ARCHIVE_DETAIL_BASE = "intake_archive_detail"
+    const val INTAKE_ARCHIVE_DETAIL = "$INTAKE_ARCHIVE_DETAIL_BASE/{$ARG_DELIVERY_ID}"
+    fun intakeArchiveDetail(deliveryId: String): String = "$INTAKE_ARCHIVE_DETAIL_BASE/$deliveryId"
+
     /**
      * `receipt?updId=...&sessionId=...` — оба опциональны.
      * `updId` — для новой приёмки с предвыбранным УПД;

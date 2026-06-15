@@ -18,6 +18,8 @@ import com.example.matcheckmobile.presentation.screens.dispatch.DispatchStage2Li
 import com.example.matcheckmobile.presentation.screens.dispatch.DispatchStagesScreen
 import com.example.matcheckmobile.presentation.screens.dispatch.DispatchUpdSelectScreen
 import com.example.matcheckmobile.presentation.screens.dispatch.ManualDispatchFormScreen
+import com.example.matcheckmobile.presentation.screens.archive.ArchiveIntakeDetailScreen
+import com.example.matcheckmobile.presentation.screens.archive.ArchiveIntakeListScreen
 import com.example.matcheckmobile.presentation.screens.documents.DocumentDetailsScreen
 import com.example.matcheckmobile.presentation.screens.documents.DocumentsScreen
 import com.example.matcheckmobile.presentation.screens.details.OperationDetailsScreen
@@ -94,7 +96,22 @@ fun MatcheckNavHost() {
                 onStage1 = { navController.navigate(Routes.INTAKE_UPD_SELECT) },
                 onStage2 = { navController.navigate(Routes.INTAKE_STAGE2) },
                 onManualEntry = { navController.navigate(Routes.MANUAL_ENTRY_FORM) },
+                onArchive = { navController.navigate(Routes.INTAKE_ARCHIVE) },
             )
+        }
+        composable(Routes.INTAKE_ARCHIVE) {
+            ArchiveIntakeListScreen(
+                onBack = { navController.popBackStack() },
+                onOpenDetail = { id ->
+                    navController.navigate(Routes.intakeArchiveDetail(id))
+                },
+            )
+        }
+        composable(
+            route = Routes.INTAKE_ARCHIVE_DETAIL,
+            arguments = listOf(navArgument(Routes.ARG_DELIVERY_ID) { type = NavType.StringType }),
+        ) {
+            ArchiveIntakeDetailScreen(onBack = { navController.popBackStack() })
         }
         composable(Routes.INTAKE_STAGE2) {
             Stage2ListScreen(

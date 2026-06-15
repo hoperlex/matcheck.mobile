@@ -7,6 +7,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -33,6 +34,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -82,6 +84,7 @@ fun IntakeStagesScreen(
     onStage1: () -> Unit,
     onStage2: () -> Unit,
     onManualEntry: () -> Unit,
+    onArchive: () -> Unit,
 ) {
     val viewModel: IntakeStagesViewModel = matcheckViewModel()
     val counts by viewModel.counts.collectAsStateWithLifecycle()
@@ -89,7 +92,26 @@ fun IntakeStagesScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Приёмка") },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Приёмка")
+                        Text(
+                            text = " / ",
+                            color = Color(0xFF888888),
+                        )
+                        // «Архив» оформлен как clickable Text с подчёркиванием —
+                        // визуально считывается как ссылка/кнопка, без отдельного
+                        // Button-фрейма, который ломал бы баланс title-области.
+                        Text(
+                            text = "Архив",
+                            color = MaterialTheme.colorScheme.primary,
+                            textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+                            modifier = Modifier
+                                .clickable(onClick = onArchive)
+                                .padding(horizontal = 4.dp, vertical = 2.dp),
+                        )
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack, modifier = Modifier.size(72.dp)) {
                         Icon(
