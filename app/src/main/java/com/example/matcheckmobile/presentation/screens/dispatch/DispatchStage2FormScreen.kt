@@ -57,8 +57,12 @@ import com.example.matcheckmobile.presentation.components.MaterialEditDialog
 import com.example.matcheckmobile.presentation.components.MaterialsTableHeader
 import com.example.matcheckmobile.presentation.components.PhotoCaptureSection
 import com.example.matcheckmobile.presentation.components.PhotoPreviewDialog
+import com.example.matcheckmobile.presentation.components.RemotePhotoPreviewDialog
+import com.example.matcheckmobile.presentation.components.RemotePhotoRef
+import com.example.matcheckmobile.presentation.components.Stage1PhotosSection
 import com.example.matcheckmobile.presentation.components.rememberDocumentScanner
 import com.example.matcheckmobile.presentation.components.rememberPhotoCapture
+import com.example.matcheckmobile.presentation.util.formatLocalTime
 import com.example.matcheckmobile.presentation.viewmodel.DispatchStage2FormViewModel
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
 import kotlinx.coroutines.delay
@@ -86,6 +90,11 @@ fun DispatchStage2FormScreen(
     var addMaterialOpen by remember { mutableStateOf(false) }
     var confirmFinalizeVisible by remember { mutableStateOf(false) }
     var successVisible by remember { mutableStateOf(false) }
+    // См. Stage2FormScreen: preview Stage 1 живёт отдельно от capture-flow
+    // 2-го Этапа, чтобы не пересекаться с локальным previewPath/previewDelete.
+    var stage1PreviewPhotos by remember { mutableStateOf<List<RemotePhotoRef>>(emptyList()) }
+    var stage1PreviewIndex by remember { mutableStateOf(0) }
+    var stage1PreviewVisible by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
     val tapOutsideSource = remember { MutableInteractionSource() }
 
@@ -161,6 +170,23 @@ fun DispatchStage2FormScreen(
                         modifier = Modifier.fillMaxSize().imePadding(),
                         verticalArrangement = Arrangement.spacedBy(sectionGap),
                     ) {
+                        Stage1PhotosSection(
+                            documentPhotos = state.stage1DocumentPhotos,
+                            vehiclePhotos = state.stage1VehiclePhotos,
+                            stage1TimeLabel = formatLocalTime(state.shippedAtMs),
+                            onPhotoClick = { clicked, columnPhotos ->
+                                stage1PreviewPhotos = columnPhotos.map {
+                                    RemotePhotoRef(
+                                        photoId = it.photoId,
+                                        localBlobPath = it.localBlobPath,
+                                    )
+                                }
+                                stage1PreviewIndex = columnPhotos.indexOf(clicked)
+                                    .coerceAtLeast(0)
+                                stage1PreviewVisible = true
+                            },
+                        )
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(sectionGap),
@@ -333,6 +359,18 @@ fun DispatchStage2FormScreen(
 
         if (successVisible) {
             FinalizeSuccessOverlay()
+        }
+
+        if (stage1PreviewVisible && stage1PreviewPhotos.isNotEmpty()) {
+            RemotePhotoPreviewDialog(
+                photos = stage1PreviewPhotos,
+                initialIndex = stage1PreviewIndex,
+                onDismiss = {
+                    stage1PreviewVisible = false
+                    stage1PreviewPhotos = emptyList()
+                    stage1PreviewIndex = 0
+                },
+            )
         }
     }
 }

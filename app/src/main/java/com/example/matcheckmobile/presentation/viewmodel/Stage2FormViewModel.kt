@@ -8,6 +8,7 @@ import com.example.matcheckmobile.data.repository.DeliveryRepository
 import com.example.matcheckmobile.data.repository.Stage2DraftState
 import com.example.matcheckmobile.di.AppContainer
 import com.example.matcheckmobile.presentation.components.MaterialDraft
+import com.example.matcheckmobile.presentation.components.Stage1PhotoItem
 import com.example.matcheckmobile.presentation.navigation.Routes
 import com.example.matcheckmobile.sync.MatcheckSyncScheduler
 import kotlinx.coroutines.Dispatchers
@@ -73,6 +74,20 @@ class Stage2FormViewModel(
             )
         }
         val vehicleTypeCode = container.deliveryRepository.getVehicleType(deliveryId)
+        // Фото 1-го Этапа — для раскрывающегося блока «1 Этап» наверху формы.
+        // Тянем все фото приёмки и фильтруем по stage='before' (Stage1FormViewModel
+        // пишет 1-этапные фото именно с этим значением). Локальный blob может
+        // быть null, если фото уже выгружено и blob удалён — тогда миниатюра
+        // подтянется через PhotoFetcher по photoId (см. RemoteS3PhotoThumb).
+        val stage1RawPhotos = container.database.remoteDeliveryDao()
+            .findPhotosByDelivery(deliveryId)
+            .filter { it.stage == "before" }
+        val stage1DocumentPhotos = stage1RawPhotos
+            .filter { it.kind == "document" }
+            .map { it.toStage1Item(captionLabel = "Документ") }
+        val stage1VehiclePhotos = stage1RawPhotos
+            .filterNot { it.kind == "document" }
+            .map { it.toStage1Item(captionLabel = "Груз/машина") }
         val sourceDocIds = RemoteMappers.decodeIdList(delivery.sourceDocumentIdsJson)
         // УПД, привязанные к приёмке, /sync не отдаёт — дотягиваем индивидуально,
         // чтобы [resolveUpdDisplay] увидел реальный docNumber в локальной БД.
@@ -115,11 +130,28 @@ class Stage2FormViewModel(
                 isAssets = delivery.isAssets,
                 driverName = delivery.driverName,
                 arrivedAt = delivery.arrivedAt,
+                arrivedAtMs = parseInstantToMs(delivery.arrivedAt),
+                stage1DocumentPhotos = stage1DocumentPhotos,
+                stage1VehiclePhotos = stage1VehiclePhotos,
                 updDisplay = updDisplay,
                 loaded = true,
             )
         }
     }
+
+    private fun parseInstantToMs(iso: String?): Long? {
+        if (iso.isNullOrBlank()) return null
+        return runCatching { java.time.Instant.parse(iso).toEpochMilli() }.getOrNull()
+    }
+
+    private fun com.example.matcheckmobile.data.local.entity.RemoteDeliveryPhotoEntity.toStage1Item(
+        captionLabel: String,
+    ): Stage1PhotoItem = Stage1PhotoItem(
+        photoId = id,
+        localBlobPath = localBlobPath,
+        captionLabel = captionLabel,
+        takenAtMs = parseInstantToMs(takenAt),
+    )
 
     /**
      * Если уже есть локальный draft по этому deliveryId — накладываем его
@@ -547,6 +579,16 @@ data class Stage2FormUiState(
     val recipientMolId: String? = null,
     val driverName: String? = null,
     val arrivedAt: String? = null,
+    /** Момент завершения 1-го Этапа в локальной зоне устройства (epoch-ms). */
+    val arrivedAtMs: Long? = null,
+    /**
+     * Фото 1-го Этапа с `kind='document'` — для раскрывающегося блока
+     * «1 Этап» на форме подтверждения 2-го Этапа. Поле read-only,
+     * `finalizeStage2` его не трогает, draft-логика не учитывает.
+     */
+    val stage1DocumentPhotos: List<com.example.matcheckmobile.presentation.components.Stage1PhotoItem> = emptyList(),
+    /** Фото 1-го Этапа с любым `kind` кроме 'document' (cargo / vehicle / other). */
+    val stage1VehiclePhotos: List<com.example.matcheckmobile.presentation.components.Stage1PhotoItem> = emptyList(),
     /** Транзит — read-only снимок с сервера на 2 этапе. */
     val inTransit: Boolean = false,
     /** ОС — read-only снимок с сервера на 2 этапе (см. inTransit). */

@@ -57,8 +57,13 @@ import com.example.matcheckmobile.presentation.components.MaterialEditDialog
 import com.example.matcheckmobile.presentation.components.MaterialsTableHeader
 import com.example.matcheckmobile.presentation.components.PhotoCaptureSection
 import com.example.matcheckmobile.presentation.components.PhotoPreviewDialog
+import com.example.matcheckmobile.presentation.components.RemotePhotoPreviewDialog
+import com.example.matcheckmobile.presentation.components.RemotePhotoRef
+import com.example.matcheckmobile.presentation.components.Stage1PhotoItem
+import com.example.matcheckmobile.presentation.components.Stage1PhotosSection
 import com.example.matcheckmobile.presentation.components.rememberDocumentScanner
 import com.example.matcheckmobile.presentation.components.rememberPhotoCapture
+import com.example.matcheckmobile.presentation.util.formatLocalTime
 import kotlinx.coroutines.delay
 import com.example.matcheckmobile.presentation.viewmodel.Stage2FormViewModel
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
@@ -90,6 +95,12 @@ fun Stage2FormScreen(
     var addMaterialOpen by remember { mutableStateOf(false) }
     var confirmFinalizeVisible by remember { mutableStateOf(false) }
     var successVisible by remember { mutableStateOf(false) }
+    // Preview фото 1-го Этапа (S3 + локальный fallback). Состояние отдельно
+    // от previewPath/previewDelete, которые обслуживают локальный capture-flow
+    // 2-го Этапа — пути не пересекаются, чтобы не сломать удаление новых фото.
+    var stage1PreviewPhotos by remember { mutableStateOf<List<RemotePhotoRef>>(emptyList()) }
+    var stage1PreviewIndex by remember { mutableStateOf(0) }
+    var stage1PreviewVisible by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
     // Источник для невидимого clickable на «пустые» зоны экрана — тап мимо
     // инпутов сворачивает клавиатуру через clearFocus, как на Stage1.
@@ -232,6 +243,26 @@ fun Stage2FormScreen(
                                 .verticalScroll(rememberScrollState()),
                             verticalArrangement = Arrangement.spacedBy(sectionGap),
                         ) {
+                            // Раскрывающийся блок «1 Этап» — read-only обзор
+                            // фото и времени 1-го Этапа. По дефолту свёрнут,
+                            // чтобы не сдвигать вниз основные секции 2-го Этапа.
+                            Stage1PhotosSection(
+                                documentPhotos = state.stage1DocumentPhotos,
+                                vehiclePhotos = state.stage1VehiclePhotos,
+                                stage1TimeLabel = formatLocalTime(state.arrivedAtMs),
+                                onPhotoClick = { clicked, columnPhotos ->
+                                    stage1PreviewPhotos = columnPhotos.map {
+                                        RemotePhotoRef(
+                                            photoId = it.photoId,
+                                            localBlobPath = it.localBlobPath,
+                                        )
+                                    }
+                                    stage1PreviewIndex = columnPhotos.indexOf(clicked)
+                                        .coerceAtLeast(0)
+                                    stage1PreviewVisible = true
+                                },
+                            )
+
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(sectionGap),
@@ -428,6 +459,18 @@ fun Stage2FormScreen(
 
         if (successVisible) {
             FinalizeSuccessOverlay()
+        }
+
+        if (stage1PreviewVisible && stage1PreviewPhotos.isNotEmpty()) {
+            RemotePhotoPreviewDialog(
+                photos = stage1PreviewPhotos,
+                initialIndex = stage1PreviewIndex,
+                onDismiss = {
+                    stage1PreviewVisible = false
+                    stage1PreviewPhotos = emptyList()
+                    stage1PreviewIndex = 0
+                },
+            )
         }
     }
 }

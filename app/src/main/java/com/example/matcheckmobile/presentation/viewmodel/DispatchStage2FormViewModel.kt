@@ -8,6 +8,7 @@ import com.example.matcheckmobile.data.repository.ShipmentRepository
 import com.example.matcheckmobile.data.repository.ShipmentStage2DraftState
 import com.example.matcheckmobile.di.AppContainer
 import com.example.matcheckmobile.presentation.components.MaterialDraft
+import com.example.matcheckmobile.presentation.components.Stage1PhotoItem
 import com.example.matcheckmobile.presentation.navigation.Routes
 import com.example.matcheckmobile.sync.MatcheckSyncScheduler
 import kotlinx.coroutines.Dispatchers
@@ -69,6 +70,18 @@ class DispatchStage2FormViewModel(
         }
         val sourceDocIds = RemoteMappers.decodeIdList(shipment.sourceDocumentIdsJson)
         container.sourceDocumentBackfillService.ensureCached(sourceDocIds)
+        // Фото 1-го Этапа — для раскрывающегося блока «1 Этап» наверху формы.
+        // Зеркало Stage2FormViewModel: тянем фото отгрузки и оставляем только
+        // stage='before' (DispatchStage1FormViewModel помечает их именно так).
+        val stage1RawPhotos = container.database.remoteShipmentDao()
+            .findPhotosByShipment(shipmentId)
+            .filter { it.stage == "before" }
+        val stage1DocumentPhotos = stage1RawPhotos
+            .filter { it.kind == "document" }
+            .map { it.toStage1Item(captionLabel = "Документ") }
+        val stage1VehiclePhotos = stage1RawPhotos
+            .filterNot { it.kind == "document" }
+            .map { it.toStage1Item(captionLabel = "Груз/машина") }
         val updDisplay = resolveUpdDisplay(sourceDocIds, shipment.comment)
         val siteName = resolveSiteName(shipment.siteId)
         val originalComment = shipment.comment.orEmpty()
@@ -100,12 +113,29 @@ class DispatchStage2FormViewModel(
                 receiverMolId = shipment.receiverMolId,
                 destSiteId = shipment.destSiteId,
                 shippedAt = shipment.shippedAt,
+                shippedAtMs = parseInstantToMs(shipment.shippedAt),
+                stage1DocumentPhotos = stage1DocumentPhotos,
+                stage1VehiclePhotos = stage1VehiclePhotos,
                 driverName = shipment.driverName,
                 updDisplay = updDisplay,
                 loaded = true,
             )
         }
     }
+
+    private fun parseInstantToMs(iso: String?): Long? {
+        if (iso.isNullOrBlank()) return null
+        return runCatching { java.time.Instant.parse(iso).toEpochMilli() }.getOrNull()
+    }
+
+    private fun com.example.matcheckmobile.data.local.entity.RemoteShipmentPhotoEntity.toStage1Item(
+        captionLabel: String,
+    ): Stage1PhotoItem = Stage1PhotoItem(
+        photoId = id,
+        localBlobPath = localBlobPath,
+        captionLabel = captionLabel,
+        takenAtMs = parseInstantToMs(takenAt),
+    )
 
     private suspend fun restoreDraftIfAny() {
         val draft = container.shipmentStage2DraftRepository.findById(shipmentId) ?: return
@@ -421,6 +451,12 @@ data class DispatchStage2FormUiState(
     val receiverMolId: String? = null,
     val destSiteId: String? = null,
     val shippedAt: String? = null,
+    /** Момент завершения 1-го Этапа в локальной зоне устройства (epoch-ms). */
+    val shippedAtMs: Long? = null,
+    /** Фото 1-го Этапа с `kind='document'` для read-only блока «1 Этап». */
+    val stage1DocumentPhotos: List<com.example.matcheckmobile.presentation.components.Stage1PhotoItem> = emptyList(),
+    /** Фото 1-го Этапа с любым `kind` кроме 'document'. */
+    val stage1VehiclePhotos: List<com.example.matcheckmobile.presentation.components.Stage1PhotoItem> = emptyList(),
     val driverName: String? = null,
     val updDisplay: String? = null,
     val loaded: Boolean = false,
