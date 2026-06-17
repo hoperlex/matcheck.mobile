@@ -46,7 +46,29 @@ class DispatchStage2FormViewModel(
         viewModelScope.launch {
             loadInitial()
             restoreDraftIfAny()
+            // См. Stage2FormViewModel.backfillStage1PhotosFromServer.
+            backfillStage1PhotosFromServer()
             observeAutoSave()
+        }
+    }
+
+    /**
+     * Зеркало [com.example.matcheckmobile.presentation.viewmodel.Stage2FormViewModel.backfillStage1PhotosFromServer]
+     * для отгрузки. GET /api/v1/shipments/{id} → upsert photos в Room → обновляем UiState.
+     */
+    private suspend fun backfillStage1PhotosFromServer() {
+        val dto = runCatching { container.shipmentsApi.get(shipmentId) }.getOrNull() ?: return
+        val dao = container.database.remoteShipmentDao()
+        dto.photos.forEach { p ->
+            with(RemoteMappers) { dao.upsertPhoto(p.toEntity(shipmentId)) }
+        }
+        val stage1RawPhotos = dao.findPhotosByShipment(shipmentId).filter { it.stage == "before" }
+        val docs = stage1RawPhotos.filter { it.kind == "document" }
+            .map { it.toStage1Item(captionLabel = "Документ") }
+        val others = stage1RawPhotos.filterNot { it.kind == "document" }
+            .map { it.toStage1Item(captionLabel = "Груз/машина") }
+        _state.update {
+            it.copy(stage1DocumentPhotos = docs, stage1VehiclePhotos = others)
         }
     }
 

@@ -51,7 +51,38 @@ class Stage2FormViewModel(
         viewModelScope.launch {
             loadInitial()
             restoreDraftIfAny()
+            // Defensive backfill: даже если /sync ещё не подтянул свежий
+            // агрегат приёмки, фото 1-го Этапа (включая сделанные другим
+            // инспектором) гарантированно появятся в блоке «1 Этап». См.
+            // backfillStage1PhotosFromServer().
+            backfillStage1PhotosFromServer()
             observeAutoSave()
+        }
+    }
+
+    /**
+     * Тянет приёмку с сервера индивидуальным GET /api/v1/deliveries/{id} и
+     * upsert'ит её photos в Room. Делает ТОЛЬКО photo-апдейт: сама delivery
+     * и items не перезаписываются (чтобы не наступить на возможные локальные
+     * правки/draft). Локальные PENDING_UPLOAD-фото имеют клиентский UUID и не
+     * конфликтуют с серверными photoId — их upsert не тронет.
+     *
+     * Ошибки (сеть, 401, 404) тихо проглатываются — это side-effect refresh,
+     * не блокирует основную форму.
+     */
+    private suspend fun backfillStage1PhotosFromServer() {
+        val dto = runCatching { container.deliveriesApi.get(deliveryId) }.getOrNull() ?: return
+        val dao = container.database.remoteDeliveryDao()
+        dto.photos.forEach { p ->
+            with(RemoteMappers) { dao.upsertPhoto(p.toEntity(deliveryId)) }
+        }
+        val stage1RawPhotos = dao.findPhotosByDelivery(deliveryId).filter { it.stage == "before" }
+        val docs = stage1RawPhotos.filter { it.kind == "document" }
+            .map { it.toStage1Item(captionLabel = "Документ") }
+        val others = stage1RawPhotos.filterNot { it.kind == "document" }
+            .map { it.toStage1Item(captionLabel = "Груз/машина") }
+        _state.update {
+            it.copy(stage1DocumentPhotos = docs, stage1VehiclePhotos = others)
         }
     }
 

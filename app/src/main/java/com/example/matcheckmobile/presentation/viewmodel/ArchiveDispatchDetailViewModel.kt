@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.matcheckmobile.data.local.entity.RemoteShipmentPhotoEntity
+import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.di.AppContainer
 import com.example.matcheckmobile.presentation.navigation.Routes
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,7 +34,10 @@ class ArchiveDispatchDetailViewModel(
     val state: StateFlow<ArchiveDispatchDetailUiState> = _state.asStateFlow()
 
     init {
-        viewModelScope.launch { load() }
+        viewModelScope.launch {
+            load()
+            backfillFromServer()
+        }
     }
 
     private suspend fun load() {
@@ -42,18 +46,36 @@ class ArchiveDispatchDetailViewModel(
             _state.update { it.copy(error = "Отгрузка не найдена локально", loaded = true) }
             return
         }
+        publishFromRoom(shipment.vehiclePlate, shipment.shippedAt, shipment.confirmedByMolAt)
+    }
+
+    private suspend fun backfillFromServer() {
+        val dto = runCatching { container.shipmentsApi.get(shipmentId) }.getOrNull() ?: return
+        val dao = container.database.remoteShipmentDao()
+        dto.photos.forEach { p ->
+            with(RemoteMappers) { dao.upsertPhoto(p.toEntity(shipmentId)) }
+        }
+        publishFromRoom(
+            vehiclePlate = dto.vehiclePlate,
+            shippedAt = dto.shippedAt,
+            confirmedByMolAt = dto.confirmedByMolAt,
+        )
+    }
+
+    private suspend fun publishFromRoom(
+        vehiclePlate: String?,
+        shippedAt: String?,
+        confirmedByMolAt: String?,
+    ) {
         val photos = container.database.remoteShipmentDao().findPhotosByShipment(shipmentId)
         val before = photos.filter { it.stage == "before" }
         val after = photos.filter { it.stage == "after" }
-        val shippedAtMs = parseInstantToMs(shipment.shippedAt)
-        val confirmedAtMs = parseInstantToMs(shipment.confirmedByMolAt)
-
         _state.update {
             it.copy(
                 loaded = true,
-                vehiclePlate = shipment.vehiclePlate?.takeIf { p -> p.isNotBlank() },
-                shippedAtMs = shippedAtMs,
-                confirmedAtMs = confirmedAtMs,
+                vehiclePlate = vehiclePlate?.takeIf { p -> p.isNotBlank() },
+                shippedAtMs = parseInstantToMs(shippedAt),
+                confirmedAtMs = parseInstantToMs(confirmedByMolAt),
                 stage1DocumentPhotos = before.filter { p -> p.kind == "document" },
                 stage1VehiclePhotos = before.filter { p -> p.kind != "document" },
                 stage2DocumentPhotos = after.filter { p -> p.kind == "document" },

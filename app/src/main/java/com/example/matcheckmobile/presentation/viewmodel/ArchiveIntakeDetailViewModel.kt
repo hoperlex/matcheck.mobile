@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.matcheckmobile.data.local.entity.RemoteDeliveryPhotoEntity
+import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.di.AppContainer
 import com.example.matcheckmobile.presentation.navigation.Routes
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,6 +37,10 @@ class ArchiveIntakeDetailViewModel(
     init {
         viewModelScope.launch {
             load()
+            // Defensive backfill — см. Stage2FormViewModel. Нужен, чтобы видеть
+            // фото обоих этапов, даже если /sync ещё не подтянул свежий аггрегат
+            // (типичный случай: 1 этап делал один инспектор, 2 этап другой).
+            backfillFromServer()
         }
     }
 
@@ -45,18 +50,36 @@ class ArchiveIntakeDetailViewModel(
             _state.update { it.copy(error = "Приёмка не найдена локально", loaded = true) }
             return
         }
+        publishFromRoom(delivery.vehiclePlate, delivery.arrivedAt, delivery.confirmedByMolAt)
+    }
+
+    private suspend fun backfillFromServer() {
+        val dto = runCatching { container.deliveriesApi.get(deliveryId) }.getOrNull() ?: return
+        val dao = container.database.remoteDeliveryDao()
+        dto.photos.forEach { p ->
+            with(RemoteMappers) { dao.upsertPhoto(p.toEntity(deliveryId)) }
+        }
+        publishFromRoom(
+            vehiclePlate = dto.vehiclePlate,
+            arrivedAt = dto.arrivedAt,
+            confirmedByMolAt = dto.confirmedByMolAt,
+        )
+    }
+
+    private suspend fun publishFromRoom(
+        vehiclePlate: String?,
+        arrivedAt: String?,
+        confirmedByMolAt: String?,
+    ) {
         val photos = container.database.remoteDeliveryDao().findPhotosByDelivery(deliveryId)
         val before = photos.filter { it.stage == "before" }
         val after = photos.filter { it.stage == "after" }
-        val arrivedAtMs = parseInstantToMs(delivery.arrivedAt)
-        val confirmedAtMs = parseInstantToMs(delivery.confirmedByMolAt)
-
         _state.update {
             it.copy(
                 loaded = true,
-                vehiclePlate = delivery.vehiclePlate?.takeIf { p -> p.isNotBlank() },
-                arrivedAtMs = arrivedAtMs,
-                confirmedAtMs = confirmedAtMs,
+                vehiclePlate = vehiclePlate?.takeIf { p -> p.isNotBlank() },
+                arrivedAtMs = parseInstantToMs(arrivedAt),
+                confirmedAtMs = parseInstantToMs(confirmedByMolAt),
                 stage1DocumentPhotos = before.filter { p -> p.kind == "document" },
                 stage1VehiclePhotos = before.filter { p -> p.kind != "document" },
                 stage2DocumentPhotos = after.filter { p -> p.kind == "document" },
