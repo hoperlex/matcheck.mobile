@@ -67,11 +67,25 @@ class AuthRepository(
      * валить вызывающего. Если /me не удалось — siteId просто останется
      * прежним до следующей попытки.
      *
+     * Defensive guard: НЕ затираем валидный локальный siteId, если /auth/me
+     * вернул null. Был реальный инцидент (инспектор ЗИЛ33, 2026-06-18): на
+     * одном из двух планшетов с одного и того же аккаунта siteId внезапно
+     * стал null — finalizeStage1 падал с «Нет привязки к объекту», второй
+     * планшет под тем же аккаунтом работал нормально. Это значит, что на
+     * сервере siteId реально валидный, но /auth/me временно отдал null
+     * (race с серверным кешем / кратковременная серверная ошибка), и мы
+     * сами себе прострелили ногу, записав null поверх живого значения.
+     * Если админ действительно снимет привязку, мобила всё равно споткнётся
+     * на серверной проверке при ближайшем upsert (CHECK / 401 / 422) —
+     * инспектор честно перезайдёт. Зато транзиентный кривой ответ /auth/me
+     * больше не убивает рабочую сессию.
+     *
      * Возвращает true, если значение действительно обновилось.
      */
     suspend fun refreshSiteIdFromServer(): Boolean {
-        val r = runCatching { authApi.me() }
-        val me = r.getOrNull() ?: return false
+        val me = runCatching { authApi.me() }.getOrNull() ?: return false
+        val current = tokenStorage.state.value.siteId
+        if (me.siteId.isNullOrBlank() && !current.isNullOrBlank()) return false
         return tokenStorage.updateSiteId(me.siteId)
     }
 
