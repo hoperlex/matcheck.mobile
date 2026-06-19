@@ -343,18 +343,24 @@ fun Stage1FormScreen(
                             )
                         }
 
-                        MaterialsField(
-                            value = state.materials,
-                            onValueChange = vm::setMaterials,
-                            readOnly = true,
-                            buttonTextStyle = materialsButtonTextStyle,
-                            buttonMinHeight = if (isTablet) 72.dp else 64.dp,
-                            // Телефон менеджера-автора УПД: на 1 Этапе в шапке модалки
-                            // «Материалы» появляется иконка звонка. Только если УПД
-                            // загружена с веб-портала (НЕ из EDO/mail) и у автора
-                            // указан телефон — иначе null и иконка не рисуется.
-                            managerPhone = state.managerPhone,
-                        )
+                        // Материалы показываем только в picked-UPD сценарии.
+                        // В empty-draft («Создать приёмку» без УПД) материалы не могут
+                        // появиться автоматически, а редактировать их на 1 Этапе нельзя —
+                        // блок «Материалы (0)» только смущает инспектора.
+                        if (state.updId != null) {
+                            MaterialsField(
+                                value = state.materials,
+                                onValueChange = vm::setMaterials,
+                                readOnly = true,
+                                buttonTextStyle = materialsButtonTextStyle,
+                                buttonMinHeight = if (isTablet) 72.dp else 64.dp,
+                                // Телефон менеджера-автора УПД: на 1 Этапе в шапке модалки
+                                // «Материалы» появляется иконка звонка. Только если УПД
+                                // загружена с веб-портала (НЕ из EDO/mail) и у автора
+                                // указан телефон — иначе null и иконка не рисуется.
+                                managerPhone = state.managerPhone,
+                            )
+                        }
 
                         OutlinedTextField(
                             value = state.commentText,

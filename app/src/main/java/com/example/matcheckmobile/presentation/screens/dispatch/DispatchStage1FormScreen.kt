@@ -310,13 +310,19 @@ fun DispatchStage1FormScreen(
                             )
                         }
 
-                        MaterialsField(
-                            value = state.materials,
-                            onValueChange = vm::setMaterials,
-                            readOnly = true,
-                            buttonTextStyle = materialsButtonTextStyle,
-                            buttonMinHeight = if (isTablet) 72.dp else 64.dp,
-                        )
+                        // Материалы показываем только в picked-UPD сценарии Выезда.
+                        // В empty-draft («Создать отгрузку» без УПД) материалы не могут
+                        // появиться автоматически, а редактировать их на 1 Этапе нельзя —
+                        // блок «Материалы (0)» только смущает инспектора.
+                        if (state.updId != null) {
+                            MaterialsField(
+                                value = state.materials,
+                                onValueChange = vm::setMaterials,
+                                readOnly = true,
+                                buttonTextStyle = materialsButtonTextStyle,
+                                buttonMinHeight = if (isTablet) 72.dp else 64.dp,
+                            )
+                        }
 
                         OutlinedTextField(
                             value = state.commentText,

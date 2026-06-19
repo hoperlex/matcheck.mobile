@@ -51,7 +51,6 @@ import kotlinx.coroutines.delay
 import com.example.matcheckmobile.MatcheckApplication
 import com.example.matcheckmobile.presentation.components.FinalizeConfirmDialog
 import com.example.matcheckmobile.presentation.components.FinalizeSuccessOverlay
-import com.example.matcheckmobile.presentation.components.MaterialsField
 import com.example.matcheckmobile.presentation.components.PhotoCaptureSection
 import com.example.matcheckmobile.presentation.components.PhotoPreviewDialog
 import com.example.matcheckmobile.presentation.components.rememberDocumentScanner
@@ -165,10 +164,6 @@ fun ManualDispatchFormScreen(
                 MaterialTheme.typography.headlineSmall
             else
                 MaterialTheme.typography.titleMedium
-            val materialsButtonTextStyle = if (isTablet)
-                MaterialTheme.typography.headlineSmall
-            else
-                MaterialTheme.typography.titleLarge
 
             val density = LocalDensity.current
             val imeBottomPx = WindowInsets.ime.getBottom(density)
@@ -247,16 +242,9 @@ fun ManualDispatchFormScreen(
                             modifier = Modifier.fillMaxWidth(),
                         )
 
-                        MaterialsField(
-                            value = state.materials,
-                            onValueChange = vm::setMaterials,
-                            readOnly = true,
-                            buttonTextStyle = materialsButtonTextStyle,
-                            buttonMinHeight = if (isTablet) 72.dp else 64.dp,
-                            // managerPhone = null — у ручного выноса нет
-                            // привязанного УПД, значит и автора нет.
-                            managerPhone = null,
-                        )
+                        // Блок «Материалы» убран: на ручном выносе УПД отсутствует,
+                        // материалы не могут появиться автоматически, а ручное
+                        // редактирование разрешено только на 2 Этапе.
 
                         OutlinedTextField(
                             value = state.commentText,
