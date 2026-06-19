@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
 import com.example.matcheckmobile.MatcheckApplication
+import com.example.matcheckmobile.presentation.components.AssetsCheckbox
 import com.example.matcheckmobile.presentation.components.FinalizeConfirmDialog
 import com.example.matcheckmobile.presentation.components.FinalizeSuccessOverlay
 import com.example.matcheckmobile.presentation.components.PhotoCaptureSection
@@ -255,6 +256,20 @@ fun ManualEntryFormScreen(
                             textStyle = inputTextStyle,
                             modifier = Modifier.fillMaxWidth(),
                         )
+
+                        // Чекбокс «ОС» (основные средства) слева, ниже Комментария.
+                        // Транзит в ручном внесе отсутствует (это не автотранспорт).
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            AssetsCheckbox(
+                                checked = state.isAssets,
+                                onCheckedChange = {
+                                    focusManager.clearFocus()
+                                    vm.setIsAssets(it)
+                                },
+                            )
+                        }
                     }
 
                     Box(

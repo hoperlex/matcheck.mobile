@@ -22,7 +22,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -49,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
 import com.example.matcheckmobile.MatcheckApplication
+import com.example.matcheckmobile.presentation.components.AssetsCheckbox
 import com.example.matcheckmobile.presentation.components.FinalizeConfirmDialog
 import com.example.matcheckmobile.presentation.components.FinalizeSuccessOverlay
 import com.example.matcheckmobile.presentation.components.PhotoCaptureSection
@@ -56,6 +60,7 @@ import com.example.matcheckmobile.presentation.components.PhotoPreviewDialog
 import com.example.matcheckmobile.presentation.components.rememberDocumentScanner
 import com.example.matcheckmobile.presentation.components.rememberPhotoCapture
 import com.example.matcheckmobile.presentation.viewmodel.ManualDispatchFormViewModel
+import com.example.matcheckmobile.presentation.viewmodel.SHIPMENT_PURPOSE_OPTIONS
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
 
 private val TabletBreakpoint = 600.dp
@@ -233,6 +238,18 @@ fun ManualDispatchFormScreen(
                             )
                         }
 
+                        // Госномер. uppercase прямо в сеттере VM — чтобы регистры
+                        // совпадали с поиском/фильтрами на портале (паттерн из
+                        // Stage1FormScreen / DispatchStage1FormScreen).
+                        OutlinedTextField(
+                            value = state.licensePlate,
+                            onValueChange = vm::setLicensePlate,
+                            label = { Text("Введите Госномер", style = inputLabelStyle) },
+                            singleLine = true,
+                            textStyle = inputTextStyle,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+
                         OutlinedTextField(
                             value = state.manualUpdText,
                             onValueChange = vm::setManualUpd,
@@ -241,6 +258,44 @@ fun ManualDispatchFormScreen(
                             textStyle = inputTextStyle,
                             modifier = Modifier.fillMaxWidth(),
                         )
+
+                        // Dropdown «Тип отгрузки» — те же 4 варианта, что и в
+                        // empty-draft DispatchStage1FormScreen. Значение
+                        // сохраняется отдельным полем shipments.purpose, в
+                        // comment не дублируется.
+                        var purposeExpanded by remember { mutableStateOf(false) }
+                        ExposedDropdownMenuBox(
+                            expanded = purposeExpanded,
+                            onExpandedChange = { purposeExpanded = !purposeExpanded },
+                        ) {
+                            OutlinedTextField(
+                                value = state.shipmentPurpose.orEmpty(),
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("Тип отгрузки", style = inputLabelStyle) },
+                                textStyle = inputTextStyle,
+                                trailingIcon = {
+                                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = purposeExpanded)
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .menuAnchor(),
+                            )
+                            ExposedDropdownMenu(
+                                expanded = purposeExpanded,
+                                onDismissRequest = { purposeExpanded = false },
+                            ) {
+                                SHIPMENT_PURPOSE_OPTIONS.forEach { option ->
+                                    DropdownMenuItem(
+                                        text = { Text(option, style = inputTextStyle) },
+                                        onClick = {
+                                            vm.setShipmentPurpose(option)
+                                            purposeExpanded = false
+                                        },
+                                    )
+                                }
+                            }
+                        }
 
                         // Блок «Материалы» убран: на ручном выносе УПД отсутствует,
                         // материалы не могут появиться автоматически, а ручное
@@ -254,6 +309,20 @@ fun ManualDispatchFormScreen(
                             textStyle = inputTextStyle,
                             modifier = Modifier.fillMaxWidth(),
                         )
+
+                        // Чекбокс «ОС» (основные средства) слева, ниже Комментария.
+                        // Транзит в ручном выносе отсутствует (это не автотранспорт).
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            AssetsCheckbox(
+                                checked = state.isAssets,
+                                onCheckedChange = {
+                                    focusManager.clearFocus()
+                                    vm.setIsAssets(it)
+                                },
+                            )
+                        }
                     }
 
                     Box(

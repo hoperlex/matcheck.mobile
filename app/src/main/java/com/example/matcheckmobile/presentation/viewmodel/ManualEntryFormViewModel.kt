@@ -68,6 +68,11 @@ class ManualEntryFormViewModel(
         _state.update { it.copy(commentText = text) }
     }
 
+    /** ОС — чекбокс «основные средства» на ручном внесе. */
+    fun setIsAssets(value: Boolean) {
+        _state.update { it.copy(isAssets = value) }
+    }
+
     fun dismissError() {
         _state.update { it.copy(error = null) }
     }
@@ -134,6 +139,10 @@ class ManualEntryFormViewModel(
                         arrivedAt = java.time.Instant.now().toString(),
                         comment = commentForServer,
                         inTransit = false,
+                        // ОС — флаг «основные средства», берём прямо из state.
+                        // Уходит в DeliveryUpsertRequest.isAssets, на сервере —
+                        // deliveries.is_assets (миграция 0065).
+                        isAssets = cur.isAssets,
                         sourceDocumentIds = emptyList(),
                         items = items,
                     ),
@@ -202,6 +211,8 @@ data class ManualEntryFormUiState(
     val manualUpdText: String = "",
     val materials: List<MaterialDraft> = emptyList(),
     val commentText: String = "",
+    /** ОС — чекбокс «основные средства». На finalize → DeliveryRepository.UpsertInput.isAssets. */
+    val isAssets: Boolean = false,
     val isSaving: Boolean = false,
     val finalized: Boolean = false,
     val error: String? = null,
