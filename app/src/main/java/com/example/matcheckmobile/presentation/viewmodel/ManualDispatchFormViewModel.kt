@@ -69,6 +69,29 @@ class ManualDispatchFormViewModel(
         _state.update { it.copy(materials = materials) }
     }
 
+    /** Добавление новой строки материала (через MaterialEditDialog). */
+    fun addMaterial(draft: MaterialDraft) {
+        _state.update { it.copy(materials = it.materials + draft) }
+    }
+
+    /** Правка строки по индексу. */
+    fun updateMaterial(index: Int, draft: MaterialDraft) {
+        _state.update { cur ->
+            if (index !in cur.materials.indices) return@update cur
+            val next = cur.materials.toMutableList().also { it[index] = draft }
+            cur.copy(materials = next)
+        }
+    }
+
+    /** Удаление строки по индексу (свайп вправо). */
+    fun deleteMaterial(index: Int) {
+        _state.update { cur ->
+            if (index !in cur.materials.indices) return@update cur
+            val next = cur.materials.toMutableList().also { it.removeAt(index) }
+            cur.copy(materials = next)
+        }
+    }
+
     fun setComment(text: String) {
         _state.update { it.copy(commentText = text) }
     }

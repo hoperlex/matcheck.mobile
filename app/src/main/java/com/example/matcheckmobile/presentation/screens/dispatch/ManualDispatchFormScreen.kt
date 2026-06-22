@@ -53,8 +53,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
 import com.example.matcheckmobile.MatcheckApplication
 import com.example.matcheckmobile.presentation.components.AssetsCheckbox
+import com.example.matcheckmobile.presentation.components.EditableMaterialsInlineList
 import com.example.matcheckmobile.presentation.components.FinalizeConfirmDialog
 import com.example.matcheckmobile.presentation.components.FinalizeSuccessOverlay
+import com.example.matcheckmobile.presentation.components.MaterialDraft
+import com.example.matcheckmobile.presentation.components.MaterialEditDialog
+import com.example.matcheckmobile.presentation.components.MaterialsTableHeader
 import com.example.matcheckmobile.presentation.components.PhotoCaptureSection
 import com.example.matcheckmobile.presentation.components.PhotoPreviewDialog
 import com.example.matcheckmobile.presentation.components.rememberDocumentScanner
@@ -86,9 +90,16 @@ fun ManualDispatchFormScreen(
     val container = (context.applicationContext as MatcheckApplication).container
     val vm: ManualDispatchFormViewModel = matcheckViewModel()
     val state by vm.state.collectAsStateWithLifecycle()
+    // Справочник единиц измерения из Room (приходит /sync'ом). Используется
+    // дропдауном «Ед.» в MaterialEditDialog. Пустой список в начале →
+    // fallback text-input в самом диалоге (см. MaterialEditDialog).
+    val availableUnits by container.database.remoteUnitDao().observeActive()
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+    val unitCodes = remember(availableUnits) { availableUnits.map { it.code } }
     val snackbar = remember { SnackbarHostState() }
     var previewPath by remember { mutableStateOf<String?>(null) }
     var previewDelete by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var addMaterialOpen by remember { mutableStateOf(false) }
     var confirmFinalizeVisible by remember { mutableStateOf(false) }
     var successVisible by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
@@ -285,9 +296,31 @@ fun ManualDispatchFormScreen(
                             }
                         }
 
-                        // Блок «Материалы» убран: на ручном выносе УПД отсутствует,
-                        // материалы не могут появиться автоматически, а ручное
-                        // редактирование разрешено только на 2 Этапе.
+                        // Inline-таблица материалов: шапка со встроенной кнопкой
+                        // «+ Добавить материал» + строки с редактированием по тапу
+                        // / свайп-удалением. Тот же паттерн, что в DispatchStage2FormScreen,
+                        // но без originalMaterials (на ручном выносе нет серверного
+                        // снимка — список редактируется с нуля).
+                        MaterialsTableHeader(
+                            headerStyle = if (isTablet)
+                                MaterialTheme.typography.titleMedium
+                            else
+                                MaterialTheme.typography.labelLarge,
+                            onAddClick = { addMaterialOpen = true },
+                        )
+
+                        EditableMaterialsInlineList(
+                            value = state.materials,
+                            editedIndexes = emptySet(),
+                            onEdit = vm::updateMaterial,
+                            onDelete = vm::deleteMaterial,
+                            showHeader = false,
+                            // На правке существующей строки поле «Ед.» оставляем
+                            // видимым — единицы здесь источник = ввод инспектора,
+                            // не сервер (в отличие от 2 Этапа).
+                            editingShowUnitField = true,
+                            availableUnits = unitCodes,
+                        )
 
                         OutlinedTextField(
                             value = state.commentText,
@@ -345,6 +378,19 @@ fun ManualDispatchFormScreen(
                     previewDelete = null
                 },
                 onDelete = previewDelete,
+            )
+        }
+
+        if (addMaterialOpen) {
+            MaterialEditDialog(
+                initial = MaterialDraft(name = "", qty = "", unit = "шт"),
+                title = "Добавить материал",
+                onDismiss = { addMaterialOpen = false },
+                onSave = { draft ->
+                    vm.addMaterial(draft)
+                    addMaterialOpen = false
+                },
+                availableUnits = unitCodes,
             )
         }
 
