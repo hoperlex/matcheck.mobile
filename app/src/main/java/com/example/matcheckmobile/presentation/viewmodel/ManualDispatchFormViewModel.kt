@@ -73,11 +73,6 @@ class ManualDispatchFormViewModel(
         _state.update { it.copy(commentText = text) }
     }
 
-    /** Госномер. Нормализуем в верхний регистр для совместимости с фильтрами/поиском. */
-    fun setLicensePlate(text: String) {
-        _state.update { it.copy(licensePlate = text.uppercase()) }
-    }
-
     /** «Тип отгрузки» — одно из [SHIPMENT_PURPOSE_OPTIONS]. null = очистка. */
     fun setShipmentPurpose(value: String?) {
         _state.update { it.copy(shipmentPurpose = value) }
@@ -150,9 +145,10 @@ class ManualDispatchFormViewModel(
                         receiverCounterpartyId = null,
                         receiverMolId = null,
                         destSiteId = null,
-                        // Госномер — берём из state. Пустую строку трактуем как
-                        // null, чтобы не засорять сервер пустыми значениями.
-                        vehiclePlate = cur.licensePlate.trim().ifEmpty { null },
+                        // Госномер на ручном выносе не вводится (это не автотранспорт) —
+                        // всегда null. Если бизнес захочет вернуть поле, добавлять
+                        // в UI и в state симметрично DispatchStage1FormViewModel.
+                        vehiclePlate = null,
                         driverName = null,
                         shippedAt = java.time.Instant.now().toString(),
                         comment = commentForServer,
@@ -231,8 +227,6 @@ data class ManualDispatchFormUiState(
     val manualUpdText: String = "",
     val materials: List<MaterialDraft> = emptyList(),
     val commentText: String = "",
-    /** Госномер. На finalize → ShipmentRepository.UpsertInput.vehiclePlate. */
-    val licensePlate: String = "",
     /**
      * «Тип отгрузки» — одно из [SHIPMENT_PURPOSE_OPTIONS]. На finalize
      * уходит в ShipmentRepository.UpsertInput.purpose (поле shipments.purpose,

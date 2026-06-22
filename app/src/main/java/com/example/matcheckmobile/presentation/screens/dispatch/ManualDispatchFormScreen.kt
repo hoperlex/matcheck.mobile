@@ -238,18 +238,6 @@ fun ManualDispatchFormScreen(
                             )
                         }
 
-                        // Госномер. uppercase прямо в сеттере VM — чтобы регистры
-                        // совпадали с поиском/фильтрами на портале (паттерн из
-                        // Stage1FormScreen / DispatchStage1FormScreen).
-                        OutlinedTextField(
-                            value = state.licensePlate,
-                            onValueChange = vm::setLicensePlate,
-                            label = { Text("Введите Госномер", style = inputLabelStyle) },
-                            singleLine = true,
-                            textStyle = inputTextStyle,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-
                         OutlinedTextField(
                             value = state.manualUpdText,
                             onValueChange = vm::setManualUpd,
