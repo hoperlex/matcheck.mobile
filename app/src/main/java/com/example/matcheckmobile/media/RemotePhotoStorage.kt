@@ -78,8 +78,11 @@ class RemotePhotoStorage(private val context: Context) {
     }
 
     /**
-     * Применяет EXIF-ориентацию (обычно у фото с задней камеры — Rotate 90/180/270).
-     * Без этого вертикальные снимки приходят повёрнутыми на 90°.
+     * Применяет EXIF-ориентацию через общий [applyExifOrientation], который
+     * покрывает все 8 EXIF-вариантов (ROTATE_90/180/270, FLIP_H/V,
+     * TRANSPOSE/TRANSVERSE). Раньше здесь был свой switch только по
+     * ROTATE_90/180/270 — на редких EXIF tag'ах фото уходило на сервер
+     * не нормализованным, и на веб-портале отображалось перевёрнутым.
      */
     private fun applyExifRotation(uri: Uri, bitmap: Bitmap): Bitmap {
         val orientation = runCatching {
@@ -91,14 +94,7 @@ class RemotePhotoStorage(private val context: Context) {
             }
         }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
 
-        val degrees = when (orientation) {
-            ExifInterface.ORIENTATION_ROTATE_90 -> 90f
-            ExifInterface.ORIENTATION_ROTATE_180 -> 180f
-            ExifInterface.ORIENTATION_ROTATE_270 -> 270f
-            else -> return bitmap
-        }
-        val matrix = android.graphics.Matrix().apply { postRotate(degrees) }
-        val rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+        val rotated = applyExifOrientation(bitmap, orientation)
         if (rotated !== bitmap) bitmap.recycle()
         return rotated
     }

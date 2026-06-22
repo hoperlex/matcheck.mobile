@@ -2,7 +2,6 @@ package com.example.matcheckmobile.presentation.components
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.Matrix
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -33,6 +32,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.exifinterface.media.ExifInterface
+import com.example.matcheckmobile.media.applyExifOrientation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -133,18 +133,10 @@ internal fun decodeOrientedBitmap(path: String, targetPx: Int): Bitmap? {
             ExifInterface.ORIENTATION_NORMAL,
         )
     }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
-    val matrix = Matrix().apply {
-        when (orientation) {
-            ExifInterface.ORIENTATION_ROTATE_90 -> postRotate(90f)
-            ExifInterface.ORIENTATION_ROTATE_180 -> postRotate(180f)
-            ExifInterface.ORIENTATION_ROTATE_270 -> postRotate(270f)
-            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> postScale(-1f, 1f)
-            ExifInterface.ORIENTATION_FLIP_VERTICAL -> postScale(1f, -1f)
-            else -> Unit
-        }
-    }
-    return if (matrix.isIdentity) raw
-    else Bitmap.createBitmap(raw, 0, 0, raw.width, raw.height, matrix, true).also {
-        if (it !== raw) raw.recycle()
-    }
+    // Общий helper покрывает все 8 EXIF-вариантов (вкл. TRANSPOSE/TRANSVERSE).
+    // Раньше тут был свой switch только на 5 (ROTATE_90/180/270 + FLIP_H/V) —
+    // редкие tag'и проходили мимо и превью отображалось перевёрнутым.
+    val oriented = applyExifOrientation(raw, orientation)
+    if (oriented !== raw) raw.recycle()
+    return oriented
 }
