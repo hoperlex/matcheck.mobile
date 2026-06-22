@@ -6,6 +6,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
+import androidx.exifinterface.media.ExifInterface
 import java.io.File
 import java.io.FileOutputStream
 import java.time.LocalDateTime
@@ -26,9 +27,27 @@ class MetadataWatermark {
     fun applyTo(file: File, coords: LocationProvider.Coords?, siteName: String?) {
         if (!file.exists() || file.length() == 0L) return
 
-        val src = BitmapFactory.decodeFile(file.absolutePath) ?: return
-        val bitmap = src.copy(Bitmap.Config.ARGB_8888, true)
-        if (bitmap !== src) src.recycle()
+        // EXIF orientation читаем ДО decode'а: BitmapFactory.decodeFile сам тэг
+        // не уважает и возвращает «сырые» пиксели сенсора. На планшетах с
+        // не-portrait ориентацией (Samsung One UI Android 16, см.
+        // [[project_test_device]]) сырой буфер часто landscape / 180°. Если
+        // нарисовать watermark и сохранить как есть — viewer'ы (Coil,
+        // decodeOrientedBitmap) увидят NORMAL (после нашего ниже сброса)
+        // и не повернут. Поэтому нормализуем пиксели физически, ДО штампа,
+        // и в конце пишем TAG_ORIENTATION = NORMAL.
+        val exifOrientation = runCatching {
+            ExifInterface(file.absolutePath).getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL,
+            )
+        }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
+
+        val raw = BitmapFactory.decodeFile(file.absolutePath) ?: return
+        val oriented = applyExifOrientation(raw, exifOrientation)
+        if (oriented !== raw) raw.recycle()
+
+        val bitmap = oriented.copy(Bitmap.Config.ARGB_8888, true)
+        if (bitmap !== oriented) oriented.recycle()
 
         val canvas = Canvas(bitmap)
         val w = bitmap.width
@@ -74,6 +93,21 @@ class MetadataWatermark {
             bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
         }
         bitmap.recycle()
+
+        // После compress пиксели лежат уже физически в правильной ориентации,
+        // поэтому EXIF tag сбрасываем в NORMAL — иначе viewer повернёт второй
+        // раз (мы уже повернули, а тэг ещё указывал бы на исходную ориентацию,
+        // если бы Bitmap.compress его сохранил). runCatching: на странных
+        // JPEG'ах метод может бросить — это не должно валить съёмку.
+        runCatching {
+            ExifInterface(file.absolutePath).apply {
+                setAttribute(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_NORMAL.toString(),
+                )
+                saveAttributes()
+            }
+        }
     }
 
     private fun buildGpsLine(coords: LocationProvider.Coords?): String =
