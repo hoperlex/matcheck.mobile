@@ -104,6 +104,10 @@ class MatcheckApplication : Application() {
             override fun onAvailable(network: Network) {
                 if (!container.tokenStorage.isAuthenticated()) return
                 MatcheckSyncScheduler.requestImmediateSync(this@MatcheckApplication)
+                // Убедиться, что SSE поднят: после потери сети канал мог
+                // застрять в backoff-паузе — будим его немедленно, чтобы снова
+                // получать real-time события без ожидания следующей попытки.
+                container.sseConnectionManager.wake()
             }
         }
         runCatching { cm.registerNetworkCallback(request, callback) }

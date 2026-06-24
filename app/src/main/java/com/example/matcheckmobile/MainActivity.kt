@@ -45,9 +45,13 @@ class MainActivity : ComponentActivity() {
         // пересоздаются (см. SyncRepository.syncOnce).
         lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onResume(owner: LifecycleOwner) {
-                (application as? MatcheckApplication)?.container
-                    ?.appUpdateRepository?.checkForUpdate()
+                val container = (application as? MatcheckApplication)?.container
+                container?.appUpdateRepository?.checkForUpdate()
                 MatcheckSyncScheduler.requestImmediateSync(this@MainActivity)
+                // Возврат в foreground: SSE-канал в фоне мог быть убит системой
+                // (Doze/agressive battery). Будим его, чтобы снова шли real-time
+                // события; если уже на связи — wake() это no-op.
+                container?.sseConnectionManager?.wake()
             }
         })
         enableEdgeToEdge()

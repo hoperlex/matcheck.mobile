@@ -1,6 +1,7 @@
 package com.example.matcheckmobile.data.remote.sse
 
 import android.content.Context
+import android.util.Log
 import com.example.matcheckmobile.data.auth.TokenStorage
 import com.example.matcheckmobile.data.local.dao.RemoteDeliveryDao
 import com.example.matcheckmobile.data.local.dao.RemoteShipmentDao
@@ -75,6 +76,9 @@ class SseConnectionManager(
     private var currentEventSource: EventSource? = null
     private var reconnectJob: Job? = null
     private var watchdogJob: Job? = null
+    // Счётчик неудачных reconnect-попыток для экспоненциального backoff.
+    // Сбрасывается в 0 при успешном onOpen.
+    private var reconnectAttempts = 0
 
     private val _state = MutableStateFlow(ConnectionState.Disconnected)
     val state: StateFlow<ConnectionState> = _state.asStateFlow()
@@ -115,7 +119,14 @@ class SseConnectionManager(
     private val listener = object : EventSourceListener() {
         override fun onOpen(eventSource: EventSource, response: Response) {
             lastPingAtMs.set(System.currentTimeMillis())
+            reconnectAttempts = 0 // успешное подключение — сбрасываем backoff
             _state.value = ConnectionState.Connected
+            Log.i(TAG, "SSE connected")
+            // После (ре)подключения догоняем изменения, пропущенные за время
+            // разрыва канала. requestImmediateSync дедуплицируется WorkManager'ом
+            // (ExistingWorkPolicy.REPLACE) — лавины параллельных sync не будет.
+            Log.i(TAG, "sync triggered by SSE (re)connect")
+            MatcheckSyncScheduler.requestImmediateSync(appContext)
         }
 
         override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
@@ -155,11 +166,14 @@ class SseConnectionManager(
 
         override fun onClosed(eventSource: EventSource) {
             _state.value = ConnectionState.Disconnected
+            Log.i(TAG, "SSE closed")
             if (running.get()) scheduleReconnect()
         }
 
         override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
             _state.value = ConnectionState.Disconnected
+            // Без персональных данных: только тип ошибки + HTTP-код.
+            Log.w(TAG, "SSE failure: ${t?.javaClass?.simpleName ?: "unknown"} http=${response?.code ?: -1}")
             if (running.get()) scheduleReconnect()
         }
     }
@@ -167,11 +181,52 @@ class SseConnectionManager(
     private fun scheduleReconnect() {
         // Не плодим параллельные реконнекты.
         if (reconnectJob?.isActive == true) return
+        val attempt = reconnectAttempts
+        reconnectAttempts++
         reconnectJob = scope.launch {
-            val jitterMs = Random.nextLong(MIN_RECONNECT_MS, MAX_RECONNECT_MS + 1)
-            delay(jitterMs)
+            val delayMs = reconnectDelayMs(attempt)
+            Log.i(TAG, "SSE reconnect scheduled in ${delayMs}ms (attempt ${attempt + 1})")
+            delay(delayMs)
             if (running.get()) openSource()
         }
+    }
+
+    /**
+     * Экспоненциальный backoff с потолком: 1s → 2s → 5s → 15s → 30s → 60s.
+     * Плюс джиттер 0–1с, чтобы при массовом обрыве планшеты не штормили сервер
+     * синхронно. reconnectAttempts сбрасывается в 0 при успешном onOpen, так что
+     * после восстановления связи следующий разрыв снова начинает с 1с.
+     */
+    private fun reconnectDelayMs(attempt: Int): Long {
+        val base = when (attempt) {
+            0 -> 1_000L
+            1 -> 2_000L
+            2 -> 5_000L
+            3 -> 15_000L
+            4 -> 30_000L
+            else -> 60_000L
+        }
+        return base + Random.nextLong(0, 1_000L)
+    }
+
+    /**
+     * «Разбудить» соединение: вызывается при возврате приложения в foreground
+     * и при появлении сети. Если мы залогинены (running), но канал не на связи
+     * (Disconnected/Connecting или ждёт в backoff-паузе), форсируем немедленный
+     * реконнект, сбросив backoff. Если уже Connected — ничего не делаем
+     * (watchdog следит за ping). Защита от параллельных соединений: отменяем
+     * текущий reconnect-job и старый EventSource перед openSource.
+     */
+    fun wake() {
+        if (!running.get()) return
+        if (_state.value == ConnectionState.Connected) return
+        Log.i(TAG, "SSE wake → immediate reconnect")
+        reconnectJob?.cancel()
+        reconnectJob = null
+        reconnectAttempts = 0
+        currentEventSource?.cancel()
+        currentEventSource = null
+        scope.launch { openSource() }
     }
 
     private suspend fun watchdog() {
@@ -180,7 +235,8 @@ class SseConnectionManager(
             val sincePingMs = System.currentTimeMillis() - lastPingAtMs.get()
             if (_state.value == ConnectionState.Connected && sincePingMs > PING_TIMEOUT_MS) {
                 // Сервер молчит дольше 60 сек — рвём соединение принудительно,
-                // listener.onFailure запустит reconnect.
+                // дальше scheduleReconnect поднимет заново.
+                Log.w(TAG, "SSE ping timeout (${sincePingMs}ms) → force reconnect")
                 currentEventSource?.cancel()
                 currentEventSource = null
                 _state.value = ConnectionState.Disconnected
@@ -192,9 +248,8 @@ class SseConnectionManager(
     enum class ConnectionState { Disconnected, Connecting, Connected }
 
     private companion object {
+        const val TAG = "SseConn"
         const val PING_TIMEOUT_MS = 60_000L
         const val WATCHDOG_PERIOD_MS = 15_000L
-        const val MIN_RECONNECT_MS = 2_000L
-        const val MAX_RECONNECT_MS = 10_000L
     }
 }
