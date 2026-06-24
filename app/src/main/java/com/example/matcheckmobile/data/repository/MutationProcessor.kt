@@ -52,7 +52,7 @@ class MutationProcessor(
         var dropped = 0
         var transientErrors = 0
 
-        val pending = mutationDao.listPending()
+        val pending = mutationDao.listPending(System.currentTimeMillis())
         // FIFO в рамках одной сущности — если предыдущая мутация осталась
         // (5xx backoff / conflictPending), последующие на той же entityId
         // не трогаем до её резолюции.
@@ -95,6 +95,14 @@ class MutationProcessor(
                     dropped++
                 }
                 is Outcome.Backoff -> {
+                    // Transient-ошибка (5xx / сеть / таймаут): НЕ удаляем мутацию,
+                    // сколько бы попыток ни прошло. Операция инспектора не должна
+                    // исчезнуть локально из-за временной недоступности сервера —
+                    // раньше аварийный deleteById после MAX_ATTEMPTS и был
+                    // механизмом «на планшете есть, на портале нет». Теперь мутация
+                    // остаётся в очереди и повторяется по backoff (capped ~5 мин:
+                    // backoffDelayMs) на каждом sync / SSE-событии / старте
+                    // приложения, пока сервер не примет её.
                     val attempts = m.attempts + 1
                     val nextAt = System.currentTimeMillis() + backoffDelayMs(attempts)
                     mutationDao.upsert(
@@ -106,11 +114,6 @@ class MutationProcessor(
                     )
                     blockedEntities += key
                     transientErrors++
-                    if (attempts >= MAX_ATTEMPTS) {
-                        // Аварийный drop — лучше потерять одну мутацию, чем
-                        // вечно крутить очередь.
-                        mutationDao.deleteById(m.id)
-                    }
                 }
             }
         }
@@ -310,7 +313,10 @@ class MutationProcessor(
      * удаляются: при следующем sync подтянутся актуальные с сервера.
      */
     suspend fun clearAll(): Int {
-        val all = mutationDao.listPending() + mutationDao.listConflicts()
+        // Long.MAX_VALUE — берём ВСЕ pending независимо от backoff-паузы
+        // (nextAttemptAt), т.к. это полная очистка: в backoff-мутации тоже
+        // должны попасть под hard-reset.
+        val all = mutationDao.listPending(Long.MAX_VALUE) + mutationDao.listConflicts()
         for (m in all) {
             mutationDao.deleteById(m.id)
             when (m.entityType) {
@@ -394,8 +400,4 @@ class MutationProcessor(
         val dropped: Int,
         val retried: Int,
     )
-
-    private companion object {
-        const val MAX_ATTEMPTS = 6
-    }
 }

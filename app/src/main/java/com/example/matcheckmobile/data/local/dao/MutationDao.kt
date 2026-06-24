@@ -12,8 +12,15 @@ interface MutationDao {
     @Upsert
     suspend fun upsert(entity: MutationEntity)
 
-    @Query("SELECT * FROM mutations WHERE conflictPending = 0 ORDER BY createdAt ASC")
-    suspend fun listPending(): List<MutationEntity>
+    // Готовые к отправке мутации: не ждут разрешения конфликта (conflictPending=0)
+    // и не находятся в backoff-паузе (nextAttemptAt в прошлом/не задан). Фильтр
+    // по nextAttemptAt — чтобы застрявшая на transient-ошибке мутация не долбила
+    // сервер на каждом sync, а уважала экспоненциальный backoff.
+    @Query(
+        "SELECT * FROM mutations WHERE conflictPending = 0 " +
+            "AND (nextAttemptAt IS NULL OR nextAttemptAt <= :now) ORDER BY createdAt ASC",
+    )
+    suspend fun listPending(now: Long): List<MutationEntity>
 
     @Query("SELECT * FROM mutations ORDER BY createdAt DESC")
     fun observeAll(): Flow<List<MutationEntity>>
