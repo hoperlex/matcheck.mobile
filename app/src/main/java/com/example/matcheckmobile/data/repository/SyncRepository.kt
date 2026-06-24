@@ -1,5 +1,6 @@
 package com.example.matcheckmobile.data.repository
 
+import android.util.Log
 import com.example.matcheckmobile.data.local.dao.RemoteCounterpartyDao
 import com.example.matcheckmobile.data.local.dao.RemoteDeliveryDao
 import com.example.matcheckmobile.data.local.dao.RemoteMaterialDao
@@ -9,7 +10,12 @@ import com.example.matcheckmobile.data.local.dao.RemoteSourceDocumentDao
 import com.example.matcheckmobile.data.local.dao.RemoteStatusDao
 import com.example.matcheckmobile.data.local.dao.RemoteUnitDao
 import com.example.matcheckmobile.data.local.mapper.RemoteMappers.toEntity
+import com.example.matcheckmobile.data.remote.api.DeliveriesApi
+import com.example.matcheckmobile.data.remote.api.ShipmentsApi
+import com.example.matcheckmobile.data.remote.api.SourceDocumentsApi
 import com.example.matcheckmobile.data.remote.api.SyncApi
+import com.example.matcheckmobile.data.remote.api.dto.ReconcileItemDto
+import com.example.matcheckmobile.data.remote.api.dto.ReconcileRequestDto
 import com.example.matcheckmobile.data.remote.api.dto.SyncDeltaResponse
 import com.example.matcheckmobile.data.settings.DeviceSettings
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,6 +40,9 @@ import java.io.IOException
  */
 class SyncRepository(
     private val syncApi: SyncApi,
+    private val deliveriesApi: DeliveriesApi,
+    private val shipmentsApi: ShipmentsApi,
+    private val sourceDocumentsApi: SourceDocumentsApi,
     private val deviceSettings: DeviceSettings,
     private val deliveryDao: RemoteDeliveryDao,
     private val shipmentDao: RemoteShipmentDao,
@@ -58,6 +67,11 @@ class SyncRepository(
 
     private val pullMutex = Mutex()
     private val syncMutex = Mutex()
+
+    // Throttle для reconcile: не чаще раза в час (см. reconcileOnce). In-memory —
+    // после рестарта процесса первый reconcile пройдёт сразу, это допустимо.
+    @Volatile
+    private var lastReconcileAtMs = 0L
 
     private val _state = MutableStateFlow(SyncState())
     val state: StateFlow<SyncState> = _state.asStateFlow()
@@ -92,9 +106,127 @@ class SyncRepository(
             // (не до push/pull), чтобы возможный сбой /me никогда не блокировал
             // основной sync. Лямбда сама обязана глотать исключения.
             runCatching { onAfterPullRefresh?.invoke() }
+            // Фоновая сверка с сервером (throttled внутри). Best-effort: любая
+            // её ошибка не должна влиять на результат основного sync.
+            runCatching { reconcileOnce() }
             summary
         }.onSuccess { summary -> _state.value = _state.value.copy(lastError = null, lastSuccessSummary = summary) }
             .onFailure { error -> _state.value = _state.value.copy(lastError = error.message ?: "sync failed") }
+    }
+
+    /**
+     * Read/repair-from-server сверка (M4a). Собирает локальные id+version,
+     * спрашивает сервер о расхождениях и ДОКАЧИВАЕТ недостающее/устаревшее через
+     * detail-endpoints. НИЧЕГО локально не удаляет и не переотправляет:
+     * missingOnServer (push-потеря) здесь только логируется — его обработка
+     * будет отдельным шагом M4b. conflictPending-записи не трогаются.
+     * Throttle: не чаще RECONCILE_INTERVAL_MS. Любая ошибка — тихо, не ломая sync.
+     */
+    suspend fun reconcileOnce() {
+        val now = System.currentTimeMillis()
+        if (now - lastReconcileAtMs < RECONCILE_INTERVAL_MS) return
+
+        val localDel = deliveryDao.listReconcileVersions()
+        val localShip = shipmentDao.listReconcileVersions()
+        val localSd = sourceDocumentDao.listReconcileVersions()
+        Log.i(TAG, "reconcile started: local del=${localDel.size} ship=${localShip.size} sd=${localSd.size}")
+
+        val resp = runCatching {
+            syncApi.reconcile(
+                ReconcileRequestDto(
+                    deliveries = localDel.map { ReconcileItemDto(it.id, it.version) },
+                    shipments = localShip.map { ReconcileItemDto(it.id, it.version) },
+                    sourceDocuments = localSd.map { ReconcileItemDto(it.id, it.version) },
+                ),
+            )
+        }.getOrElse { e ->
+            // Нет сети / 401 / API error — тихо завершаем, не ломая обычный sync.
+            Log.i(TAG, "reconcile skipped: ${e.javaClass.simpleName}")
+            return
+        }
+        // Засчитываем throttle только при успешном вызове, чтобы временная ошибка
+        // не «съедала» часовое окно.
+        lastReconcileAtMs = now
+
+        // M4a: missingOnServer НЕ обрабатываем (push-recovery — это M4b). Только лог.
+        Log.i(
+            TAG,
+            "reconcile missingOnServer (ignored in M4a): del=${resp.deliveries.missingOnServer.size} " +
+                "ship=${resp.shipments.missingOnServer.size} sd=${resp.sourceDocuments.missingOnServer.size}",
+        )
+        Log.i(
+            TAG,
+            "reconcile missing/stale: " +
+                "del m=${resp.deliveries.missingOnClient.size} s=${resp.deliveries.staleOnClient.size} | " +
+                "ship m=${resp.shipments.missingOnClient.size} s=${resp.shipments.staleOnClient.size} | " +
+                "sd m=${resp.sourceDocuments.missingOnClient.size} s=${resp.sourceDocuments.staleOnClient.size}",
+        )
+
+        reconcileDeliveries(
+            resp.deliveries.missingOnClient.map { it.id } + resp.deliveries.staleOnClient.map { it.id },
+        )
+        reconcileShipments(
+            resp.shipments.missingOnClient.map { it.id } + resp.shipments.staleOnClient.map { it.id },
+        )
+        reconcileSourceDocs(
+            resp.sourceDocuments.missingOnClient.map { it.id } + resp.sourceDocuments.staleOnClient.map { it.id },
+        )
+    }
+
+    private suspend fun reconcileDeliveries(ids: List<String>) {
+        if (ids.isEmpty()) return
+        // Не затираем локальный конфликт server-snapshot'ом (как applyResponse).
+        val skip = deliveryDao.listConflictPendingIds().toSet()
+        var ok = 0
+        var fail = 0
+        for (id in ids.distinct()) {
+            if (id in skip) continue
+            runCatching {
+                val dto = deliveriesApi.get(id)
+                deliveryDao.saveAggregate(
+                    delivery = dto.toEntity(),
+                    items = dto.items.map { it.toEntity(dto.id) },
+                    photos = dto.photos.map { it.toEntity(dto.id) },
+                )
+            }.onSuccess { ok++ }.onFailure { fail++ }
+        }
+        Log.i(TAG, "reconcile detail deliveries: ok=$ok fail=$fail")
+    }
+
+    private suspend fun reconcileShipments(ids: List<String>) {
+        if (ids.isEmpty()) return
+        val skip = shipmentDao.listConflictPendingIds().toSet()
+        var ok = 0
+        var fail = 0
+        for (id in ids.distinct()) {
+            if (id in skip) continue
+            runCatching {
+                val dto = shipmentsApi.get(id)
+                shipmentDao.saveAggregate(
+                    shipment = dto.toEntity(),
+                    items = dto.items.map { it.toEntity(dto.id) },
+                    photos = dto.photos.map { it.toEntity(dto.id) },
+                )
+            }.onSuccess { ok++ }.onFailure { fail++ }
+        }
+        Log.i(TAG, "reconcile detail shipments: ok=$ok fail=$fail")
+    }
+
+    private suspend fun reconcileSourceDocs(ids: List<String>) {
+        if (ids.isEmpty()) return
+        var ok = 0
+        var fail = 0
+        for (id in ids.distinct()) {
+            runCatching {
+                val dto = sourceDocumentsApi.get(id)
+                sourceDocumentDao.saveAggregate(
+                    doc = dto.toEntity(),
+                    items = dto.items.map { it.toEntity(dto.id) },
+                    attachments = dto.attachments.map { it.toEntity(dto.id) },
+                )
+            }.onSuccess { ok++ }.onFailure { fail++ }
+        }
+        Log.i(TAG, "reconcile detail sourceDocs: ok=$ok fail=$fail")
     }
 
     /** Только push pending photos — для триггера после capture без полного syncOnce. */
@@ -295,6 +427,8 @@ class SyncRepository(
         const val DEFAULT_INITIAL_WINDOW_DAYS = 90
         const val LIMIT_500 = 500
         const val LIMIT_200 = 200
+        const val TAG = "SyncReconcile"
+        const val RECONCILE_INTERVAL_MS = 60 * 60 * 1000L // не чаще раза в час
     }
 }
 

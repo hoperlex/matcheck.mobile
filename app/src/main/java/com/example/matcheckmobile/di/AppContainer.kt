@@ -99,6 +99,9 @@ class AppContainer(val appContext: Context) {
 
     val syncRepository: SyncRepository = SyncRepository(
         syncApi = syncApi,
+        deliveriesApi = deliveriesApi,
+        shipmentsApi = shipmentsApi,
+        sourceDocumentsApi = sourceDocumentsApi,
         deviceSettings = deviceSettings,
         deliveryDao = database.remoteDeliveryDao(),
         shipmentDao = database.remoteShipmentDao(),

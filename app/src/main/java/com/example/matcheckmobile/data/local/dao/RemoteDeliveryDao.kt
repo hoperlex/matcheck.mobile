@@ -109,6 +109,11 @@ interface RemoteDeliveryDao {
     @Query("SELECT id FROM remote_deliveries WHERE conflictPending = 1")
     suspend fun listConflictPendingIds(): List<String>
 
+    // Лёгкая проекция (id, version) всех локальных приёмок — для reconcile-сверки
+    // (read-only). См. SyncRepository.reconcileOnce.
+    @Query("SELECT id, version FROM remote_deliveries")
+    suspend fun listReconcileVersions(): List<ReconcileVersionRow>
+
     @Query("SELECT * FROM remote_deliveries WHERE conflictPending = 1 ORDER BY updatedAt DESC")
     fun observeConflicts(): kotlinx.coroutines.flow.Flow<List<RemoteDeliveryEntity>>
 

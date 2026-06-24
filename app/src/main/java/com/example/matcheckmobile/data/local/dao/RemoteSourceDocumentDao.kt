@@ -70,4 +70,9 @@ interface RemoteSourceDocumentDao {
      */
     @Query("DELETE FROM remote_source_documents")
     suspend fun deleteAll()
+
+    // Лёгкая проекция (id, version) всех локальных УПД — для reconcile-сверки
+    // (read-only). См. SyncRepository.reconcileOnce.
+    @Query("SELECT id, version FROM remote_source_documents")
+    suspend fun listReconcileVersions(): List<ReconcileVersionRow>
 }
