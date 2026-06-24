@@ -9,15 +9,22 @@ import com.example.matcheckmobile.data.local.dao.RemoteSiteDao
 import com.example.matcheckmobile.data.local.dao.RemoteSourceDocumentDao
 import com.example.matcheckmobile.data.local.dao.RemoteStatusDao
 import com.example.matcheckmobile.data.local.dao.RemoteUnitDao
+import com.example.matcheckmobile.data.local.dao.MutationDao
+import com.example.matcheckmobile.data.local.entity.MutationEntity
 import com.example.matcheckmobile.data.local.mapper.RemoteMappers.toEntity
+import com.example.matcheckmobile.data.local.mapper.RemoteMappers.toUpsertRequest
 import com.example.matcheckmobile.data.remote.api.DeliveriesApi
 import com.example.matcheckmobile.data.remote.api.ShipmentsApi
 import com.example.matcheckmobile.data.remote.api.SourceDocumentsApi
 import com.example.matcheckmobile.data.remote.api.SyncApi
+import com.example.matcheckmobile.data.remote.api.dto.DeliveryUpsertRequest
 import com.example.matcheckmobile.data.remote.api.dto.ReconcileItemDto
 import com.example.matcheckmobile.data.remote.api.dto.ReconcileRequestDto
+import com.example.matcheckmobile.data.remote.api.dto.ShipmentUpsertRequest
 import com.example.matcheckmobile.data.remote.api.dto.SyncDeltaResponse
 import com.example.matcheckmobile.data.settings.DeviceSettings
+import kotlinx.serialization.json.Json
+import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -52,6 +59,7 @@ class SyncRepository(
     private val statusDao: RemoteStatusDao,
     private val unitDao: RemoteUnitDao,
     private val sourceDocumentDao: RemoteSourceDocumentDao,
+    private val mutationDao: MutationDao,
     private val mutationProcessor: MutationProcessor,
     private val photoUploadProcessor: PhotoUploadProcessor,
     /**
@@ -72,6 +80,10 @@ class SyncRepository(
     // после рестарта процесса первый reconcile пройдёт сразу, это допустимо.
     @Volatile
     private var lastReconcileAtMs = 0L
+
+    // Сериализация payload мутации тем же форматом, что DeliveryRepository/
+    // ShipmentRepository.upsert — MutationProcessor его прочитает идентично.
+    private val resendJson = Json { encodeDefaults = true; ignoreUnknownKeys = true }
 
     private val _state = MutableStateFlow(SyncState())
     val state: StateFlow<SyncState> = _state.asStateFlow()
@@ -148,11 +160,16 @@ class SyncRepository(
         // не «съедала» часовое окно.
         lastReconcileAtMs = now
 
-        // M4a: missingOnServer НЕ обрабатываем (push-recovery — это M4b). Только лог.
+        // M4b: переотправляем missingOnServer для deliveries/shipments (push-recovery —
+        // «на планшете есть, на сервере нет»). sourceDocuments НЕ трогаем
+        // (attachments/upload рискованнее — отдельный этап).
+        val reqDel = requeueMissingDeliveries(resp.deliveries.missingOnServer)
+        val reqShip = requeueMissingShipments(resp.shipments.missingOnServer)
         Log.i(
             TAG,
-            "reconcile missingOnServer (ignored in M4a): del=${resp.deliveries.missingOnServer.size} " +
-                "ship=${resp.shipments.missingOnServer.size} sd=${resp.sourceDocuments.missingOnServer.size}",
+            "reconcile missingOnServer: del=${resp.deliveries.missingOnServer.size}(requeued=$reqDel) " +
+                "ship=${resp.shipments.missingOnServer.size}(requeued=$reqShip) " +
+                "sd=${resp.sourceDocuments.missingOnServer.size}(ignored)",
         )
         Log.i(
             TAG,
@@ -227,6 +244,109 @@ class SyncRepository(
             }.onSuccess { ok++ }.onFailure { fail++ }
         }
         Log.i(TAG, "reconcile detail sourceDocs: ok=$ok fail=$fail")
+    }
+
+    /**
+     * M4b push-recovery: для каждой приёмки из missingOnServer (есть локально,
+     * нет на сервере) безопасно пересоздаёт upsert-мутацию из локальной записи,
+     * чтобы операция снова ушла на сервер. НИКОГДА не удаляет локальную запись и
+     * не трогает существующие мутации. Skip (только лог), если: записи нет;
+     * conflictPending; upsert-мутация уже в очереди (idempotency); payload не
+     * собрался. Ошибка одной записи не прерывает остальные.
+     */
+    private suspend fun requeueMissingDeliveries(ids: List<String>): Int {
+        if (ids.isEmpty()) return 0
+        var requeued = 0
+        var skipMissing = 0
+        var skipConflict = 0
+        var skipExisting = 0
+        var skipInvalid = 0
+        for (id in ids.distinct()) {
+            val entity = deliveryDao.findById(id)
+            if (entity == null) {
+                skipMissing++; continue // нечего отправлять, ничего не создаём
+            }
+            if (entity.conflictPending) {
+                skipConflict++; continue // не трогаем запись в конфликте
+            }
+            if (mutationDao.findFor("delivery", id).any { it.operation == "upsert" }) {
+                skipExisting++; continue // idempotency: дубль не плодим
+            }
+            val ok = runCatching {
+                val items = deliveryDao.findItemsByDelivery(id)
+                val request = entity.toUpsertRequest(items)
+                mutationDao.upsert(
+                    MutationEntity(
+                        id = UUID.randomUUID().toString(),
+                        entityType = "delivery",
+                        operation = "upsert",
+                        entityId = id,
+                        baseVersion = entity.version,
+                        payloadJson = resendJson.encodeToString(DeliveryUpsertRequest.serializer(), request),
+                        attempts = 0,
+                        nextAttemptAt = null,
+                        lastError = null,
+                        conflictPending = false,
+                        createdAt = System.currentTimeMillis(),
+                    ),
+                )
+            }.isSuccess
+            if (ok) requeued++ else skipInvalid++ // payload/insert упал — skip, продолжаем
+        }
+        Log.i(
+            TAG,
+            "requeue deliveries: requeued=$requeued missing=$skipMissing conflict=$skipConflict " +
+                "existing=$skipExisting invalid=$skipInvalid",
+        )
+        return requeued
+    }
+
+    /** Симметрично requeueMissingDeliveries для отгрузок. */
+    private suspend fun requeueMissingShipments(ids: List<String>): Int {
+        if (ids.isEmpty()) return 0
+        var requeued = 0
+        var skipMissing = 0
+        var skipConflict = 0
+        var skipExisting = 0
+        var skipInvalid = 0
+        for (id in ids.distinct()) {
+            val entity = shipmentDao.findById(id)
+            if (entity == null) {
+                skipMissing++; continue
+            }
+            if (entity.conflictPending) {
+                skipConflict++; continue
+            }
+            if (mutationDao.findFor("shipment", id).any { it.operation == "upsert" }) {
+                skipExisting++; continue
+            }
+            val ok = runCatching {
+                val items = shipmentDao.findItemsByShipment(id)
+                val request = entity.toUpsertRequest(items)
+                mutationDao.upsert(
+                    MutationEntity(
+                        id = UUID.randomUUID().toString(),
+                        entityType = "shipment",
+                        operation = "upsert",
+                        entityId = id,
+                        baseVersion = entity.version,
+                        payloadJson = resendJson.encodeToString(ShipmentUpsertRequest.serializer(), request),
+                        attempts = 0,
+                        nextAttemptAt = null,
+                        lastError = null,
+                        conflictPending = false,
+                        createdAt = System.currentTimeMillis(),
+                    ),
+                )
+            }.isSuccess
+            if (ok) requeued++ else skipInvalid++
+        }
+        Log.i(
+            TAG,
+            "requeue shipments: requeued=$requeued missing=$skipMissing conflict=$skipConflict " +
+                "existing=$skipExisting invalid=$skipInvalid",
+        )
+        return requeued
     }
 
     /** Только push pending photos — для триггера после capture без полного syncOnce. */

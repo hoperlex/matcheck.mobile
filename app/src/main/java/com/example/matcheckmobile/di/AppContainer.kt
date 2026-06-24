@@ -111,6 +111,7 @@ class AppContainer(val appContext: Context) {
         statusDao = database.remoteStatusDao(),
         unitDao = database.remoteUnitDao(),
         sourceDocumentDao = database.remoteSourceDocumentDao(),
+        mutationDao = database.mutationDao(),
         mutationProcessor = mutationProcessor,
         photoUploadProcessor = photoUploadProcessor,
         // После успешного pull тихо подтягиваем актуальный user.siteId.

@@ -18,10 +18,14 @@ import com.example.matcheckmobile.data.remote.api.dto.CounterpartyDto
 import com.example.matcheckmobile.data.remote.api.dto.DeliveryDto
 import com.example.matcheckmobile.data.remote.api.dto.DeliveryItemDto
 import com.example.matcheckmobile.data.remote.api.dto.DeliveryPhotoDto
+import com.example.matcheckmobile.data.remote.api.dto.DeliveryUpsertItem
+import com.example.matcheckmobile.data.remote.api.dto.DeliveryUpsertRequest
 import com.example.matcheckmobile.data.remote.api.dto.MaterialDto
 import com.example.matcheckmobile.data.remote.api.dto.ShipmentDto
 import com.example.matcheckmobile.data.remote.api.dto.ShipmentItemDto
 import com.example.matcheckmobile.data.remote.api.dto.ShipmentPhotoDto
+import com.example.matcheckmobile.data.remote.api.dto.ShipmentUpsertItem
+import com.example.matcheckmobile.data.remote.api.dto.ShipmentUpsertRequest
 import com.example.matcheckmobile.data.remote.api.dto.SiteDto
 import com.example.matcheckmobile.data.remote.api.dto.SourceAttachmentDto
 import com.example.matcheckmobile.data.remote.api.dto.SourceDocumentDto
@@ -48,6 +52,70 @@ object RemoteMappers {
     fun decodeIdList(raw: String): List<String> = runCatching {
         json.decodeFromString(stringListSerializer, raw)
     }.getOrDefault(emptyList())
+
+    // ─── Entity → UpsertRequest (переотправка в reconcile M4b) ──────────────
+    // Восстанавливают тот же payload, что строит DeliveryRepository/Shipment
+    // Repository.upsert, но из УЖЕ сохранённой локальной записи + её позиций.
+    // Поля 1:1 с entity (см. RemoteDeliveryEntity «Поля 1:1 с DeliveryDto»),
+    // baseVersion = version. Если поле обязательное на сервере отсутствует
+    // локально — это невозможно по схеме (statusCode/siteId/nameRaw NOT NULL),
+    // поэтому payload всегда полный.
+
+    fun RemoteDeliveryItemEntity.toUpsertItem(): DeliveryUpsertItem = DeliveryUpsertItem(
+        id = id, materialId = materialId, nameRaw = nameRaw,
+        qtyPlanned = qtyPlanned, qtyActual = qtyActual, unit = unit, comment = comment,
+        lineNo = lineNo, volumeM3 = volumeM3, massKg = massKg, price = price,
+        vatRate = vatRate, vatSum = vatSum, volumeConfidence = volumeConfidence, groupName = groupName,
+    )
+
+    fun RemoteDeliveryEntity.toUpsertRequest(
+        items: List<RemoteDeliveryItemEntity>,
+    ): DeliveryUpsertRequest = DeliveryUpsertRequest(
+        id = id,
+        statusCode = statusCode,
+        siteId = siteId,
+        supplierId = supplierId,
+        contractorId = contractorId,
+        recipientMolId = recipientMolId,
+        vehiclePlate = vehiclePlate,
+        driverName = driverName,
+        arrivedAt = arrivedAt,
+        comment = comment,
+        inTransit = inTransit,
+        isAssets = isAssets,
+        sourceDocumentIds = decodeIdList(sourceDocumentIdsJson),
+        items = items.map { it.toUpsertItem() },
+        baseVersion = version,
+    )
+
+    fun RemoteShipmentItemEntity.toUpsertItem(): ShipmentUpsertItem = ShipmentUpsertItem(
+        id = id, materialId = materialId, nameRaw = nameRaw,
+        qtyPlanned = qtyPlanned, qtyActual = qtyActual, unit = unit, comment = comment,
+        lineNo = lineNo, volumeM3 = volumeM3, massKg = massKg, price = price,
+        vatRate = vatRate, vatSum = vatSum, volumeConfidence = volumeConfidence, groupName = groupName,
+    )
+
+    fun RemoteShipmentEntity.toUpsertRequest(
+        items: List<RemoteShipmentItemEntity>,
+    ): ShipmentUpsertRequest = ShipmentUpsertRequest(
+        id = id,
+        statusCode = statusCode,
+        kind = kind,
+        siteId = siteId,
+        receiverCounterpartyId = receiverCounterpartyId,
+        receiverMolId = receiverMolId,
+        destSiteId = destSiteId,
+        vehiclePlate = vehiclePlate,
+        driverName = driverName,
+        shippedAt = shippedAt,
+        comment = comment,
+        purpose = purpose,
+        inTransit = inTransit,
+        isAssets = isAssets,
+        sourceDocumentIds = decodeIdList(sourceDocumentIdsJson),
+        items = items.map { it.toUpsertItem() },
+        baseVersion = version,
+    )
 
     fun CounterpartyDto.toEntity(): RemoteCounterpartyEntity = RemoteCounterpartyEntity(
         id = id, inn = inn, kpp = kpp, name = name, address = address,
