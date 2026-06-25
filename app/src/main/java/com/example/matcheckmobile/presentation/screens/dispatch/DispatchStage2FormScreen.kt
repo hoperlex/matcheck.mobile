@@ -238,6 +238,25 @@ fun DispatchStage2FormScreen(
                             ),
                         )
 
+                        // «Введите УПД» появляется только если на 1 Этапе УПД
+                        // не была подгружена с портала (sourceDocumentIds пуст).
+                        // Если УПД уже привязана — её номер показывается через
+                        // updDisplay блок, дублировать редактируемое поле нельзя.
+                        // Значение хранится в state.inheritedNote (через
+                        // SavedStateHandle, без миграции Room), на финализации
+                        // уходит в comment как «Примечание: ...» — тот же
+                        // механизм, что и для 1 Этапа.
+                        if (state.sourceDocumentIds.isEmpty()) {
+                            OutlinedTextField(
+                                value = state.inheritedNote.orEmpty(),
+                                onValueChange = vm::setInheritedNote,
+                                label = { Text("Введите УПД", style = inputLabelStyle) },
+                                singleLine = true,
+                                textStyle = inputTextStyle,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+
                         MaterialsTableHeader(
                             headerStyle = if (isTablet) MaterialTheme.typography.titleMedium
                                 else MaterialTheme.typography.labelLarge,

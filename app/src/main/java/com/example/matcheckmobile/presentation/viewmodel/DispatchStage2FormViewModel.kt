@@ -32,7 +32,7 @@ import java.io.File
 @OptIn(FlowPreview::class)
 class DispatchStage2FormViewModel(
     private val container: AppContainer,
-    savedStateHandle: SavedStateHandle,
+    private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
     private val shipmentId: String =
@@ -46,10 +46,23 @@ class DispatchStage2FormViewModel(
         viewModelScope.launch {
             loadInitial()
             restoreDraftIfAny()
+            // Если инспектор уже редактировал «Примечание» (он же manual-УПД) на
+            // этом 2 Этапе — savedStateHandle хранит его правку. Применяем после
+            // loadInitial/restoreDraft, чтобы override server-snapshot значение.
+            // Используем SavedStateHandle (а не Room-draft), чтобы не делать
+            // миграцию схемы: правка чисто UI-state, переживёт Activity
+            // recreation + process death через onSaveInstanceState.
+            restoreInheritedNoteFromSavedStateIfAny()
             // См. Stage2FormViewModel.backfillStage1PhotosFromServer.
             backfillStage1PhotosFromServer()
             observeAutoSave()
         }
+    }
+
+    private fun restoreInheritedNoteFromSavedStateIfAny() {
+        if (!savedStateHandle.contains(KEY_INHERITED_NOTE)) return
+        val saved = savedStateHandle.get<String?>(KEY_INHERITED_NOTE)
+        _state.update { it.copy(inheritedNote = saved?.takeIf { v -> v.isNotEmpty() }) }
     }
 
     /**
@@ -285,6 +298,24 @@ class DispatchStage2FormViewModel(
         }
     }
     fun setComment(text: String) { _state.update { it.copy(commentText = text) } }
+
+    /**
+     * Правка номера УПД на 2 Этапе Выезда. Видна только когда УПД не была
+     * подгружена с сервера на 1 Этапе (`sourceDocumentIds.isEmpty()`). Значение
+     * попадает в существующий comment-формат `Примечание: ...` через
+     * [buildCombinedComment] на финализации — отдельных полей в API и Room
+     * не добавляем, парсинг на серверной стороне уже работает.
+     *
+     * Персистится в SavedStateHandle (а не в Room-draft), чтобы переживать
+     * пересоздание Activity без миграции схемы. На уровне UiState `null`
+     * означает «не редактировали», пустая строка — «инспектор очистил».
+     */
+    fun setInheritedNote(text: String) {
+        val normalized = text.trim()
+        savedStateHandle[KEY_INHERITED_NOTE] = normalized
+        _state.update { it.copy(inheritedNote = normalized.takeIf { v -> v.isNotEmpty() }) }
+    }
+
     fun dismissError() { _state.update { it.copy(error = null) } }
 
     fun finalizeStage2() {
@@ -441,6 +472,8 @@ class DispatchStage2FormViewModel(
         val STAGE1_REGEX = Regex("^1 Этап:\\s*\"(.*)\"$")
         val STAGE2_REGEX = Regex("^2 Этап:\\s*\"(.*)\"$")
         val NOTE_REGEX = Regex("^Примечание:\\s*(.+)$")
+        /** Ключ для SavedStateHandle: переживает Activity recreation + process death. */
+        const val KEY_INHERITED_NOTE = "inheritedNote"
     }
 }
 
