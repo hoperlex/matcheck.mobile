@@ -167,7 +167,7 @@ fun MainScreen(
                     verticalArrangement = Arrangement.spacedBy(gap),
                 ) {
                     ActionButton(
-                        text = "Приёмка",
+                        text = "Въезд",
                         onClick = onReceipt,
                         isTablet = isTablet,
                         modifier = Modifier
