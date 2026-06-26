@@ -221,7 +221,7 @@ fun MainScreen(
                     ) {
                         Row(
                             modifier = Modifier
-                                .weight(0.8f)
+                                .weight(0.9f)
                                 .fillMaxHeight(),
                             horizontalArrangement = Arrangement.spacedBy(gap),
                         ) {
@@ -246,8 +246,8 @@ fun MainScreen(
                             todayValue = status.expectedToday.toString(),
                             futureValue = status.expectedFuture.toString(),
                             modifier = Modifier
-                                .weight(0.2f)
-                                .widthIn(max = 160.dp)
+                                .weight(0.1f)
+                                .widthIn(max = 96.dp)
                                 .fillMaxHeight(),
                         )
                     }
@@ -395,7 +395,7 @@ private fun PlanCardCompact(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 12.dp, vertical = 12.dp),
+                .padding(horizontal = 6.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.SpaceEvenly,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -415,15 +415,17 @@ private fun CompactPlanCell(label: String, value: String) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
+        // Шрифты подобраны под колонку 96dp (max ширина PlanCardCompact в landscape).
+        // «Остальные» — самое длинное слово; в 10sp умещается с padding 6dp+6dp.
         Text(
             text = label,
-            style = MaterialTheme.typography.labelMedium,
+            fontSize = 10.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
         )
         Text(
             text = value,
-            style = MaterialTheme.typography.headlineMedium,
+            fontSize = 24.sp,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
