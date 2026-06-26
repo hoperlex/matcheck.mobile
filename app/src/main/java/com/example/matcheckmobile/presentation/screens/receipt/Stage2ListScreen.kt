@@ -5,10 +5,12 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import android.content.res.Configuration
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -31,6 +33,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -83,17 +86,36 @@ fun Stage2ListScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
+            val isLandscape = LocalConfiguration.current.orientation ==
+                Configuration.ORIENTATION_LANDSCAPE
             val outerPadding = if (maxWidth >= 600.dp) 32.dp else 16.dp
+            // В landscape: тот же layout, что у IntakeUpdSelect (1 Этап) —
+            // карточки от левой границы до правой, без 720dp-потолка.
+            // Иначе на планшете список приёмок 2 Этапа выглядит зажатым по
+            // центру, тогда как 1 Этап на этом же экране уже full-width.
+            val contentPadding = if (isLandscape) {
+                PaddingValues(
+                    start = 0.dp,
+                    end = 0.dp,
+                    top = 8.dp,
+                    bottom = outerPadding,
+                )
+            } else {
+                PaddingValues(outerPadding)
+            }
+            val contentWidthModifier = if (isLandscape) {
+                Modifier.fillMaxWidth()
+            } else {
+                Modifier.widthIn(max = ContentMaxWidth).fillMaxWidth()
+            }
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(outerPadding),
+                    .padding(contentPadding),
                 contentAlignment = Alignment.TopCenter,
             ) {
                 Column(
-                    modifier = Modifier
-                        .widthIn(max = ContentMaxWidth)
-                        .fillMaxWidth(),
+                    modifier = contentWidthModifier,
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     if (groups.isEmpty()) {
