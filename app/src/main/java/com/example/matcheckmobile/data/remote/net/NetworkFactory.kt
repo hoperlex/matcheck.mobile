@@ -89,6 +89,10 @@ class NetworkFactory(
             .build()
 
     private companion object {
-        private const val PROD_HOST = "matcheck.fvds.ru"
+        // Домен мигрировал с matcheck.fvds.ru (старый сервер на FirstVDS) на
+        // mat.su10.ru. Пины ниже — CA-цепочка Let's Encrypt (intermediate +
+        // корни ISRG X1/X2), они валидируют любой LE-сертификат, поэтому при
+        // смене хоста менять сами пины не нужно (mat.su10.ru тоже на LE).
+        private const val PROD_HOST = "mat.su10.ru"
     }
 }

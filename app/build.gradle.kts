@@ -21,12 +21,12 @@ android {
         applicationId = "com.example.matcheckmobile"
         minSdk = 24
         targetSdk = 35
-        versionCode = 24
-        versionName = "1.0.23"
+        versionCode = 25
+        versionName = "1.0.24"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        buildConfigField("String", "API_BASE_URL", "\"https://matcheck.fvds.ru/\"")
+        buildConfigField("String", "API_BASE_URL", "\"https://mat.su10.ru/\"")
     }
 
     // Подписной ключ для release-сборок. Используем системный debug.keystore
@@ -59,7 +59,7 @@ android {
             // разделяет, подпись делает то же самое наглядным для пользователя).
             resValue("string", "app_name", "Матбаланс.dev")
 
-            buildConfigField("String", "API_BASE_URL", "\"https://matcheck.fvds.ru/\"")
+            buildConfigField("String", "API_BASE_URL", "\"https://mat.su10.ru/\"")
             // In-app updater отключён в debug — Android Studio Run app
             // сам ставит свежий бинарь, лишние проверки и баннеры
             // «доступно обновление» только мешают.
@@ -76,7 +76,7 @@ android {
             // Подпись на лаунчере у инспекторов — «Матбаланс».
             resValue("string", "app_name", "Матбаланс")
 
-            buildConfigField("String", "API_BASE_URL", "\"https://matcheck.fvds.ru/\"")
+            buildConfigField("String", "API_BASE_URL", "\"https://mat.su10.ru/\"")
             // GH Releases раздаётся через публичный side-репо
             // hoperlex/matcheck.mobile-releases: /releases/latest/download
             // редиректит на ассеты последнего тега, поэтому URL манифеста
