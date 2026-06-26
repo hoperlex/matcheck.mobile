@@ -310,29 +310,45 @@ private fun StageButton(
         border = BorderStroke(2.dp, Color.Black),
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
+            // В landscape title и subtitle получают симметричный horizontal
+            // padding, равный ширине i-IconButton'a. Иначе при центрировании
+            // длинный заголовок («Ручной внос») доходит до правого края и
+            // буква накладывается на i-иконку.
+            val titleHPad = if (isLandscape) infoBtnSize else 0.dp
             Column(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.SpaceBetween,
                 horizontalAlignment = Alignment.Start,
             ) {
-                Text(
-                    text = title,
+                // Верхняя группа — title + subtitle вплотную друг к другу.
+                // Раньше Column'a со SpaceBetween разносил subtitle к середине
+                // кнопки, и на разных кнопках («1 Этап» со stats vs «2 Этап»
+                // без stats) «Автотранспорт» оказывался на разной высоте.
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.Center,
-                    fontFamily = OpenSansFontFamily,
-                    fontSize = titleSize,
-                    maxLines = 2,
-                )
-                if (subtitle != null) {
+                    horizontalAlignment = Alignment.Start,
+                ) {
                     Text(
-                        text = subtitle,
-                        modifier = Modifier.fillMaxWidth(),
+                        text = title,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = titleHPad),
                         textAlign = TextAlign.Center,
                         fontFamily = OpenSansFontFamily,
-                        fontSize = subtitleSize,
-                        color = Color(0xFF555555),
-                        maxLines = 1,
+                        fontSize = titleSize,
+                        maxLines = 2,
                     )
+                    if (subtitle != null) {
+                        Text(
+                            text = subtitle,
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.Center,
+                            fontFamily = OpenSansFontFamily,
+                            fontSize = subtitleSize,
+                            color = Color(0xFF555555),
+                            maxLines = 1,
+                        )
+                    }
                 }
                 if (showStats) {
                     StageStats(

@@ -309,30 +309,41 @@ private fun StageButton(
         border = BorderStroke(2.dp, Color.Black),
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
+            // См. комментарий в IntakeStagesScreen.StageButton: симметричный
+            // horizontal padding для title в landscape, чтобы «Ручной вынос»
+            // не накладывался на i-IconButton в правом верхнем углу.
+            val titleHPad = if (isLandscape) infoBtnSize else 0.dp
             Column(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.SpaceBetween,
                 horizontalAlignment = Alignment.Start,
             ) {
-                Text(
-                    text = title,
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.Center,
-                    fontFamily = OpenSansFontFamily,
-                    fontSize = titleSize,
-                    lineHeight = titleLineHeight,
-                    maxLines = 2,
-                )
-                if (subtitle != null) {
+                    horizontalAlignment = Alignment.Start,
+                ) {
                     Text(
-                        text = subtitle,
-                        modifier = Modifier.fillMaxWidth(),
+                        text = title,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = titleHPad),
                         textAlign = TextAlign.Center,
                         fontFamily = OpenSansFontFamily,
-                        fontSize = subtitleSize,
-                        color = Color(0xFF555555),
-                        maxLines = 1,
+                        fontSize = titleSize,
+                        lineHeight = titleLineHeight,
+                        maxLines = 2,
                     )
+                    if (subtitle != null) {
+                        Text(
+                            text = subtitle,
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.Center,
+                            fontFamily = OpenSansFontFamily,
+                            fontSize = subtitleSize,
+                            color = Color(0xFF555555),
+                            maxLines = 1,
+                        )
+                    }
                 }
                 if (showStats) {
                     StageStats(

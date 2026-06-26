@@ -179,11 +179,24 @@ fun MainScreen(
             val contentMaxWidth: Dp = if (isTablet) 720.dp else maxWidth
             val outerPadding = if (isTablet) 32.dp else 16.dp
             val gap = if (isTablet) 24.dp else 16.dp
+            // В landscape убираем боковые поля — кнопки «Въезд»/«Выезд» прижаты
+            // к левой границе, узкая PlanCard — к правой. Top/bottom оставляем
+            // для зазора от topbar и нижнего края. Portrait — без изменений.
+            val bodyPadding = if (isLandscape) {
+                PaddingValues(
+                    start = 0.dp,
+                    end = 0.dp,
+                    top = outerPadding,
+                    bottom = outerPadding,
+                )
+            } else {
+                PaddingValues(outerPadding)
+            }
 
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(outerPadding),
+                    .padding(bodyPadding),
                 contentAlignment = Alignment.TopCenter,
             ) {
                 if (isLandscape) {
