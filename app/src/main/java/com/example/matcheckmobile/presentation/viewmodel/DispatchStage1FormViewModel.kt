@@ -251,6 +251,11 @@ class DispatchStage1FormViewModel(
             return
         }
 
+        if (cur.cargoPhotoPaths.isEmpty()) {
+            _state.update { it.copy(error = "Добавьте фото машины") }
+            return
+        }
+
         // Pre-flight: сервер validateKindLinks для kind='contractor' требует
         // получателя ТОЛЬКО для picked-UPD случая (когда привязан документ).
         // Empty-draft (updId == null, «Создать отгрузку» без УПД) проходит

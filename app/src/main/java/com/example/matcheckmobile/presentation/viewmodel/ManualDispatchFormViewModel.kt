@@ -120,10 +120,11 @@ class ManualDispatchFormViewModel(
             return
         }
 
-        // Минимальная валидация: хотя бы одно фото, чтобы не плодить пустые
-        // «отгрузки». Согласовано с тем, как работает 1 Этап «Автотранспорт».
-        if (cur.documentPhotoPaths.isEmpty() && cur.cargoPhotoPaths.isEmpty()) {
-            _state.update { it.copy(error = "Добавьте хотя бы одно фото") }
+        // Фото груза обязательно — это основной артефакт ручного выноса,
+        // без него карточка на веб-портале выглядит пустой и не даёт
+        // менеджеру подтвердить факт отгрузки.
+        if (cur.cargoPhotoPaths.isEmpty()) {
+            _state.update { it.copy(error = "Добавьте фото груза") }
             return
         }
 

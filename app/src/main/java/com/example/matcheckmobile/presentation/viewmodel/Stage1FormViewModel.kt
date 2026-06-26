@@ -332,6 +332,11 @@ class Stage1FormViewModel(
         // важно завершить 1 Этап даже с «нестандартным» номером. Достаточно
         // проверки на непустоту.
 
+        if (cur.cargoPhotoPaths.isEmpty()) {
+            _state.update { it.copy(error = "Добавьте фото машины") }
+            return
+        }
+
         val siteId = container.tokenStorage.state.value.siteId
         if (siteId.isNullOrBlank()) {
             _state.update { it.copy(error = "Нет привязки к объекту, переавторизуйтесь") }

@@ -327,6 +327,11 @@ class DispatchStage2FormViewModel(
             return
         }
 
+        if (cur.vehiclePhotoPaths.isEmpty()) {
+            _state.update { it.copy(error = "Добавьте фото машины") }
+            return
+        }
+
         _state.update { it.copy(isSaving = true, error = null) }
         viewModelScope.launch {
             try {
