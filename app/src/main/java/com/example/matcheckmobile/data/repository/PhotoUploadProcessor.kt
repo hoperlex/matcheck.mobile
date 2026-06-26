@@ -61,6 +61,15 @@ class PhotoUploadProcessor(
         var skipped = 0
         var failed = 0
 
+        // Сначала «оживляем» фото, застрявшие в UPLOADING после убийства
+        // процесса mid-upload — иначе findPhotosByStatus(PENDING/ERROR) их не
+        // подхватит и они навсегда останутся orphan'ами. Делаем в начале цикла:
+        // активной заливки сейчас нет, поэтому любое UPLOADING = недогруженный
+        // остаток. Повторный presign идемпотентен (дедуп по contentHash), так
+        // что даже при гонке двойной заливки не будет дубля на сервере.
+        deliveryDao.resetStuckUploadingPhotos()
+        shipmentDao.resetStuckUploadingPhotos()
+
         val deliveryPhotos = deliveryDao.findPhotosByStatus(
             listOf("PENDING_UPLOAD", "UPLOAD_ERROR"),
         )

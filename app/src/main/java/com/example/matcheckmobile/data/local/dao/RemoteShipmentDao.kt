@@ -41,6 +41,11 @@ interface RemoteShipmentDao {
     @Query("SELECT * FROM remote_shipment_photos WHERE uploadStatus IN (:statuses)")
     suspend fun findPhotosByStatus(statuses: List<String>): List<RemoteShipmentPhotoEntity>
 
+    // Симметрично RemoteDeliveryDao.resetStuckUploadingPhotos — сброс зависших
+    // в UPLOADING фото (процесс убит mid-upload), чтобы они повторились.
+    @Query("UPDATE remote_shipment_photos SET uploadStatus = 'PENDING_UPLOAD' WHERE uploadStatus = 'UPLOADING'")
+    suspend fun resetStuckUploadingPhotos(): Int
+
     @Query("SELECT * FROM remote_shipment_photos WHERE uploadStatus IN (:statuses) ORDER BY takenAt DESC")
     fun observePhotosByStatus(statuses: List<String>): Flow<List<RemoteShipmentPhotoEntity>>
 

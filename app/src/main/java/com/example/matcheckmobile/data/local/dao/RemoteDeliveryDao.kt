@@ -41,6 +41,16 @@ interface RemoteDeliveryDao {
     @Query("SELECT * FROM remote_delivery_photos WHERE uploadStatus IN (:statuses)")
     suspend fun findPhotosByStatus(statuses: List<String>): List<RemoteDeliveryPhotoEntity>
 
+    // Recovery «зависших» загрузок: если процесс убили во время заливки фото
+    // (свернули приложение / Android прибил фоновую задачу), статус остаётся
+    // UPLOADING, а findPhotosByStatus(PENDING_UPLOAD, UPLOAD_ERROR) такие НЕ
+    // перезабирает → фото навсегда зависает orphan'ом на сервере (uploaded_at=
+    // null), и cleanup-job удаляет его через час. Сбрасываем UPLOADING обратно
+    // в PENDING_UPLOAD в начале каждого processAll — на этот момент активной
+    // заливки нет, значит любое UPLOADING = недогруженный остаток для повтора.
+    @Query("UPDATE remote_delivery_photos SET uploadStatus = 'PENDING_UPLOAD' WHERE uploadStatus = 'UPLOADING'")
+    suspend fun resetStuckUploadingPhotos(): Int
+
     @Query("SELECT * FROM remote_delivery_photos WHERE uploadStatus IN (:statuses) ORDER BY takenAt DESC")
     fun observePhotosByStatus(statuses: List<String>): Flow<List<RemoteDeliveryPhotoEntity>>
 
