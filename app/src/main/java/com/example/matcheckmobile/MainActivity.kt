@@ -10,20 +10,29 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.example.matcheckmobile.presentation.components.AppUpdateDialogHost
 import com.example.matcheckmobile.presentation.navigation.MatcheckNavHost
 import com.example.matcheckmobile.sync.MatcheckSyncScheduler
 import com.example.matcheckmobile.ui.theme.MatcheckmobileTheme
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // На Android 16 (targetSdk=36) система может игнорировать
-        // screenOrientation из манифеста на планшетах. Используем NOSENSOR —
-        // система перестаёт опрашивать гироскоп для смены ориентации совсем,
-        // окно остаётся в portrait по умолчанию.
+        // Initial-значение до того, как DataStore прочитает prefersLandscape.
+        // Дальше реактивный collect перестроит ориентацию из preference.
+        // Внимание: на Android 16 для targetSdk≥36 система может игнорировать
+        // requestedOrientation на больших экранах sw600dp+ (Samsung-планшет и т.п.),
+        // см. https://developer.android.com/about/versions/16/behavior-changes-16.
+        // Сейчас targetSdk=35 — флаг ещё работает; при подъёме targetSdk нужно
+        // переключаться на адаптив через WindowSizeClass и физический поворот.
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_NOSENSOR
+        applyOrientationPreference()
         // Не даём экрану гаснуть, пока приложение на переднем плане — инспектор
         // на КПП работает в режиме «всё время видно». При уходе в фон флаг
         // автоматически перестаёт действовать.
@@ -64,6 +73,36 @@ class MainActivity : ComponentActivity() {
                     // тогда поверх любой страницы навигации всплывает AlertDialog.
                     AppUpdateDialogHost()
                 }
+            }
+        }
+    }
+
+    /**
+     * Подписка на prefersLandscape из DataStore. При переключении тумблера
+     * на главной мгновенно меняем requestedOrientation: SENSOR_LANDSCAPE
+     * (любая landscape по гироскопу) ↔ NOSENSOR (фиксируем portrait, гироскоп
+     * отключён — раньше так было прибито в манифесте и в onCreate).
+     *
+     * На больших экранах с Android 16 и targetSdk≥36 система может проигнорировать
+     * это требование и оставить ориентацию по физическому положению устройства —
+     * это ожидаемое поведение платформы, не баг приложения.
+     */
+    private fun applyOrientationPreference() {
+        val container = (application as? MatcheckApplication)?.container ?: return
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                container.deviceSettings.prefersLandscapeFlow
+                    .distinctUntilChanged()
+                    .collect { wantsLandscape ->
+                        val next = if (wantsLandscape) {
+                            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                        } else {
+                            ActivityInfo.SCREEN_ORIENTATION_NOSENSOR
+                        }
+                        if (requestedOrientation != next) {
+                            requestedOrientation = next
+                        }
+                    }
             }
         }
     }

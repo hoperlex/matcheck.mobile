@@ -27,6 +27,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -74,6 +75,7 @@ fun MainScreen(
     var confirmLogout by remember { mutableStateOf(false) }
     val settingsVm: SettingsViewModel = matcheckViewModel()
     val settingsState by settingsVm.state.collectAsStateWithLifecycle()
+    val prefersLandscape by settingsVm.prefersLandscape.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -187,6 +189,15 @@ fun MainScreen(
                         futureValue = status.expectedFuture.toString(),
                         isTablet = isTablet,
                     )
+                    // Тумблер «Горизонтальный режим». Хранится локально
+                    // (DeviceSettings.prefersLandscape). MainActivity подписана
+                    // на этот флаг и переключает requestedOrientation. Внимание:
+                    // на больших экранах с Android 16 / targetSdk≥36 система
+                    // может игнорировать requestedOrientation — это ожидаемо.
+                    OrientationToggleRow(
+                        checked = prefersLandscape,
+                        onCheckedChange = settingsVm::setPrefersLandscape,
+                    )
                 }
             }
         }
@@ -277,6 +288,31 @@ fun MainScreen(
             dismissButton = {
                 TextButton(onClick = { confirmLogout = false }) { Text("Отмена") }
             },
+        )
+    }
+}
+
+@Composable
+private fun OrientationToggleRow(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = "Горизонтальный режим",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
         )
     }
 }

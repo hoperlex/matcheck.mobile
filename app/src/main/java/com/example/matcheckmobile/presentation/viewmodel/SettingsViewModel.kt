@@ -40,6 +40,23 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
         initialValue = SettingsUiState(),
     )
 
+    /**
+     * «Горизонтальный режим» — пользовательский тумблер на главной. Отдельный
+     * StateFlow, чтобы не раздувать SettingsUiState combine — флаг используется
+     * только парой MainScreen (UI) ↔ MainActivity (применение requestedOrientation).
+     */
+    val prefersLandscape: StateFlow<Boolean> = container.deviceSettings
+        .prefersLandscapeFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = false,
+        )
+
+    fun setPrefersLandscape(value: Boolean) {
+        viewModelScope.launch { container.deviceSettings.setPrefersLandscape(value) }
+    }
+
     fun setServerBaseUrl(url: String) {
         viewModelScope.launch { container.deviceSettings.setServerBaseUrl(url) }
     }
