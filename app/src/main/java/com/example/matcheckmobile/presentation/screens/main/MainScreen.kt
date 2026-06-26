@@ -21,6 +21,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -118,7 +119,12 @@ fun MainScreen(
                             text = "МАТБАЛАНС",
                             fontFamily = OswaldFontFamily,
                             fontWeight = FontWeight.SemiBold,
-                            fontSize = 26.sp,
+                            // Уменьшил с 26.sp до 20.sp: в topbar теперь
+                            // ещё и Switch «Горизонтальный режим» (правее
+                            // SyncChip), вместе с длинным заголовком текст
+                            // переносился на 2 строки на телефонах.
+                            fontSize = 20.sp,
+                            maxLines = 1,
                         )
                     }
                 },
@@ -151,16 +157,14 @@ fun MainScreen(
                             }
                         },
                     )
-                    // В landscape тумблер перенесён в topbar (правее SyncChip)
-                    // и без подписи — место в landscape ценнее. В portrait он
-                    // остаётся под PlanCard с подписью.
-                    if (isLandscape) {
-                        Switch(
-                            checked = prefersLandscape,
-                            onCheckedChange = settingsVm::setPrefersLandscape,
-                            modifier = Modifier.padding(start = 4.dp, end = 8.dp),
-                        )
-                    }
+                    // Switch «Горизонтальный режим» — всегда в topbar справа,
+                    // без подписи (компактно). В portrait и landscape живёт
+                    // одинаково, отдельной строки в body больше не занимает.
+                    Switch(
+                        checked = prefersLandscape,
+                        onCheckedChange = settingsVm::setPrefersLandscape,
+                        modifier = Modifier.padding(start = 4.dp, end = 8.dp),
+                    )
                 },
             )
         },
@@ -182,21 +186,22 @@ fun MainScreen(
                     .padding(outerPadding),
                 contentAlignment = Alignment.TopCenter,
             ) {
-                Column(
-                    modifier = Modifier
-                        .widthIn(max = contentMaxWidth)
-                        .fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(gap),
-                ) {
-                    if (isLandscape) {
-                        // Landscape: «Въезд» и «Выезд» в одну строку, группа
-                        // занимает 80% ширины (требование UX). Высота — общая
-                        // вершинная зона через weight(1f) на Row.
+                if (isLandscape) {
+                    // Landscape: всю строку делим — слева 80% кнопки
+                    // «Въезд»/«Выезд» в один ряд, справа узкая колонка
+                    // PlanCard в два этажа («Сегодня» сверху, «Остальные»
+                    // снизу). PlanCard ограничен widthIn(max=160dp), чтобы
+                    // и на широком планшете не растягивался.
+                    Row(
+                        modifier = Modifier
+                            .widthIn(max = contentMaxWidth)
+                            .fillMaxSize(),
+                        horizontalArrangement = Arrangement.spacedBy(gap),
+                    ) {
                         Row(
                             modifier = Modifier
-                                .fillMaxWidth(0.8f)
-                                .align(Alignment.CenterHorizontally)
-                                .weight(1f),
+                                .weight(0.8f)
+                                .fillMaxHeight(),
                             horizontalArrangement = Arrangement.spacedBy(gap),
                         ) {
                             ActionButton(
@@ -216,7 +221,22 @@ fun MainScreen(
                                     .weight(1f),
                             )
                         }
-                    } else {
+                        PlanCardCompact(
+                            todayValue = status.expectedToday.toString(),
+                            futureValue = status.expectedFuture.toString(),
+                            modifier = Modifier
+                                .weight(0.2f)
+                                .widthIn(max = 160.dp)
+                                .fillMaxHeight(),
+                        )
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .widthIn(max = contentMaxWidth)
+                            .fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(gap),
+                    ) {
                         ActionButton(
                             text = "Въезд",
                             onClick = onReceipt,
@@ -233,22 +253,10 @@ fun MainScreen(
                                 .fillMaxWidth()
                                 .weight(1f),
                         )
-                    }
-                    PlanCard(
-                        todayValue = status.expectedToday.toString(),
-                        futureValue = status.expectedFuture.toString(),
-                        isTablet = isTablet,
-                    )
-                    // Тумблер «Горизонтальный режим». Хранится локально
-                    // (DeviceSettings.prefersLandscape). MainActivity подписана
-                    // на этот флаг и переключает requestedOrientation. Внимание:
-                    // на больших экранах с Android 16 / targetSdk≥36 система
-                    // может игнорировать requestedOrientation — это ожидаемо.
-                    // В landscape тумблер живёт в topbar (см. блок actions выше).
-                    if (!isLandscape) {
-                        OrientationToggleRow(
-                            checked = prefersLandscape,
-                            onCheckedChange = settingsVm::setPrefersLandscape,
+                        PlanCard(
+                            todayValue = status.expectedToday.toString(),
+                            futureValue = status.expectedFuture.toString(),
+                            isTablet = isTablet,
                         )
                     }
                 }
@@ -345,27 +353,59 @@ fun MainScreen(
     }
 }
 
+/**
+ * Узкая landscape-вариация [PlanCard]: «Сегодня» и «Остальные» в два этажа
+ * друг под другом. Делается только в landscape, чтобы освободить ширину под
+ * кнопки «Въезд»/«Выезд» (правее этой колонки они занимают 80% ширины).
+ */
 @Composable
-private fun OrientationToggleRow(
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
+private fun PlanCardCompact(
+    todayValue: String,
+    futureValue: String,
+    modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        shape = RoundedCornerShape(20.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = modifier,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.SpaceEvenly,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            CompactPlanCell(label = "Сегодня", value = todayValue)
+            HorizontalDivider(
+                thickness = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant,
+            )
+            CompactPlanCell(label = "Остальные", value = futureValue)
+        }
+    }
+}
+
+@Composable
+private fun CompactPlanCell(label: String, value: String) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Text(
-            text = "Горизонтальный режим",
-            style = MaterialTheme.typography.bodyLarge,
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1f),
+            maxLines = 1,
         )
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
+        Text(
+            text = value,
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
         )
     }
 }

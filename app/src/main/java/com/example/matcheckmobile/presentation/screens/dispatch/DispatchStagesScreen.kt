@@ -166,6 +166,7 @@ fun DispatchStagesScreen(
                             showStats = true,
                             onClick = onStage1,
                             isTablet = isTablet,
+                            isLandscape = true,
                             modifier = Modifier
                                 .fillMaxHeight()
                                 .weight(1f),
@@ -178,6 +179,7 @@ fun DispatchStagesScreen(
                             showStats = false,
                             onClick = onStage2,
                             isTablet = isTablet,
+                            isLandscape = true,
                             modifier = Modifier
                                 .fillMaxHeight()
                                 .weight(1f),
@@ -191,6 +193,7 @@ fun DispatchStagesScreen(
                             showStats = false,
                             onClick = onManualEntry,
                             isTablet = isTablet,
+                            isLandscape = true,
                             modifier = Modifier
                                 .fillMaxHeight()
                                 .weight(1f),
@@ -256,15 +259,49 @@ private fun StageButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     isTablet: Boolean,
+    isLandscape: Boolean = false,
     subtitle: String? = null,
 ) {
     var infoDialogVisible by remember { mutableStateOf(false) }
+
+    val titleSize = when {
+        isLandscape && isTablet -> 40.sp
+        isLandscape -> 28.sp
+        isTablet -> 52.sp
+        else -> 42.sp
+    }
+    val titleLineHeight = when {
+        isLandscape && isTablet -> 46.sp
+        isLandscape -> 32.sp
+        isTablet -> 60.sp
+        else -> 50.sp
+    }
+    val subtitleSize = when {
+        isLandscape && isTablet -> 16.sp
+        isLandscape -> 13.sp
+        isTablet -> 22.sp
+        else -> 18.sp
+    }
+    val contentPad = if (isLandscape) 12.dp else 24.dp
+    val infoBtnSize = when {
+        isLandscape && isTablet -> 40.dp
+        isLandscape -> 32.dp
+        isTablet -> 56.dp
+        else -> 44.dp
+    }
+    val infoIconSize = when {
+        isLandscape && isTablet -> 24.dp
+        isLandscape -> 20.dp
+        isTablet -> 40.dp
+        else -> 32.dp
+    }
+    val infoOffset = if (isLandscape) 4.dp else 12.dp
 
     OutlinedButton(
         onClick = onClick,
         modifier = modifier,
         shape = RoundedCornerShape(24.dp),
-        contentPadding = PaddingValues(24.dp),
+        contentPadding = PaddingValues(contentPad),
         colors = ButtonDefaults.outlinedButtonColors(
             containerColor = Color.White,
             contentColor = Color.Black,
@@ -277,37 +314,32 @@ private fun StageButton(
                 verticalArrangement = Arrangement.SpaceBetween,
                 horizontalAlignment = Alignment.Start,
             ) {
-                // На трёх кнопках высота меньше — кегль 52sp/42sp (как на
-                // IntakeStagesScreen), чтобы заголовок + subtitle + статы
-                // влезали без обрезания.
-                // lineHeight явно задан больше fontSize: при переносе на 2
-                // строки («Ручной\nвынос» на узких экранах) строки не наезжают
-                // друг на друга. Без этого Compose использует «текстовый»
-                // lineHeight, который для крупного кегля получается слишком
-                // плотным.
                 Text(
                     text = title,
                     modifier = Modifier.fillMaxWidth(),
                     textAlign = TextAlign.Center,
                     fontFamily = OpenSansFontFamily,
-                    fontSize = if (isTablet) 52.sp else 42.sp,
-                    lineHeight = if (isTablet) 60.sp else 50.sp,
+                    fontSize = titleSize,
+                    lineHeight = titleLineHeight,
+                    maxLines = 2,
                 )
-                // Подзаголовок — категория кнопки («Автотранспорт» для 1/2 Этапа).
-                // Для «Ручной вынос» subtitle=null — место занимает Spacer ниже,
-                // чтобы выравнивание заголовков на всех трёх кнопках было одинаковым.
                 if (subtitle != null) {
                     Text(
                         text = subtitle,
                         modifier = Modifier.fillMaxWidth(),
                         textAlign = TextAlign.Center,
                         fontFamily = OpenSansFontFamily,
-                        fontSize = if (isTablet) 22.sp else 18.sp,
+                        fontSize = subtitleSize,
                         color = Color(0xFF555555),
+                        maxLines = 1,
                     )
                 }
                 if (showStats) {
-                    StageStats(counts = counts, isTablet = isTablet)
+                    StageStats(
+                        counts = counts,
+                        isTablet = isTablet,
+                        isLandscape = isLandscape,
+                    )
                 } else {
                     Spacer(Modifier.size(0.dp))
                 }
@@ -317,14 +349,14 @@ private fun StageButton(
                 onClick = { infoDialogVisible = true },
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .offset(x = 12.dp, y = (-12).dp)
-                    .size(if (isTablet) 56.dp else 44.dp),
+                    .offset(x = infoOffset, y = -infoOffset)
+                    .size(infoBtnSize),
             ) {
                 Icon(
                     imageVector = Icons.Outlined.Info,
                     contentDescription = "Информация",
                     tint = Color.Black,
-                    modifier = Modifier.size(if (isTablet) 40.dp else 32.dp),
+                    modifier = Modifier.size(infoIconSize),
                 )
             }
         }
@@ -361,7 +393,11 @@ private fun StageButton(
 }
 
 @Composable
-private fun StageStats(counts: DispatchStagesCounts, isTablet: Boolean) {
+private fun StageStats(
+    counts: DispatchStagesCounts,
+    isTablet: Boolean,
+    isLandscape: Boolean = false,
+) {
     val transition = rememberInfiniteTransition(label = "stats-pulse")
     val dotAlpha by transition.animateFloat(
         initialValue = 0.35f,
@@ -373,10 +409,27 @@ private fun StageStats(counts: DispatchStagesCounts, isTablet: Boolean) {
         label = "stats-dot-alpha",
     )
 
-    val rowGap = if (isTablet) 6.dp else 4.dp
-    val fontSize = if (isTablet) 24.sp else 20.sp
-    val dotSize = if (isTablet) 14.dp else 11.dp
-    val spacing = if (isTablet) 10.dp else 7.dp
+    val rowGap = when {
+        isLandscape -> 2.dp
+        isTablet -> 6.dp
+        else -> 4.dp
+    }
+    val fontSize = when {
+        isLandscape && isTablet -> 16.sp
+        isLandscape -> 12.sp
+        isTablet -> 24.sp
+        else -> 20.sp
+    }
+    val dotSize = when {
+        isLandscape -> 8.dp
+        isTablet -> 14.dp
+        else -> 11.dp
+    }
+    val spacing = when {
+        isLandscape -> 4.dp
+        isTablet -> 10.dp
+        else -> 7.dp
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(rowGap)) {
         StatRow(
