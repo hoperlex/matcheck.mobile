@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -39,8 +40,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import android.content.res.Configuration
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -76,6 +79,13 @@ fun MainScreen(
     val settingsVm: SettingsViewModel = matcheckViewModel()
     val settingsState by settingsVm.state.collectAsStateWithLifecycle()
     val prefersLandscape by settingsVm.prefersLandscape.collectAsStateWithLifecycle()
+    // Landscape-режим — отдельный layout: тумблер уезжает в topbar справа,
+    // кнопки «Въезд»/«Выезд» становятся в ряд. Portrait — без изменений, всё
+    // как видели инспекторы до этой задачи. Detection через LocalConfiguration:
+    // флаг preference и фактическая ориентация могут расходиться (system
+    // Android 16 sw600dp+ может игнорировать requestedOrientation).
+    val isLandscape = LocalConfiguration.current.orientation ==
+        Configuration.ORIENTATION_LANDSCAPE
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -141,6 +151,16 @@ fun MainScreen(
                             }
                         },
                     )
+                    // В landscape тумблер перенесён в topbar (правее SyncChip)
+                    // и без подписи — место в landscape ценнее. В portrait он
+                    // остаётся под PlanCard с подписью.
+                    if (isLandscape) {
+                        Switch(
+                            checked = prefersLandscape,
+                            onCheckedChange = settingsVm::setPrefersLandscape,
+                            modifier = Modifier.padding(start = 4.dp, end = 8.dp),
+                        )
+                    }
                 },
             )
         },
@@ -168,22 +188,52 @@ fun MainScreen(
                         .fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(gap),
                 ) {
-                    ActionButton(
-                        text = "Въезд",
-                        onClick = onReceipt,
-                        isTablet = isTablet,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                    )
-                    ActionButton(
-                        text = "Выезд",
-                        onClick = onDispatch,
-                        isTablet = isTablet,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                    )
+                    if (isLandscape) {
+                        // Landscape: «Въезд» и «Выезд» в одну строку, группа
+                        // занимает 80% ширины (требование UX). Высота — общая
+                        // вершинная зона через weight(1f) на Row.
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth(0.8f)
+                                .align(Alignment.CenterHorizontally)
+                                .weight(1f),
+                            horizontalArrangement = Arrangement.spacedBy(gap),
+                        ) {
+                            ActionButton(
+                                text = "Въезд",
+                                onClick = onReceipt,
+                                isTablet = isTablet,
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .weight(1f),
+                            )
+                            ActionButton(
+                                text = "Выезд",
+                                onClick = onDispatch,
+                                isTablet = isTablet,
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .weight(1f),
+                            )
+                        }
+                    } else {
+                        ActionButton(
+                            text = "Въезд",
+                            onClick = onReceipt,
+                            isTablet = isTablet,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                        )
+                        ActionButton(
+                            text = "Выезд",
+                            onClick = onDispatch,
+                            isTablet = isTablet,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                        )
+                    }
                     PlanCard(
                         todayValue = status.expectedToday.toString(),
                         futureValue = status.expectedFuture.toString(),
@@ -194,10 +244,13 @@ fun MainScreen(
                     // на этот флаг и переключает requestedOrientation. Внимание:
                     // на больших экранах с Android 16 / targetSdk≥36 система
                     // может игнорировать requestedOrientation — это ожидаемо.
-                    OrientationToggleRow(
-                        checked = prefersLandscape,
-                        onCheckedChange = settingsVm::setPrefersLandscape,
-                    )
+                    // В landscape тумблер живёт в topbar (см. блок actions выше).
+                    if (!isLandscape) {
+                        OrientationToggleRow(
+                            checked = prefersLandscape,
+                            onCheckedChange = settingsVm::setPrefersLandscape,
+                        )
+                    }
                 }
             }
         }

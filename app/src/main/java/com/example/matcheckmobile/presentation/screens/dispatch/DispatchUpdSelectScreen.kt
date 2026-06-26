@@ -37,8 +37,11 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import android.content.res.Configuration
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -115,17 +118,32 @@ fun DispatchUpdSelectScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
+            val isLandscape = LocalConfiguration.current.orientation ==
+                Configuration.ORIENTATION_LANDSCAPE
             val outerPadding = if (maxWidth >= 600.dp) 32.dp else 16.dp
+            val contentPadding = if (isLandscape) {
+                PaddingValues(
+                    start = outerPadding,
+                    end = outerPadding,
+                    top = 8.dp,
+                    bottom = outerPadding,
+                )
+            } else {
+                PaddingValues(outerPadding)
+            }
+            val contentWidthModifier = if (isLandscape) {
+                Modifier.fillMaxWidth()
+            } else {
+                Modifier.widthIn(max = ContentMaxWidth).fillMaxWidth()
+            }
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(outerPadding),
+                    .padding(contentPadding),
                 contentAlignment = Alignment.TopCenter,
             ) {
                 Column(
-                    modifier = Modifier
-                        .widthIn(max = ContentMaxWidth)
-                        .fillMaxWidth(),
+                    modifier = contentWidthModifier,
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     DispatchUpdTabSelector(

@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
@@ -44,11 +45,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import android.content.res.Configuration
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
@@ -130,7 +133,13 @@ fun DispatchStagesScreen(
                 .padding(padding),
         ) {
             val isTablet = maxWidth >= TabletBreakpoint
-            val contentMaxWidth: Dp = if (isTablet) 720.dp else maxWidth
+            val isLandscape = LocalConfiguration.current.orientation ==
+                Configuration.ORIENTATION_LANDSCAPE
+            val contentMaxWidth: Dp = when {
+                isLandscape -> maxWidth
+                isTablet -> 720.dp
+                else -> maxWidth
+            }
             val outerPadding = if (isTablet) 32.dp else 16.dp
             val gap = if (isTablet) 24.dp else 16.dp
 
@@ -140,49 +149,98 @@ fun DispatchStagesScreen(
                     .padding(outerPadding),
                 contentAlignment = Alignment.Center,
             ) {
-                Column(
-                    modifier = Modifier
-                        .widthIn(max = contentMaxWidth)
-                        .fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(gap),
-                ) {
-                    StageButton(
-                        title = "1 Этап",
-                        subtitle = "Автотранспорт",
-                        description = "Описание: фотофиксация госномера, груза, документов",
-                        counts = counts,
-                        showStats = true,
-                        onClick = onStage1,
-                        isTablet = isTablet,
+                if (isLandscape) {
+                    // Landscape: три StageButton'а в один ряд по трети ширины.
+                    // Portrait-ветка ниже не тронута.
+                    Row(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                    )
-                    StageButton(
-                        title = "2 Этап",
-                        subtitle = "Автотранспорт",
-                        description = "Описание: фотофиксация выгрузки, МОЛ, госномер",
-                        counts = counts,
-                        showStats = false,
-                        onClick = onStage2,
-                        isTablet = isTablet,
+                            .widthIn(max = contentMaxWidth)
+                            .fillMaxSize(),
+                        horizontalArrangement = Arrangement.spacedBy(gap),
+                    ) {
+                        StageButton(
+                            title = "1 Этап",
+                            subtitle = "Автотранспорт",
+                            description = "Описание: фотофиксация госномера, груза, документов",
+                            counts = counts,
+                            showStats = true,
+                            onClick = onStage1,
+                            isTablet = isTablet,
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .weight(1f),
+                        )
+                        StageButton(
+                            title = "2 Этап",
+                            subtitle = "Автотранспорт",
+                            description = "Описание: фотофиксация выгрузки, МОЛ, госномер",
+                            counts = counts,
+                            showStats = false,
+                            onClick = onStage2,
+                            isTablet = isTablet,
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .weight(1f),
+                        )
+                        StageButton(
+                            title = "Ручной вынос",
+                            subtitle = null,
+                            description = "Описание: отгрузка без автотранспорта. " +
+                                "Инспектор сразу подтверждает её собой.",
+                            counts = counts,
+                            showStats = false,
+                            onClick = onManualEntry,
+                            isTablet = isTablet,
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .weight(1f),
+                        )
+                    }
+                } else {
+                    Column(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                    )
-                    StageButton(
-                        title = "Ручной вынос",
-                        subtitle = null,
-                        description = "Описание: отгрузка без автотранспорта. " +
-                            "Инспектор сразу подтверждает её собой.",
-                        counts = counts,
-                        showStats = false,
-                        onClick = onManualEntry,
-                        isTablet = isTablet,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                    )
+                            .widthIn(max = contentMaxWidth)
+                            .fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(gap),
+                    ) {
+                        StageButton(
+                            title = "1 Этап",
+                            subtitle = "Автотранспорт",
+                            description = "Описание: фотофиксация госномера, груза, документов",
+                            counts = counts,
+                            showStats = true,
+                            onClick = onStage1,
+                            isTablet = isTablet,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                        )
+                        StageButton(
+                            title = "2 Этап",
+                            subtitle = "Автотранспорт",
+                            description = "Описание: фотофиксация выгрузки, МОЛ, госномер",
+                            counts = counts,
+                            showStats = false,
+                            onClick = onStage2,
+                            isTablet = isTablet,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                        )
+                        StageButton(
+                            title = "Ручной вынос",
+                            subtitle = null,
+                            description = "Описание: отгрузка без автотранспорта. " +
+                                "Инспектор сразу подтверждает её собой.",
+                            counts = counts,
+                            showStats = false,
+                            onClick = onManualEntry,
+                            isTablet = isTablet,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                        )
+                    }
                 }
             }
         }
