@@ -176,7 +176,15 @@ fun MainScreen(
                 .padding(padding),
         ) {
             val isTablet = maxWidth >= TabletBreakpoint
-            val contentMaxWidth: Dp = if (isTablet) 720.dp else maxWidth
+            // В landscape отпускаем 720dp-ограничение: на планшете 720dp ≈ A4,
+            // экран ~1280dp → ~280dp белых полей по бокам. Кнопки должны идти
+            // от левой границы (Въезд) до правой (PlanCard) впритык. Portrait
+            // сохраняет 720dp — там центрированный «телефонный» layout уместен.
+            val contentMaxWidth: Dp = when {
+                isLandscape -> maxWidth
+                isTablet -> 720.dp
+                else -> maxWidth
+            }
             val outerPadding = if (isTablet) 32.dp else 16.dp
             val gap = if (isTablet) 24.dp else 16.dp
             // В landscape убираем боковые поля — кнопки «Въезд»/«Выезд» прижаты
