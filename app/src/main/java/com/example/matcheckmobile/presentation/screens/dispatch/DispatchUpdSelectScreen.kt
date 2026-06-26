@@ -121,10 +121,12 @@ fun DispatchUpdSelectScreen(
             val isLandscape = LocalConfiguration.current.orientation ==
                 Configuration.ORIENTATION_LANDSCAPE
             val outerPadding = if (maxWidth >= 600.dp) 32.dp else 16.dp
+            // См. комментарий в IntakeUpdSelectScreen: в landscape карточки
+            // УПД от края до края, без боковых полей.
             val contentPadding = if (isLandscape) {
                 PaddingValues(
-                    start = outerPadding,
-                    end = outerPadding,
+                    start = 0.dp,
+                    end = 0.dp,
                     top = 8.dp,
                     bottom = outerPadding,
                 )

@@ -135,9 +135,6 @@ fun IntakeStagesScreen(
             val isTablet = maxWidth >= TabletBreakpoint
             val isLandscape = LocalConfiguration.current.orientation ==
                 Configuration.ORIENTATION_LANDSCAPE
-            // В landscape отпускаем ограничение ширины — три кнопки в ряд должны
-            // занять всю доступную ширину. В portrait — текущее поведение
-            // (центрирование с максимумом 720dp на планшете).
             val contentMaxWidth: Dp = when {
                 isLandscape -> maxWidth
                 isTablet -> 720.dp
@@ -145,11 +142,24 @@ fun IntakeStagesScreen(
             }
             val outerPadding = if (isTablet) 32.dp else 16.dp
             val gap = if (isTablet) 24.dp else 16.dp
+            // В landscape убираем боковые поля — кнопки идут от левой границы
+            // до правой впритык (как уже сделано на MainScreen). Top/bottom
+            // оставляем для зазора от topbar и нижнего края.
+            val outerPaddingValues = if (isLandscape) {
+                PaddingValues(
+                    start = 0.dp,
+                    end = 0.dp,
+                    top = outerPadding,
+                    bottom = outerPadding,
+                )
+            } else {
+                PaddingValues(outerPadding)
+            }
 
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(outerPadding),
+                    .padding(outerPaddingValues),
                 contentAlignment = Alignment.Center,
             ) {
                 if (isLandscape) {
@@ -310,29 +320,31 @@ private fun StageButton(
         border = BorderStroke(2.dp, Color.Black),
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            // В landscape title и subtitle получают симметричный horizontal
-            // padding, равный ширине i-IconButton'a. Иначе при центрировании
-            // длинный заголовок («Ручной внос») доходит до правого края и
-            // буква накладывается на i-иконку.
-            val titleHPad = if (isLandscape) infoBtnSize else 0.dp
+            // В landscape опускаем весь текстовый блок ниже верха кнопки на
+            // высоту i-IconButton'a. Иначе длинный заголовок («Ручной внос»)
+            // при центрировании по ширине дотягивается до правого верхнего
+            // угла и накладывается на i-кружок. Horizontal padding не помог
+            // (40dp с каждой стороны мало для 40sp кириллицы), а опустить
+            // блок ниже i — гарантированно.
+            val textTopPad = if (isLandscape) infoBtnSize else 0.dp
             Column(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.SpaceBetween,
                 horizontalAlignment = Alignment.Start,
             ) {
                 // Верхняя группа — title + subtitle вплотную друг к другу.
-                // Раньше Column'a со SpaceBetween разносил subtitle к середине
-                // кнопки, и на разных кнопках («1 Этап» со stats vs «2 Этап»
-                // без stats) «Автотранспорт» оказывался на разной высоте.
+                // Subtitle всегда сразу под title; SpaceBetween главного
+                // Column'а распределяет «верхняя группа» / «нижняя группа»
+                // только в виде двух пакетов, без разрывов внутри.
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = textTopPad),
                     horizontalAlignment = Alignment.Start,
                 ) {
                     Text(
                         text = title,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = titleHPad),
+                        modifier = Modifier.fillMaxWidth(),
                         textAlign = TextAlign.Center,
                         fontFamily = OpenSansFontFamily,
                         fontSize = titleSize,

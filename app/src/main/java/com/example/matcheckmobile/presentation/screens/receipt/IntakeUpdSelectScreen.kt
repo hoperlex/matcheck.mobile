@@ -121,12 +121,13 @@ fun IntakeUpdSelectScreen(
                 Configuration.ORIENTATION_LANDSCAPE
             val outerPadding = if (maxWidth >= 600.dp) 32.dp else 16.dp
             // В landscape: уплотняем top (между TopAppBar и табами не было
-            // смысла держать большой gap — это пустота) и снимаем ограничение
-            // ширины 720dp, чтобы карточки УПД использовали всю ширину экрана.
+            // смысла держать большой gap — это пустота) и убираем боковые
+            // поля — карточки УПД от левой границы до правой, как на MainScreen
+            // и Stages-экранах.
             val contentPadding = if (isLandscape) {
                 PaddingValues(
-                    start = outerPadding,
-                    end = outerPadding,
+                    start = 0.dp,
+                    end = 0.dp,
                     top = 8.dp,
                     bottom = outerPadding,
                 )

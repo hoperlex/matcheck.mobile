@@ -142,11 +142,23 @@ fun DispatchStagesScreen(
             }
             val outerPadding = if (isTablet) 32.dp else 16.dp
             val gap = if (isTablet) 24.dp else 16.dp
+            // См. комментарий в IntakeStagesScreen: в landscape кнопки идут
+            // от края до края.
+            val outerPaddingValues = if (isLandscape) {
+                PaddingValues(
+                    start = 0.dp,
+                    end = 0.dp,
+                    top = outerPadding,
+                    bottom = outerPadding,
+                )
+            } else {
+                PaddingValues(outerPadding)
+            }
 
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(outerPadding),
+                    .padding(outerPaddingValues),
                 contentAlignment = Alignment.Center,
             ) {
                 if (isLandscape) {
@@ -309,24 +321,24 @@ private fun StageButton(
         border = BorderStroke(2.dp, Color.Black),
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            // См. комментарий в IntakeStagesScreen.StageButton: симметричный
-            // horizontal padding для title в landscape, чтобы «Ручной вынос»
-            // не накладывался на i-IconButton в правом верхнем углу.
-            val titleHPad = if (isLandscape) infoBtnSize else 0.dp
+            // См. комментарий в IntakeStagesScreen.StageButton: в landscape
+            // опускаем текстовый блок ниже верха кнопки на infoBtnSize,
+            // чтобы «Ручной вынос» не накладывался на i-IconButton.
+            val textTopPad = if (isLandscape) infoBtnSize else 0.dp
             Column(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.SpaceBetween,
                 horizontalAlignment = Alignment.Start,
             ) {
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = textTopPad),
                     horizontalAlignment = Alignment.Start,
                 ) {
                     Text(
                         text = title,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = titleHPad),
+                        modifier = Modifier.fillMaxWidth(),
                         textAlign = TextAlign.Center,
                         fontFamily = OpenSansFontFamily,
                         fontSize = titleSize,
