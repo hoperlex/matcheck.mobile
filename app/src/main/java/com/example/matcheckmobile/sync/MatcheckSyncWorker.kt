@@ -62,7 +62,14 @@ object MatcheckSyncScheduler {
         WorkManager.getInstance(context)
             .enqueueUniqueWork(
                 ONE_TIME,
-                ExistingWorkPolicy.REPLACE,
+                // APPEND_OR_RUN, а НЕ REPLACE: внутри синка идёт загрузка фото
+                // (presign → PUT в S3 → confirm), и REPLACE отменял текущий
+                // воркер сразу после presign — PUT не успевал, фото навсегда
+                // оставалось orphan'ом (uploaded_at=null). С APPEND_OR_RUN новый
+                // триггер (SSE / mutation / foreground) НЕ прерывает текущую
+                // заливку, а встаёт в очередь за ней. _OR_RUN — если предыдущий
+                // упал/отменён, новый запускается сразу, очередь не виснет.
+                ExistingWorkPolicy.APPEND_OR_RUN,
                 request,
             )
     }
