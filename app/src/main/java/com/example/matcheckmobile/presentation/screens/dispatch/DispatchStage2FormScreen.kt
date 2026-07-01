@@ -9,9 +9,11 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -43,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -159,6 +162,19 @@ fun DispatchStage2FormScreen(
             val inputLabelStyle = if (isTablet) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium
             val photoButtonTextStyle = if (isTablet) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleMedium
 
+            // Скролл всей формы + резерв под фиксированной кнопкой «Завершить
+            // 2 Этап» (Box.align(BottomEnd) ниже). Зеркало паттерна из
+            // DispatchStage1FormScreen: при открытой клавиатуре резерв обнуляем
+            // — клавиатура сама съедает нижнюю зону, а imePadding сжимает
+            // Column. Без scroll текстовые поля («Введите УПД», «Комментарий
+            // 2 Этап») в landscape уходили за пределы viewport при появлении
+            // клавиатуры и инспектор не видел ввод.
+            val density = LocalDensity.current
+            val imeBottomPx = WindowInsets.ime.getBottom(density)
+            val isImeVisible = imeBottomPx > 0
+            val scrollBottomReserve = if (isImeVisible) 0.dp
+                else finalizeButtonHeight + sectionGap + outerPadding
+
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -167,7 +183,11 @@ fun DispatchStage2FormScreen(
             ) {
                 Box(modifier = Modifier.widthIn(max = contentMaxWidth).fillMaxSize()) {
                     Column(
-                        modifier = Modifier.fillMaxSize().imePadding(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .imePadding()
+                            .verticalScroll(rememberScrollState())
+                            .padding(bottom = scrollBottomReserve),
                         verticalArrangement = Arrangement.spacedBy(sectionGap),
                     ) {
                         Stage1PhotosSection(
@@ -263,12 +283,13 @@ fun DispatchStage2FormScreen(
                             onAddClick = { addMaterialOpen = true },
                         )
 
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f)
-                                .verticalScroll(rememberScrollState()),
-                        ) {
+                        // Убран вложенный verticalScroll + weight(1f) — вся
+                        // форма теперь скроллится единым Column'ом на уровне
+                        // выше. weight в скроллящемся контейнере даёт
+                        // IllegalStateException; вложенный scroll конфликтует
+                        // с внешним и мешает автоскроллу к сфокусированному
+                        // текстовому полю при открытии клавиатуры.
+                        Column(modifier = Modifier.fillMaxWidth()) {
                             EditableMaterialsInlineList(
                                 value = state.materials,
                                 editedIndexes = state.editedIndexes,
