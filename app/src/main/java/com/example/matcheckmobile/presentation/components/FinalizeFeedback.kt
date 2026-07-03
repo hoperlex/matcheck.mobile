@@ -42,6 +42,12 @@ fun FinalizeConfirmDialog(
     confirmLabel: String = "Завершить",
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
+    // Защита от double-tap: пока идёт сохранение, повторный тап на «Завершить»
+    // блокируется на уровне UI, не попадает в viewModelScope.launch. Guard
+    // в VM (`if (cur.isSaving) return`) остаётся вторым слоем защиты.
+    // По умолчанию true — существующие вызовы без параметра работают как
+    // раньше.
+    confirmEnabled: Boolean = true,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -51,7 +57,7 @@ fun FinalizeConfirmDialog(
         // избыточно.
         text = message?.let { { Text(it) } },
         confirmButton = {
-            TextButton(onClick = onConfirm) {
+            TextButton(onClick = onConfirm, enabled = confirmEnabled) {
                 Text(confirmLabel, fontWeight = FontWeight.SemiBold)
             }
         },

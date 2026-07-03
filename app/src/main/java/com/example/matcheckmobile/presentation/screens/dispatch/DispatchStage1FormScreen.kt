@@ -400,6 +400,8 @@ fun DispatchStage1FormScreen(
                     vm.finalizeStage1()
                 },
                 onDismiss = { confirmFinalizeVisible = false },
+                // Double-tap guard, симметрично Stage1FormScreen (Приёмка).
+                confirmEnabled = !state.isSaving,
             )
         }
 

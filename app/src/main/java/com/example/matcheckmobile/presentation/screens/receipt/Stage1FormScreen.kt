@@ -447,6 +447,10 @@ fun Stage1FormScreen(
                     vm.finalizeStage1()
                 },
                 onDismiss = { confirmFinalizeVisible = false },
+                // Double-tap guard: пока идёт сохранение (isSaving), кнопка
+                // «Завершить» в диалоге заблокирована. Защита от повторных
+                // вызовов finalizeStage1 → дубли delivery в Room.
+                confirmEnabled = !state.isSaving,
             )
         }
 

@@ -145,6 +145,33 @@ interface RemoteDeliveryDao {
     )
     fun observeByStatuses(statuses: List<String>): Flow<List<RemoteDeliveryEntity>>
 
+    /**
+     * Активная (не помеченная на удаление) приёмка по natural key
+     * siteId + statusCode + sourceDocumentIdsJson. Используется в
+     * [DeliveryRepository.upsert] для дедупликации при повторных
+     * finalizeStage1 после ошибки фото / process kill / double-tap.
+     *
+     * ORDER BY updatedAt DESC — если в БД уже есть legacy-дубли до
+     * этого фикса, детерминированно выбираем самую свежую (не «какая
+     * попалась» из SQLite). Для новых записей natural key уникален.
+     */
+    @Query(
+        """
+        SELECT * FROM remote_deliveries
+        WHERE siteId = :siteId
+            AND statusCode = :statusCode
+            AND sourceDocumentIdsJson = :sourceDocumentIdsJson
+            AND pendingDeletionAt IS NULL
+        ORDER BY updatedAt DESC
+        LIMIT 1
+        """
+    )
+    suspend fun findByNaturalKey(
+        siteId: String,
+        statusCode: String,
+        sourceDocumentIdsJson: String,
+    ): RemoteDeliveryEntity?
+
     @Query("SELECT * FROM remote_delivery_items WHERE deliveryId = :deliveryId ORDER BY lineNo ASC")
     suspend fun findItemsByDelivery(deliveryId: String): List<RemoteDeliveryItemEntity>
 

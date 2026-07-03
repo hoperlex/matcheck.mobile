@@ -47,8 +47,30 @@ class ShipmentRepository(
         localMetaDao.upsert(ShipmentLocalMetaEntity(shipmentId = shipmentId, vehicleTypeCode = code))
     }
 
+    /**
+     * Канонизация natural key: см. симметричный
+     * [DeliveryRepository.canonicalSourceDocumentIdsJson].
+     */
+    private fun canonicalSourceDocumentIdsJson(ids: List<String>): String =
+        RemoteMappers.encodeIdList(ids.sorted())
+
+    /**
+     * Natural-key dedup: если id не передан явно и есть sourceDocumentIds,
+     * ищем существующую активную отгрузку по (siteId + statusCode +
+     * canonicalSourceDocumentIdsJson) и переиспользуем её id. Защита от
+     * retry после ошибки фото / process-kill / double-tap на 1 Этапе
+     * Выезда. Симметрично [DeliveryRepository.upsert].
+     */
     suspend fun upsert(input: UpsertInput): String {
-        val id = input.id ?: UUID.randomUUID().toString()
+        val sourceDocIdsJson = canonicalSourceDocumentIdsJson(input.sourceDocumentIds)
+        val existingId: String? = if (input.id == null && input.sourceDocumentIds.isNotEmpty()) {
+            shipmentDao.findByNaturalKey(
+                siteId = input.siteId,
+                statusCode = input.statusCode,
+                sourceDocumentIdsJson = sourceDocIdsJson,
+            )?.id
+        } else null
+        val id = input.id ?: existingId ?: UUID.randomUUID().toString()
         val now = currentIsoTimestamp()
         val baseVersion = shipmentDao.findById(id)?.version ?: 0
 
@@ -99,7 +121,9 @@ class ShipmentRepository(
             pendingDeletionByUserEmail = null,
             pendingDeletionReason = null,
             version = baseVersion,
-            sourceDocumentIdsJson = RemoteMappers.encodeIdList(input.sourceDocumentIds),
+            // Канонизированный JSON — тот же формат, что использует natural-key
+            // lookup. См. симметричный DeliveryRepository.upsert.
+            sourceDocumentIdsJson = sourceDocIdsJson,
             createdAt = now,
             updatedAt = now,
             conflictPending = false,

@@ -133,6 +133,30 @@ interface RemoteShipmentDao {
     )
     fun observeByStatuses(statuses: List<String>): kotlinx.coroutines.flow.Flow<List<RemoteShipmentEntity>>
 
+    /**
+     * Активная (не помеченная на удаление) отгрузка по natural key
+     * siteId + statusCode + sourceDocumentIdsJson. Используется в
+     * [ShipmentRepository.upsert] для дедупликации при повторных
+     * finalizeStage1 после ошибки фото / process kill / double-tap.
+     * См. симметричный [RemoteDeliveryDao.findByNaturalKey].
+     */
+    @Query(
+        """
+        SELECT * FROM remote_shipments
+        WHERE siteId = :siteId
+            AND statusCode = :statusCode
+            AND sourceDocumentIdsJson = :sourceDocumentIdsJson
+            AND pendingDeletionAt IS NULL
+        ORDER BY updatedAt DESC
+        LIMIT 1
+        """
+    )
+    suspend fun findByNaturalKey(
+        siteId: String,
+        statusCode: String,
+        sourceDocumentIdsJson: String,
+    ): RemoteShipmentEntity?
+
     @Query("SELECT * FROM remote_shipment_items WHERE shipmentId = :shipmentId ORDER BY lineNo ASC")
     suspend fun findItemsByShipment(shipmentId: String): List<RemoteShipmentItemEntity>
 

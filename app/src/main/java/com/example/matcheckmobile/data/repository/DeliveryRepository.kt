@@ -59,11 +59,41 @@ class DeliveryRepository(
     }
 
     /**
+     * Канонизация natural key: sorted() перед encode гарантирует
+     * стабильный ключ независимо от порядка sourceDocumentIds. Для
+     * одноэлементного случая (Stage1FormViewModel.finalizeStage1)
+     * no-op; защищает future multi-УПД, где [A,B] и [B,A]
+     * семантически идентичны (это множество, не sequence).
+     *
+     * Используется и при lookup (findByNaturalKey), и при построении
+     * entity — иначе после первого upsert БД будет хранить
+     * неканонизированный ключ, и retry-lookup его не найдёт.
+     */
+    private fun canonicalSourceDocumentIdsJson(ids: List<String>): String =
+        RemoteMappers.encodeIdList(ids.sorted())
+
+    /**
      * Создаёт черновик / обновляет существующую приёмку и ставит upsert-мутацию.
      * id — клиентский UUID (можно null — сгенерим).
+     *
+     * Natural-key dedup: если id не передан явно и есть sourceDocumentIds,
+     * ищем существующую активную приёмку по (siteId + statusCode +
+     * canonicalSourceDocumentIdsJson) и переиспользуем её id. Это защита
+     * от retry после ошибки фото, process-kill и double-tap — повторный
+     * вызов finalizeStage1 не создаёт новую запись, а обновляет уже
+     * созданную. Empty-draft'ы (пустой sourceDocumentIds) не дедупим —
+     * у них нет уникального natural key, создание двух подряд легитимно.
      */
     suspend fun upsert(input: UpsertInput): String {
-        val id = input.id ?: UUID.randomUUID().toString()
+        val sourceDocIdsJson = canonicalSourceDocumentIdsJson(input.sourceDocumentIds)
+        val existingId: String? = if (input.id == null && input.sourceDocumentIds.isNotEmpty()) {
+            deliveryDao.findByNaturalKey(
+                siteId = input.siteId,
+                statusCode = input.statusCode,
+                sourceDocumentIdsJson = sourceDocIdsJson,
+            )?.id
+        } else null
+        val id = input.id ?: existingId ?: UUID.randomUUID().toString()
         val now = currentIsoTimestamp()
         val baseVersion = deliveryDao.findById(id)?.version ?: 0
 
@@ -112,7 +142,10 @@ class DeliveryRepository(
             pendingDeletionByUserEmail = null,
             pendingDeletionReason = null,
             version = baseVersion,
-            sourceDocumentIdsJson = RemoteMappers.encodeIdList(input.sourceDocumentIds),
+            // Канонизированный JSON — тот же формат, что использует natural-key
+            // lookup. Иначе первый upsert положит неканонизированный ключ и
+            // retry-lookup его не найдёт.
+            sourceDocumentIdsJson = sourceDocIdsJson,
             createdAt = now,
             updatedAt = now,
             conflictPending = false,
