@@ -49,12 +49,15 @@ class DispatchUpdSelectViewModel(container: AppContainer) : ViewModel() {
             ::DispatchUpdSources,
         ),
         dayTicker,
-    ) { src, today ->
+        container.tokenStorage.state,
+    ) { src, today, tokenSnapshot ->
+        // См. IntakeUpdSelectViewModel: defense-in-depth siteId-фильтр от
+        // stale-записей чужого объекта в локальной Room. Fail-closed при
+        // пустом siteId — лучше пусто, чем чужое.
+        val currentSiteId = tokenSnapshot.siteId
+        if (currentSiteId.isNullOrBlank()) return@combine DispatchUpdGroupsState()
+
         val (docs, cps, deliveryAttachedJsons, shipmentAttachedJsons, drafts) = src
-        // Источник документов — `remote_source_documents` от /sync. Сервер
-        // отдаёт inspector_kpp всё (inbound + outbound), фильтрация по
-        // direction='outbound' — на клиенте в цикле ниже. Симметрично
-        // IntakeUpdSelectViewModel, который фильтрует inbound.
         val attachedIds: Set<String> = buildSet {
             (deliveryAttachedJsons + shipmentAttachedJsons).forEach { json ->
                 addAll(RemoteMappers.decodeIdList(json))
@@ -66,14 +69,17 @@ class DispatchUpdSelectViewModel(container: AppContainer) : ViewModel() {
             .toMap()
         val emptyDrafts: List<ShipmentStage1DraftEntity> = drafts.filter { it.updId == null }
 
+        // Direction + attachedIds + siteId в одном месте. См. UpdSelectFilter.
+        val ownDocs = filterUpdDocsForSite(
+            docs = docs,
+            currentSiteId = currentSiteId,
+            direction = "outbound",
+            attachedIds = attachedIds,
+        )
+
         val todayRows = mutableListOf<DispatchUpdRow>()
         val futureRows = mutableListOf<DispatchUpdRow>()
-        for (d in docs) {
-            // Раздел «Выезд» в мобиле зеркалит «Отгрузку» веб-портала:
-            // только исходящие документы (direction='outbound'). Сервер /sync
-            // отдаёт оба направления для inspector_kpp, фильтруем на клиенте.
-            if (d.direction != "outbound") continue
-            if (d.id in attachedIds) continue
+        for (d in ownDocs) {
             val draftId = draftsByUpdId[d.id]
             val row = DispatchUpdRow(
                 document = d,

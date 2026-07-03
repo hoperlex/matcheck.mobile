@@ -70,7 +70,15 @@ class IntakeUpdSelectViewModel(container: AppContainer) : ViewModel() {
             ::IntakeUpdSources,
         ),
         dayTicker,
-    ) { src, today ->
+        container.tokenStorage.state,
+    ) { src, today, tokenSnapshot ->
+        // Defense-in-depth: даже если /sync фильтрует УПД по siteId инспектора
+        // на сервере, stale-запись может остаться в локальной Room после
+        // смены аккаунта (см. UpdSelectFilter). Fail-closed: при пустом
+        // siteId возвращаем пустой список — лучше пусто, чем чужое.
+        val currentSiteId = tokenSnapshot.siteId
+        if (currentSiteId.isNullOrBlank()) return@combine IntakeUpdGroupsState()
+
         val (docs, cps, deliveryAttachedJsons, shipmentAttachedJsons, drafts) = src
         val attachedIds: Set<String> = buildSet {
             (deliveryAttachedJsons + shipmentAttachedJsons).forEach { json ->
@@ -84,17 +92,18 @@ class IntakeUpdSelectViewModel(container: AppContainer) : ViewModel() {
             .toMap()
         val emptyDrafts: List<Stage1DraftEntity> = drafts.filter { it.updId == null }
 
+        // Фильтр: direction + not-attached + siteId. Смотри UpdSelectFilter.kt
+        // и UpdSelectFilterTest — единый источник истины для этого правила.
+        val ownDocs = filterUpdDocsForSite(
+            docs = docs,
+            currentSiteId = currentSiteId,
+            direction = "inbound",
+            attachedIds = attachedIds,
+        )
+
         val todayRows = mutableListOf<IntakeUpdRow>()
         val futureRows = mutableListOf<IntakeUpdRow>()
-        for (d in docs) {
-            // Раздел «Приёмка» в мобиле зеркалит раздел «Приёмка» на веб-портале:
-            // только входящие документы (УПД и ТН с direction='inbound').
-            // Без этого фильтра в Inbox попадали накладные из отгрузки (см.
-            // Д0000002518 — она в Отгрузке на портале, но появлялась здесь).
-            // На сервере /sync не фильтрует по direction для inspector_kpp,
-            // поэтому фильтруем на клиенте.
-            if (d.direction != "inbound") continue
-            if (d.id in attachedIds) continue
+        for (d in ownDocs) {
             val draftId = draftsByUpdId[d.id]
             val row = IntakeUpdRow(
                 document = d,

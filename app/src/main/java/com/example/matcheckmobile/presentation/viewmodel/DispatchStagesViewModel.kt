@@ -31,45 +31,61 @@ import java.time.LocalDate
  */
 class DispatchStagesViewModel(container: AppContainer) : ViewModel() {
 
-    private val attachedIdsFlow = combine(
+    // См. IntakeStagesViewModel.attachedAndSiteFlow: сворачиваем оба «attached»
+    // потока + siteId в Triple, чтобы уложиться в 5-арный combine.
+    private val attachedAndSiteFlow = combine(
         container.database.remoteDeliveryDao().observeAttachedSourceDocumentIdsJson(),
         container.database.remoteShipmentDao().observeAttachedSourceDocumentIdsJson(),
-    ) { deliveryJsons, shipmentJsons -> deliveryJsons to shipmentJsons }
+        container.tokenStorage.state,
+    ) { deliveryJsons, shipmentJsons, tokenSnapshot ->
+        Triple(deliveryJsons, shipmentJsons, tokenSnapshot.siteId)
+    }
 
     val counts: StateFlow<DispatchStagesCounts> = combine(
         container.database.remoteSourceDocumentDao().observeAll(),
-        attachedIdsFlow,
+        attachedAndSiteFlow,
         container.shipmentStage1DraftRepository.observeAll(),
         container.shipmentRepository.observeByStatuses(STAGE2_STATUSES),
         overdueTicker,
     ) { docs, attached, drafts, stage2Shipments, nowMs ->
-        val (deliveryAttachedJsons, shipmentAttachedJsons) = attached
+        val (deliveryAttachedJsons, shipmentAttachedJsons, currentSiteId) = attached
+        // Fail-closed при пустом siteId — см. IntakeStagesViewModel.
+        if (currentSiteId.isNullOrBlank()) return@combine DispatchStagesCounts()
+
         val attachedIds: Set<String> = buildSet {
             (deliveryAttachedJsons + shipmentAttachedJsons).forEach { json ->
                 addAll(RemoteMappers.decodeIdList(json))
             }
         }
         val today = LocalDate.now().toString()
-        val updWithDraft: Set<String> = drafts.mapNotNull { it.updId }.toSet()
+
+        val ownDocs = docs.filter { d ->
+            d.direction == "outbound" && d.siteId == currentSiteId
+        }
+        val ownDocIds: Set<String> = ownDocs.mapTo(mutableSetOf()) { it.id }
+        val ownShipments = stage2Shipments.filter { it.siteId == currentSiteId }
+
+        // Drafts: linked-draft «свой», только если его УПД принадлежит объекту.
+        // Empty-draft (updId == null) — безусловно свой (siteId нет в схеме).
+        val ownDrafts = drafts.filter { it.updId == null || it.updId in ownDocIds }
+        val updWithDraft: Set<String> = ownDrafts.mapNotNull { it.updId }.toSet()
 
         // Всего: непривязанные OUTBOUND-документы на сегодня без draft + drafts
-        // + 2-этапные отгрузки. Inbound-документы пропускаем — их обрабатывает
-        // Приёмка (там симметричный фильтр direction='inbound').
-        val unattachedTodayWithoutDraft = docs.count { d ->
-            d.direction == "outbound" &&
-                d.id !in attachedIds &&
+        // + 2-этапные отгрузки. Все три множества — уже отфильтрованы по siteId.
+        val unattachedTodayWithoutDraft = ownDocs.count { d ->
+            d.id !in attachedIds &&
                 d.id !in updWithDraft &&
                 d.expectedDate == today
         }
-        val totalToday = drafts.size + unattachedTodayWithoutDraft + stage2Shipments.size
+        val totalToday = ownDrafts.size + unattachedTodayWithoutDraft + ownShipments.size
 
         // В отгрузке: drafts (есть фото) + отгрузки на 2 Этапе.
-        val unloading = drafts.size + stage2Shipments.size
+        val unloading = ownDrafts.size + ownShipments.size
 
         // >2ч: draft.createdAt либо shipment.updatedAt старше 2 часов.
         val twoHoursAgoMs = nowMs - 2 * 60 * 60 * 1000L
-        val overdueDrafts = drafts.count { it.createdAt in 1 until twoHoursAgoMs }
-        val overdueStage2 = stage2Shipments.count { s ->
+        val overdueDrafts = ownDrafts.count { it.createdAt in 1 until twoHoursAgoMs }
+        val overdueStage2 = ownShipments.count { s ->
             val ts = parseIsoMillis(s.updatedAt)
             ts != null && ts < twoHoursAgoMs
         }

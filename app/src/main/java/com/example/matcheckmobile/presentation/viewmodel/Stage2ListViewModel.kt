@@ -56,11 +56,21 @@ class Stage2ListViewModel(container: AppContainer) : ViewModel() {
         // /sync для inspector_kpp фильтрует УПД, привязанные к приёмке/отгрузке,
         // поэтому для filled-приёмок их docNumber приходится дотягивать
         // индивидуальными GET'ами. Подписка идёт пока ViewModel жив.
+        // Дотягиваем только «свои» приёмки — сервер УПД чужого объекта всё
+        // равно не отдаст, но так экономим сетевые запросы и не пингуем 404
+        // за stale-записи чужого объекта в Room.
         viewModelScope.launch {
-            container.deliveryRepository.observeByStatuses(STAGE2_STATUSES)
-                .map { list ->
-                    list.flatMap { RemoteMappers.decodeIdList(it.sourceDocumentIdsJson) }.toSet()
-                }
+            combine(
+                container.deliveryRepository.observeByStatuses(STAGE2_STATUSES),
+                container.tokenStorage.state,
+            ) { list, tokenSnapshot ->
+                val currentSiteId = tokenSnapshot.siteId
+                if (currentSiteId.isNullOrBlank()) emptySet()
+                else list
+                    .filter { it.siteId == currentSiteId }
+                    .flatMap { RemoteMappers.decodeIdList(it.sourceDocumentIdsJson) }
+                    .toSet()
+            }
                 .distinctUntilChanged()
                 .onEach { ids -> container.sourceDocumentBackfillService.ensureCached(ids) }
                 .collect { }
@@ -72,12 +82,19 @@ class Stage2ListViewModel(container: AppContainer) : ViewModel() {
         container.database.remoteSourceDocumentDao().observeAll(),
         container.database.remoteCounterpartyDao().observeAll(),
         container.stage2DraftRepository.observeIds(),
-    ) { deliveries, sourceDocs, counterparties, draftIds ->
+        container.tokenStorage.state,
+    ) { deliveries, sourceDocs, counterparties, draftIds, tokenSnapshot ->
+        // Defense-in-depth: фильтруем stale-приёмки чужого объекта из Room.
+        // Fail-closed при пустом siteId — пустой список.
+        val currentSiteId = tokenSnapshot.siteId
+        if (currentSiteId.isNullOrBlank()) return@combine emptyList()
+        val ownDeliveries = deliveries.filter { it.siteId == currentSiteId }
+
         val cpById = counterparties.associateBy { it.id }
         val docById = sourceDocs.associateBy { it.id }
         val draftIdSet = draftIds.toSet()
 
-        val pairs = deliveries.map { d ->
+        val pairs = ownDeliveries.map { d ->
             val attachedIds = RemoteMappers.decodeIdList(d.sourceDocumentIdsJson)
             val attachedDocs = attachedIds.mapNotNull { docById[it] }
 

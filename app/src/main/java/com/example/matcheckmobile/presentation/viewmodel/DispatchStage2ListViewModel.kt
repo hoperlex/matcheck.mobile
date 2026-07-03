@@ -37,11 +37,20 @@ private const val UNKNOWN_CONTRACTOR_LABEL = "Подрядчик не указа
 class DispatchStage2ListViewModel(container: AppContainer) : ViewModel() {
 
     init {
+        // См. Stage2ListViewModel.init: backfill только «своих» отгрузок,
+        // чтобы не пингать сервер УПД из чужого объекта.
         viewModelScope.launch {
-            container.shipmentRepository.observeByStatuses(STAGE2_STATUSES)
-                .map { list ->
-                    list.flatMap { RemoteMappers.decodeIdList(it.sourceDocumentIdsJson) }.toSet()
-                }
+            combine(
+                container.shipmentRepository.observeByStatuses(STAGE2_STATUSES),
+                container.tokenStorage.state,
+            ) { list, tokenSnapshot ->
+                val currentSiteId = tokenSnapshot.siteId
+                if (currentSiteId.isNullOrBlank()) emptySet()
+                else list
+                    .filter { it.siteId == currentSiteId }
+                    .flatMap { RemoteMappers.decodeIdList(it.sourceDocumentIdsJson) }
+                    .toSet()
+            }
                 .distinctUntilChanged()
                 .onEach { ids -> container.sourceDocumentBackfillService.ensureCached(ids) }
                 .collect { }
@@ -53,12 +62,18 @@ class DispatchStage2ListViewModel(container: AppContainer) : ViewModel() {
         container.database.remoteSourceDocumentDao().observeAll(),
         container.database.remoteCounterpartyDao().observeAll(),
         container.shipmentStage2DraftRepository.observeIds(),
-    ) { shipments, sourceDocs, counterparties, draftIds ->
+        container.tokenStorage.state,
+    ) { shipments, sourceDocs, counterparties, draftIds, tokenSnapshot ->
+        // Defense-in-depth siteId-фильтр. См. Stage2ListViewModel.
+        val currentSiteId = tokenSnapshot.siteId
+        if (currentSiteId.isNullOrBlank()) return@combine emptyList()
+        val ownShipments = shipments.filter { it.siteId == currentSiteId }
+
         val cpById = counterparties.associateBy { it.id }
         val docById = sourceDocs.associateBy { it.id }
         val draftIdSet = draftIds.toSet()
 
-        val pairs = shipments.map { s ->
+        val pairs = ownShipments.map { s ->
             val attachedIds = RemoteMappers.decodeIdList(s.sourceDocumentIdsJson)
             val attachedDocs = attachedIds.mapNotNull { docById[it] }
 
