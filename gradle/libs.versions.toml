@@ -21,6 +21,7 @@ kotlinxSerialization = "1.7.3"
 securityCrypto = "1.1.0-alpha06"
 mlkitDocumentScanner = "16.0.0-beta1"
 playServicesLocation = "21.3.0"
+sentry = "8.47.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -58,6 +59,10 @@ okhttp-sse = { group = "com.squareup.okhttp3", name = "okhttp-sse", version.ref 
 androidx-security-crypto = { group = "androidx.security", name = "security-crypto-ktx", version.ref = "securityCrypto" }
 mlkit-document-scanner = { group = "com.google.android.gms", name = "play-services-mlkit-document-scanner", version.ref = "mlkitDocumentScanner" }
 play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
+# Sentry: SDK ядро (io.sentry:sentry-android) + OkHttp-интеграция. В v8 OkHttp-модуль
+# переименован в io.sentry:sentry-okhttp (пакет io.sentry.okhttp), не sentry-android-okhttp.
+sentry-android = { group = "io.sentry", name = "sentry-android", version.ref = "sentry" }
+sentry-okhttp = { group = "io.sentry", name = "sentry-okhttp", version.ref = "sentry" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

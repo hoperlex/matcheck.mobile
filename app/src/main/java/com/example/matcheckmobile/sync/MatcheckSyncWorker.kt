@@ -12,6 +12,8 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.example.matcheckmobile.MatcheckApplication
+import io.sentry.Sentry
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /**
@@ -37,7 +39,12 @@ class MatcheckSyncWorker(
         return outcome.fold(
             onSuccess = { Result.success() },
             // Любая ошибка (сеть / 5xx) → retry с экспоненциальным backoff WorkManager-а.
-            onFailure = { Result.retry() },
+            onFailure = { e ->
+                // Транзиентный оффлайн (IOException) — норма, не шлём (шум + квота).
+                // Репортим только неожиданные (не сетевые) сбои синка.
+                if (e !is IOException) Sentry.captureException(e)
+                Result.retry()
+            },
         )
     }
 }

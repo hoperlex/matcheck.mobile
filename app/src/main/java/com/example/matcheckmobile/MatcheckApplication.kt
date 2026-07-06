@@ -16,6 +16,7 @@ import com.example.matcheckmobile.di.AppContainer
 import com.example.matcheckmobile.domain.model.SourceKind
 import com.example.matcheckmobile.domain.model.SourceOrigin
 import com.example.matcheckmobile.domain.model.SourceStatus
+import com.example.matcheckmobile.monitoring.initSentry
 import com.example.matcheckmobile.sync.AppUpdateWorker
 import com.example.matcheckmobile.sync.MatcheckSyncScheduler
 import com.example.matcheckmobile.sync.SyncScheduler
@@ -35,6 +36,8 @@ class MatcheckApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // ПЕРВЫМ — до AppContainer, чтобы ловить и ранние падения. No-op без DSN.
+        initSentry(this)
         container = AppContainer(this)
         appScope.launch { seedDefaultsIfNeeded() }
 

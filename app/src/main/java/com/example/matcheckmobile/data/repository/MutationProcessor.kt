@@ -14,6 +14,8 @@ import com.example.matcheckmobile.data.remote.api.dto.MarkDeletionRequest
 import com.example.matcheckmobile.data.remote.api.dto.ShipmentConflictResponse
 import com.example.matcheckmobile.data.remote.api.dto.ShipmentDto
 import com.example.matcheckmobile.data.remote.api.dto.ShipmentUpsertRequest
+import io.sentry.Sentry
+import io.sentry.SentryLevel
 import kotlinx.serialization.json.Json
 import retrofit2.HttpException
 import java.io.IOException
@@ -81,6 +83,17 @@ class MutationProcessor(
                     conflicts++
                 }
                 is Outcome.Drop -> {
+                    // Drop = «мутация отброшена» (главный симптом «инспектор отправил,
+                    // портал молчит»). Репортим в Sentry: только теги + КАТЕГОРИЯ причины
+                    // (до ':') — без сырого тела ответа сервера, чтобы не утащить данные.
+                    Sentry.withScope { scope ->
+                        scope.setTag("entityType", m.entityType)
+                        scope.setTag("operation", m.operation)
+                        scope.setLevel(SentryLevel.WARNING)
+                        Sentry.captureMessage(
+                            "mutation dropped: " + outcome.reason.substringBefore(':').trim().take(80),
+                        )
+                    }
                     // Раньше Drop тихо удалял мутацию — диагностика терялась.
                     // Теперь сохраняем запись с lastError и conflictPending=true,
                     // чтобы видеть причину в Очереди. Очистить можно кнопкой.

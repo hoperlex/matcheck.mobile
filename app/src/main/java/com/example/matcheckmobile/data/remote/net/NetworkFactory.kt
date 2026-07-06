@@ -5,6 +5,8 @@ import com.example.matcheckmobile.BuildConfig
 import com.example.matcheckmobile.data.auth.TokenStorage
 import com.example.matcheckmobile.data.remote.auth.AuthApi
 import kotlinx.serialization.json.Json
+import io.sentry.okhttp.SentryOkHttpEventListener
+import io.sentry.okhttp.SentryOkHttpInterceptor
 import okhttp3.CertificatePinner
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -46,7 +48,13 @@ class NetworkFactory(
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .certificatePinner(buildCertificatePinner())
+        // Sentry: breadcrumbs/спаны/ошибки HTTP бизнес-клиента (/sync, /deliveries,
+        // /photos/presign|confirm). sendDefaultPii=false → заголовки/тела не уходят.
+        // rawS3Client (PUT по presigned-URL) НЕ инструментируем — чтобы подписи не утекали.
+        // Без инициализированного Sentry (пустой DSN) оба класса — no-op.
+        .eventListener(SentryOkHttpEventListener())
         .addInterceptor(AuthHeaderInterceptor(tokenStorage, userAgent))
+        .addInterceptor(SentryOkHttpInterceptor())
         .apply {
             if (BuildConfig.DEBUG) {
                 addInterceptor(

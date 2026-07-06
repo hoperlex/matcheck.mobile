@@ -8,6 +8,7 @@ import com.example.matcheckmobile.data.local.entity.RemoteShipmentPhotoEntity
 import com.example.matcheckmobile.data.remote.api.PhotosApi
 import com.example.matcheckmobile.data.remote.api.dto.PhotoPresignRequest
 import com.example.matcheckmobile.data.remote.api.dto.PhotoPresignResponse
+import io.sentry.Sentry
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -143,6 +144,14 @@ class PhotoUploadProcessor(
             deleteLocalBlobsQuietly(photo.localBlobPath, photo.localThumbPath)
             UploadOutcome.Uploaded
         }.getOrElse { error ->
+            // «Фото не долетело»: presign/PUT(S3)/confirm упали. PUT идёт по
+            // rawS3Client (без Sentry-интерсептора), поэтому сбои Cloud.ru видны
+            // только тут. Шлём исключение с тегами (без подписи URL/тела).
+            Sentry.withScope { scope ->
+                scope.setTag("phase", "photo_upload")
+                scope.setTag("parent", "delivery")
+                Sentry.captureException(error)
+            }
             deliveryDao.upsertPhoto(
                 photo.copy(uploadStatus = "UPLOAD_ERROR", lastUploadError = error.message ?: "upload failed"),
             )
@@ -187,6 +196,11 @@ class PhotoUploadProcessor(
             deleteLocalBlobsQuietly(photo.localBlobPath, photo.localThumbPath)
             UploadOutcome.Uploaded
         }.getOrElse { error ->
+            Sentry.withScope { scope ->
+                scope.setTag("phase", "photo_upload")
+                scope.setTag("parent", "shipment")
+                Sentry.captureException(error)
+            }
             shipmentDao.upsertPhoto(
                 photo.copy(uploadStatus = "UPLOAD_ERROR", lastUploadError = error.message ?: "upload failed"),
             )

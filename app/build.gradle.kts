@@ -21,12 +21,16 @@ android {
         applicationId = "com.example.matcheckmobile"
         minSdk = 24
         targetSdk = 35
-        versionCode = 26
-        versionName = "1.0.25"
+        versionCode = 27
+        versionName = "1.0.26"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         buildConfigField("String", "API_BASE_URL", "\"https://mat.su10.ru/\"")
+
+        // Sentry DSN. Пусто по умолчанию → SDK не шлёт события (initSentry — no-op).
+        // Реальный ПУБЛИЧНЫЙ DSN проекта matcheck-mobile вставляется в release-блоке ниже.
+        buildConfigField("String", "SENTRY_DSN", "\"\"")
     }
 
     // Подписной ключ для release-сборок. Используем системный debug.keystore
@@ -77,6 +81,9 @@ android {
             resValue("string", "app_name", "Матбаланс")
 
             buildConfigField("String", "API_BASE_URL", "\"https://mat.su10.ru/\"")
+            // Sentry: вставить публичный DSN проекта matcheck-mobile, чтобы release-сборка
+            // слала события (debug остаётся с пустым DSN → no-op). Раскомментировать:
+            // buildConfigField("String", "SENTRY_DSN", "\"https://<key>@o<org>.ingest.sentry.io/<proj>\"")
             // GH Releases раздаётся через публичный side-репо
             // hoperlex/matcheck.mobile-releases: /releases/latest/download
             // редиректит на ассеты последнего тега, поэтому URL манифеста
@@ -117,6 +124,8 @@ dependencies {
     implementation(libs.androidx.compose.ui.text.google.fonts)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
+    implementation(libs.sentry.android)
+    implementation(libs.sentry.okhttp)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
