@@ -37,6 +37,9 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
+import com.example.matcheckmobile.sync.MatcheckSyncScheduler
 import com.example.matcheckmobile.presentation.components.ContractorHeaderCard
 import com.example.matcheckmobile.presentation.components.UpdSummaryCard
 import com.example.matcheckmobile.presentation.components.UpdTimerBadge
@@ -54,6 +57,11 @@ fun Stage2ListScreen(
     onOpenDelivery: (String) -> Unit,
 ) {
     val vm: Stage2ListViewModel = matcheckViewModel()
+    // Открытие экрана = свежая синхронизация: тянем изменения других планшетов
+    // сразу, не дожидаясь SSE (в фоне рвётся) или периодики (15 мин). Дешёвый
+    // pull; reconcile за ним троттлится. См. план «надёжная синхронизация».
+    val context = LocalContext.current
+    LaunchedEffect(Unit) { MatcheckSyncScheduler.requestImmediateSync(context) }
     val groups by vm.groups.collectAsStateWithLifecycle()
     val expandedMap = remember { mutableStateMapOf<String, Boolean>() }
     // Один общий тикер на весь экран — пересчитывает таймеры всех УПД сразу.

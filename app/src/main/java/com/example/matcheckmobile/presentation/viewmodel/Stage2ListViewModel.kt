@@ -64,7 +64,7 @@ class Stage2ListViewModel(container: AppContainer) : ViewModel() {
                 container.deliveryRepository.observeByStatuses(STAGE2_STATUSES),
                 container.tokenStorage.state,
             ) { list, tokenSnapshot ->
-                val currentSiteId = tokenSnapshot.siteId
+                val currentSiteId = tokenSnapshot.effectiveSiteId
                 if (currentSiteId.isNullOrBlank()) emptySet()
                 else list
                     .filter { it.siteId == currentSiteId }
@@ -86,7 +86,7 @@ class Stage2ListViewModel(container: AppContainer) : ViewModel() {
     ) { deliveries, sourceDocs, counterparties, draftIds, tokenSnapshot ->
         // Defense-in-depth: фильтруем stale-приёмки чужого объекта из Room.
         // Fail-closed при пустом siteId — пустой список.
-        val currentSiteId = tokenSnapshot.siteId
+        val currentSiteId = tokenSnapshot.effectiveSiteId
         if (currentSiteId.isNullOrBlank()) return@combine emptyList()
         val ownDeliveries = deliveries.filter { it.siteId == currentSiteId }
 

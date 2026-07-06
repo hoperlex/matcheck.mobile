@@ -33,6 +33,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
+import com.example.matcheckmobile.sync.MatcheckSyncScheduler
 import com.example.matcheckmobile.presentation.components.ContractorHeaderCard
 import com.example.matcheckmobile.presentation.components.UpdSummaryCard
 import com.example.matcheckmobile.presentation.util.formatLocalTime
@@ -53,6 +56,11 @@ fun ArchiveIntakeListScreen(
     onOpenDetail: (deliveryId: String) -> Unit,
 ) {
     val vm: ArchiveIntakeListViewModel = matcheckViewModel()
+    // Открытие экрана = свежая синхронизация: тянем изменения других планшетов
+    // сразу, не дожидаясь SSE (в фоне рвётся) или периодики (15 мин). Дешёвый
+    // pull; reconcile за ним троттлится. См. план «надёжная синхронизация».
+    val context = LocalContext.current
+    LaunchedEffect(Unit) { MatcheckSyncScheduler.requestImmediateSync(context) }
     val groups by vm.groups.collectAsStateWithLifecycle()
     val expandedMap = remember { mutableStateMapOf<Long, Boolean>() }
 

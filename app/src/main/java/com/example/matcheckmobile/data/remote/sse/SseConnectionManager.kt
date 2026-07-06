@@ -76,6 +76,9 @@ class SseConnectionManager(
     private var currentEventSource: EventSource? = null
     private var reconnectJob: Job? = null
     private var watchdogJob: Job? = null
+    // Дебаунс SSE-триггера: всплеск *_updated коалесцируем в один sync.
+    @Volatile
+    private var syncDebounceJob: Job? = null
     // Счётчик неудачных reconnect-попыток для экспоненциального backoff.
     // Сбрасывается в 0 при успешном onOpen.
     private var reconnectAttempts = 0
@@ -95,6 +98,8 @@ class SseConnectionManager(
         reconnectJob = null
         watchdogJob?.cancel()
         watchdogJob = null
+        syncDebounceJob?.cancel()
+        syncDebounceJob = null
         currentEventSource?.cancel()
         currentEventSource = null
         _state.value = ConnectionState.Disconnected
@@ -147,9 +152,11 @@ class SseConnectionManager(
                 // свежий /me → tokenStorage.updateSiteId, и штамп объекта
                 // на фото 1 Этапа сразу станет актуальным — без logout/login.
                 "user_updated" -> {
-                    // Дернуть фоновый sync — WorkManager сам сделает debounce
-                    // через ExistingWorkPolicy.REPLACE.
-                    MatcheckSyncScheduler.requestImmediateSync(appContext)
+                    // Всплеск событий коалесцируем в один sync (requestSyncDebounced):
+                    // при активной работе на объекте *_updated сыпется пачками, а
+                    // WorkManager KEEP всё равно отбросил бы часть enqueue во время
+                    // идущего синка. Дебаунс гарантирует один sync ПОСЛЕ всплеска.
+                    requestSyncDebounced()
                 }
                 "delivery_deleted" -> payload?.entityId?.let { id ->
                     scope.launch { deliveryDao.deleteByIds(listOf(id)) }
@@ -175,6 +182,20 @@ class SseConnectionManager(
             // Без персональных данных: только тип ошибки + HTTP-код.
             Log.w(TAG, "SSE failure: ${t?.javaClass?.simpleName ?: "unknown"} http=${response?.code ?: -1}")
             if (running.get()) scheduleReconnect()
+        }
+    }
+
+    /**
+     * Коалесцирует всплеск SSE-событий в один sync: после последнего события
+     * ждём SSE_DEBOUNCE_MS и запускаем ровно один requestImmediateSync. Мягче,
+     * чем enqueue на каждое событие (часть которых WorkManager KEEP отбросил бы
+     * во время идущего синка), и гарантирует sync после всплеска.
+     */
+    private fun requestSyncDebounced() {
+        syncDebounceJob?.cancel()
+        syncDebounceJob = scope.launch {
+            delay(SSE_DEBOUNCE_MS)
+            MatcheckSyncScheduler.requestImmediateSync(appContext)
         }
     }
 
@@ -251,5 +272,7 @@ class SseConnectionManager(
         const val TAG = "SseConn"
         const val PING_TIMEOUT_MS = 60_000L
         const val WATCHDOG_PERIOD_MS = 15_000L
+        // Окно коалесцирования всплеска SSE-событий в один sync (1–3с из плана).
+        const val SSE_DEBOUNCE_MS = 1_500L
     }
 }

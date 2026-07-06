@@ -76,8 +76,9 @@ class SyncRepository(
     private val pullMutex = Mutex()
     private val syncMutex = Mutex()
 
-    // Throttle для reconcile: не чаще раза в час (см. reconcileOnce). In-memory —
-    // после рестарта процесса первый reconcile пройдёт сразу, это допустимо.
+    // Throttle для reconcile: не чаще раза в минуту (см. reconcileOnce) — частый
+    // backstop к best-effort SSE/периодике. In-memory — после рестарта процесса
+    // первый reconcile пройдёт сразу, это допустимо.
     @Volatile
     private var lastReconcileAtMs = 0L
 
@@ -478,7 +479,7 @@ class SyncRepository(
             r.sites.size == LIMIT_500 ||
             r.deliveries.size == LIMIT_500 ||
             r.shipments.size == LIMIT_500 ||
-            r.sourceDocuments.size == LIMIT_200
+            r.sourceDocuments.size == LIMIT_SOURCE_DOCS
     }
 
     data class SyncState(
@@ -545,10 +546,16 @@ class SyncRepository(
 
     private companion object {
         const val DEFAULT_INITIAL_WINDOW_DAYS = 90
+        // Должны совпадать с лимитами сервера (matcheck apps/api/src/routes/sync.ts):
+        // deliveries/shipments — 500, sourceDocuments — 1000. Иначе hasMorePages
+        // неверно детектит «полную страницу». MUST MATCH SERVER.
         const val LIMIT_500 = 500
-        const val LIMIT_200 = 200
+        const val LIMIT_SOURCE_DOCS = 1000
         const val TAG = "SyncReconcile"
-        const val RECONCILE_INTERVAL_MS = 60 * 60 * 1000L // не чаще раза в час
+        // Частый backstop к best-effort SSE/периодике. Win-условие (свежая filled
+        // на другом планшете) даёт сам pull; reconcile лишь добирает пропущенное.
+        // 60с + WorkManager KEEP-дедуп гасят спам при активной навигации.
+        const val RECONCILE_INTERVAL_MS = 60 * 1000L // не чаще раза в минуту
     }
 }
 

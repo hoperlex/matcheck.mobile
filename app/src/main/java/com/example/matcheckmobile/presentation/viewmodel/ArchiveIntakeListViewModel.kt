@@ -76,7 +76,7 @@ class ArchiveIntakeListViewModel(container: AppContainer) : ViewModel() {
         // инспектора, явно отсекаем чужие siteId на уровне UI. При
         // currentSiteId == null (объект не привязан / только что отвязан /
         // токен сброшен) показываем пустой архив, а не «все, что лежит в БД».
-        val currentSiteId = tokenSnapshot.siteId
+        val currentSiteId = tokenSnapshot.effectiveSiteId
         if (currentSiteId.isNullOrBlank()) return@combine emptyList()
 
         val ownDeliveries = deliveries.filter { it.siteId == currentSiteId }

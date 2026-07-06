@@ -38,7 +38,7 @@ class DispatchStagesViewModel(container: AppContainer) : ViewModel() {
         container.database.remoteShipmentDao().observeAttachedSourceDocumentIdsJson(),
         container.tokenStorage.state,
     ) { deliveryJsons, shipmentJsons, tokenSnapshot ->
-        Triple(deliveryJsons, shipmentJsons, tokenSnapshot.siteId)
+        Triple(deliveryJsons, shipmentJsons, tokenSnapshot.effectiveSiteId)
     }
 
     val counts: StateFlow<DispatchStagesCounts> = combine(

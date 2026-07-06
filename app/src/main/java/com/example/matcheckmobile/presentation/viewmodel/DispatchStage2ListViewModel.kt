@@ -44,7 +44,7 @@ class DispatchStage2ListViewModel(container: AppContainer) : ViewModel() {
                 container.shipmentRepository.observeByStatuses(STAGE2_STATUSES),
                 container.tokenStorage.state,
             ) { list, tokenSnapshot ->
-                val currentSiteId = tokenSnapshot.siteId
+                val currentSiteId = tokenSnapshot.effectiveSiteId
                 if (currentSiteId.isNullOrBlank()) emptySet()
                 else list
                     .filter { it.siteId == currentSiteId }
@@ -65,7 +65,7 @@ class DispatchStage2ListViewModel(container: AppContainer) : ViewModel() {
         container.tokenStorage.state,
     ) { shipments, sourceDocs, counterparties, draftIds, tokenSnapshot ->
         // Defense-in-depth siteId-фильтр. См. Stage2ListViewModel.
-        val currentSiteId = tokenSnapshot.siteId
+        val currentSiteId = tokenSnapshot.effectiveSiteId
         if (currentSiteId.isNullOrBlank()) return@combine emptyList()
         val ownShipments = shipments.filter { it.siteId == currentSiteId }
 

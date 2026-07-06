@@ -74,6 +74,10 @@ class TokenStorage(context: Context) {
             .putString(KEY_USER_EMAIL, userEmail)
             .putString(KEY_ROLE, role)
             .putString(KEY_SITE_ID, siteId)
+            // last-known-good переживает транзиентный blank siteId (напр. пустой
+            // /me), чтобы списки этапов/архива не гасли. Пишем только non-blank;
+            // на logout всё стирается clear() → чужой объект не утечёт.
+            .also { if (!siteId.isNullOrBlank()) it.putString(KEY_LAST_GOOD_SITE_ID, siteId) }
             .commit()
         _state.value = readSnapshot()
     }
@@ -89,7 +93,10 @@ class TokenStorage(context: Context) {
     @Synchronized
     fun updateSiteId(newSiteId: String?): Boolean {
         if (_state.value.siteId == newSiteId) return false
-        prefs.edit().putString(KEY_SITE_ID, newSiteId).commit()
+        prefs.edit()
+            .putString(KEY_SITE_ID, newSiteId)
+            .also { if (!newSiteId.isNullOrBlank()) it.putString(KEY_LAST_GOOD_SITE_ID, newSiteId) }
+            .commit()
         _state.value = readSnapshot()
         return true
     }
@@ -134,6 +141,7 @@ class TokenStorage(context: Context) {
         userEmail = prefs.getString(KEY_USER_EMAIL, null),
         role = prefs.getString(KEY_ROLE, null),
         siteId = prefs.getString(KEY_SITE_ID, null),
+        lastKnownGoodSiteId = prefs.getString(KEY_LAST_GOOD_SITE_ID, null),
     )
 
     data class Snapshot(
@@ -145,7 +153,16 @@ class TokenStorage(context: Context) {
         val userEmail: String?,
         val role: String?,
         val siteId: String?,
-    )
+        /** Последний непустой siteId сессии; переживает транзиентный blank. */
+        val lastKnownGoodSiteId: String? = null,
+    ) {
+        /**
+         * siteId для UI-фильтров: активный, а если он транзиентно пуст —
+         * последний известный хороший (в рамках той же сессии). Смена
+         * пользователя стирает всё (clear()), так что чужой объект не утечёт.
+         */
+        val effectiveSiteId: String? get() = siteId?.ifBlank { null } ?: lastKnownGoodSiteId
+    }
 
     private companion object {
         // 60 сек запаса: если access истекает в ближайшую минуту — лучше
@@ -160,5 +177,6 @@ class TokenStorage(context: Context) {
         const val KEY_USER_EMAIL = "user_email"
         const val KEY_ROLE = "role"
         const val KEY_SITE_ID = "site_id"
+        const val KEY_LAST_GOOD_SITE_ID = "last_good_site_id"
     }
 }
