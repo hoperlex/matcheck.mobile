@@ -7,13 +7,23 @@ object Routes {
     const val INTAKE_STAGES = "intake_stages"
     const val INTAKE_STAGE2 = "intake_stage2"
     const val INTAKE_UPD_SELECT = "intake_upd_select"
-    /** «Ручной внос»: приёмка без УПД и автотранспорта. Сразу confirmed_mol. */
-    const val MANUAL_ENTRY_FORM = "manual_entry_form"
+    /**
+     * «Ручной внос»: список локальных незавершённых черновиков приёмки
+     * (без УПД/автотранспорта) + кнопка «Создать внос». Форма — по draftId;
+     * на «Завершить» черновик уходит на сервер как confirmed_mol.
+     */
+    const val MANUAL_ENTRY_LIST = "manual_entry_list"
     const val SAVED_RECEIPTS = "saved_receipts"
     const val RECEIPT_BASE = "receipt"
     const val ARG_UPD_ID = "updId"
     const val ARG_SESSION_ID = "sessionId"
     const val ARG_DRAFT_ID = "draftId"
+
+    // Форма ручного вноса — по draftId (константы после ARG_DRAFT_ID:
+    // const-инициализация требует, чтобы зависимость была объявлена раньше).
+    const val MANUAL_ENTRY_FORM_BASE = "manual_entry_form"
+    const val MANUAL_ENTRY_FORM = "$MANUAL_ENTRY_FORM_BASE/{$ARG_DRAFT_ID}"
+    fun manualEntryForm(draftId: String): String = "$MANUAL_ENTRY_FORM_BASE/$draftId"
 
     const val STAGE1_FORM_BASE = "stage1_form"
     const val STAGE1_FORM = "$STAGE1_FORM_BASE?$ARG_UPD_ID={$ARG_UPD_ID}&$ARG_DRAFT_ID={$ARG_DRAFT_ID}"
@@ -63,8 +73,15 @@ object Routes {
     const val DISPATCH_STAGE2_FORM = "$DISPATCH_STAGE2_FORM_BASE/{$ARG_SHIPMENT_ID}"
     fun dispatchStage2Form(shipmentId: String): String = "$DISPATCH_STAGE2_FORM_BASE/$shipmentId"
 
-    /** «Ручной вынос»: отгрузка без УПД и автотранспорта. Сразу confirmed_mol. */
-    const val MANUAL_DISPATCH_FORM = "manual_dispatch_form"
+    /**
+     * «Ручной вынос»: список локальных незавершённых черновиков отгрузки +
+     * кнопка «Создать вынос». Форма — по draftId; на «Завершить» уходит на
+     * сервер как confirmed_mol (зеркало MANUAL_ENTRY_*).
+     */
+    const val MANUAL_DISPATCH_LIST = "manual_dispatch_list"
+    const val MANUAL_DISPATCH_FORM_BASE = "manual_dispatch_form"
+    const val MANUAL_DISPATCH_FORM = "$MANUAL_DISPATCH_FORM_BASE/{$ARG_DRAFT_ID}"
+    fun manualDispatchForm(draftId: String): String = "$MANUAL_DISPATCH_FORM_BASE/$draftId"
 
     /** Архив отгрузок (последние 7 дней, без сетевого запроса). */
     const val DISPATCH_ARCHIVE = "dispatch_archive"

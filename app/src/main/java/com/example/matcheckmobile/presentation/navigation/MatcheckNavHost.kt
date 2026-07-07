@@ -18,6 +18,7 @@ import com.example.matcheckmobile.presentation.screens.dispatch.DispatchStage2Li
 import com.example.matcheckmobile.presentation.screens.dispatch.DispatchStagesScreen
 import com.example.matcheckmobile.presentation.screens.dispatch.DispatchUpdSelectScreen
 import com.example.matcheckmobile.presentation.screens.dispatch.ManualDispatchFormScreen
+import com.example.matcheckmobile.presentation.screens.dispatch.ManualDispatchListScreen
 import com.example.matcheckmobile.presentation.screens.archive.ArchiveDispatchDetailScreen
 import com.example.matcheckmobile.presentation.screens.archive.ArchiveDispatchListScreen
 import com.example.matcheckmobile.presentation.screens.archive.ArchiveIntakeDetailScreen
@@ -33,6 +34,7 @@ import com.example.matcheckmobile.presentation.screens.receipt.IntakeUpdSelectSc
 import com.example.matcheckmobile.presentation.screens.receipt.ReceiptScreen
 import com.example.matcheckmobile.presentation.screens.receipt.SavedReceiptsScreen
 import com.example.matcheckmobile.presentation.screens.receipt.ManualEntryFormScreen
+import com.example.matcheckmobile.presentation.screens.receipt.ManualEntryListScreen
 import com.example.matcheckmobile.presentation.screens.receipt.Stage1FormScreen
 import com.example.matcheckmobile.presentation.screens.receipt.Stage2FormScreen
 import com.example.matcheckmobile.presentation.screens.receipt.Stage2ListScreen
@@ -97,7 +99,7 @@ fun MatcheckNavHost() {
                 onBack = { navController.popBackStack() },
                 onStage1 = { navController.navigate(Routes.INTAKE_UPD_SELECT) },
                 onStage2 = { navController.navigate(Routes.INTAKE_STAGE2) },
-                onManualEntry = { navController.navigate(Routes.MANUAL_ENTRY_FORM) },
+                onManualEntry = { navController.navigate(Routes.MANUAL_ENTRY_LIST) },
                 onArchive = { navController.navigate(Routes.INTAKE_ARCHIVE) },
             )
         }
@@ -172,13 +174,23 @@ fun MatcheckNavHost() {
                 },
             )
         }
-        composable(Routes.MANUAL_ENTRY_FORM) {
+        composable(Routes.MANUAL_ENTRY_LIST) {
+            ManualEntryListScreen(
+                onBack = { navController.popBackStack() },
+                onCreate = { draftId -> navController.navigate(Routes.manualEntryForm(draftId)) },
+                onOpen = { draftId -> navController.navigate(Routes.manualEntryForm(draftId)) },
+            )
+        }
+        composable(
+            route = Routes.MANUAL_ENTRY_FORM,
+            arguments = listOf(navArgument(Routes.ARG_DRAFT_ID) { type = NavType.StringType }),
+        ) {
             ManualEntryFormScreen(
                 onBack = { navController.popBackStack() },
                 onFinalized = {
-                    // На завершении возвращаемся на стартовый экран приёмки.
-                    // Сама приёмка ушла в фон через sync → веб-портал.
-                    navController.popBackStack(Routes.INTAKE_STAGES, inclusive = false)
+                    // На завершении возвращаемся на список ручных вносов —
+                    // завершённый черновик из него уйдёт (приёмка в фоне → веб).
+                    navController.popBackStack(Routes.MANUAL_ENTRY_LIST, inclusive = false)
                 },
             )
         }
@@ -215,7 +227,7 @@ fun MatcheckNavHost() {
                 onBack = { navController.popBackStack() },
                 onStage1 = { navController.navigate(Routes.DISPATCH_UPD_SELECT) },
                 onStage2 = { navController.navigate(Routes.DISPATCH_STAGE2) },
-                onManualEntry = { navController.navigate(Routes.MANUAL_DISPATCH_FORM) },
+                onManualEntry = { navController.navigate(Routes.MANUAL_DISPATCH_LIST) },
                 onArchive = { navController.navigate(Routes.DISPATCH_ARCHIVE) },
             )
         }
@@ -233,13 +245,23 @@ fun MatcheckNavHost() {
         ) {
             ArchiveDispatchDetailScreen(onBack = { navController.popBackStack() })
         }
-        composable(Routes.MANUAL_DISPATCH_FORM) {
+        composable(Routes.MANUAL_DISPATCH_LIST) {
+            ManualDispatchListScreen(
+                onBack = { navController.popBackStack() },
+                onCreate = { draftId -> navController.navigate(Routes.manualDispatchForm(draftId)) },
+                onOpen = { draftId -> navController.navigate(Routes.manualDispatchForm(draftId)) },
+            )
+        }
+        composable(
+            route = Routes.MANUAL_DISPATCH_FORM,
+            arguments = listOf(navArgument(Routes.ARG_DRAFT_ID) { type = NavType.StringType }),
+        ) {
             ManualDispatchFormScreen(
                 onBack = { navController.popBackStack() },
                 onFinalized = {
-                    // На завершении возвращаемся на стартовый экран отгрузки.
-                    // Сама отгрузка ушла в фон через sync → веб-портал.
-                    navController.popBackStack(Routes.DISPATCH_STAGES, inclusive = false)
+                    // На завершении возвращаемся на список ручных выносов —
+                    // завершённый черновик из него уйдёт (отгрузка в фоне → веб).
+                    navController.popBackStack(Routes.MANUAL_DISPATCH_LIST, inclusive = false)
                 },
             )
         }

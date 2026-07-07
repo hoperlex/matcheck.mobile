@@ -1,14 +1,21 @@
 package com.example.matcheckmobile.presentation.viewmodel
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.matcheckmobile.data.repository.ManualDispatchDraftState
 import com.example.matcheckmobile.data.repository.ShipmentRepository
 import com.example.matcheckmobile.di.AppContainer
 import com.example.matcheckmobile.presentation.components.MaterialDraft
+import com.example.matcheckmobile.presentation.navigation.Routes
 import com.example.matcheckmobile.sync.MatcheckSyncScheduler
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
@@ -17,29 +24,110 @@ import java.io.File
  * «Ручной вынос» — отгрузка без УПД и автотранспорта (зеркало
  * [ManualEntryFormViewModel] для shipment'ов).
  *
- * Инспектор делает фото (документы + груз), указывает номер УПД текстом,
- * материалы и комментарий — отгрузка сразу создаётся в статусе
- * `confirmed_mol`. На веб-портале попадает в «Отгрузка / Принятые /
- * Подтверждено МОЛ» с тегом «Без документа» (sourceDocumentIds=[]),
- * confirmedByMolUserId = инспектор (сервер заполняет в createShipment при
- * status='confirmed_mol' — см. routes/shipments.ts isDirectConfirm).
+ * Форма работает «по draftId»: черновик создаётся на [ManualDispatchListScreen],
+ * форма его дозаполняет с автосейвом. По «Завершить» отгрузка создаётся в
+ * статусе `confirmed_mol` (на веб-портале — «Отгрузка / Принятые / Подтверждено
+ * МОЛ», тег «Без документа», sourceDocumentIds=[]), а черновик удаляется. До
+ * «Завершить» запись живёт только локально.
  *
  * `kind = 'contractor'` — самый универсальный, без получателя (validateKindLinks
  * допускает empty-draft contractor без receiver). Менеджер на портале при
  * необходимости дозaпoлнит получателя.
  *
  * Отличия от DispatchStage1FormViewModel:
- *  - нет vehiclePlate, purpose, inTransit (это не автотранспорт);
+ *  - нет vehiclePlate, inTransit (это не автотранспорт);
  *  - нет загрузки УПД (sourceDocumentIds всегда пуст);
- *  - statusCode на финализе = 'confirmed_mol' (а не 'shipped');
- *  - нет draft-персистентности — экран короткий, риск потерять данные мал.
+ *  - statusCode на финализе = 'confirmed_mol' (а не 'shipped').
  */
+@OptIn(FlowPreview::class)
 class ManualDispatchFormViewModel(
     private val container: AppContainer,
+    savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
+
+    private val draftLocalId: String = requireNotNull(savedStateHandle.get<String>(Routes.ARG_DRAFT_ID)) {
+        "ManualDispatchFormViewModel requires ${Routes.ARG_DRAFT_ID} nav arg"
+    }
+
+    /** Объект черновика — фиксируется на создании; finalize шлёт запись именно сюда. */
+    private var draftSiteId: String? = null
 
     private val _state = MutableStateFlow(ManualDispatchFormUiState())
     val state: StateFlow<ManualDispatchFormUiState> = _state.asStateFlow()
+
+    init {
+        viewModelScope.launch { restoreDraft() }
+        viewModelScope.launch { observeAutoSave() }
+    }
+
+    private suspend fun restoreDraft() {
+        container.manualDispatchDraftRepository.findById(draftLocalId)?.let { entity ->
+            draftSiteId = entity.siteId
+            val restored = container.manualDispatchDraftRepository.toState(entity)
+            _state.update {
+                it.copy(
+                    documentPhotoPaths = restored.documentPhotoPaths,
+                    cargoPhotoPaths = restored.cargoPhotoPaths,
+                    manualUpdText = restored.manualUpdText,
+                    materials = restored.materials,
+                    commentText = restored.commentText,
+                    shipmentPurpose = restored.shipmentPurpose,
+                    isAssets = restored.isAssets,
+                )
+            }
+        }
+        _state.update { it.copy(loaded = true) }
+    }
+
+    private suspend fun observeAutoSave() {
+        _state
+            .drop(1)
+            .debounce(300L)
+            .distinctUntilChanged { a, b -> a.draftPayloadEquals(b) }
+            .collect { snapshot ->
+                if (!snapshot.loaded || snapshot.finalized) return@collect
+                val siteId = draftSiteId ?: return@collect
+                container.manualDispatchDraftRepository.upsert(snapshot.toDraftState(siteId))
+            }
+    }
+
+    /** См. [ManualEntryFormViewModel.onLeave]. Выполняется в appScope. */
+    fun onLeave(after: () -> Unit) {
+        val cur = _state.value
+        val siteId = draftSiteId
+        // Только после loaded — см. ManualEntryFormViewModel.onLeave.
+        if (cur.loaded && !cur.finalized && siteId != null) {
+            container.appScope.launch {
+                if (cur.isPristine()) {
+                    (cur.documentPhotoPaths + cur.cargoPhotoPaths).forEach { path ->
+                        runCatching { File(path).delete() }
+                    }
+                    container.manualDispatchDraftRepository.deleteById(draftLocalId)
+                } else {
+                    container.manualDispatchDraftRepository.upsert(cur.toDraftState(siteId))
+                }
+            }
+        }
+        after()
+    }
+
+    /** Проекция UI-state → сохраняемый черновик. createdAt подменит repo.upsert из БД. */
+    private fun ManualDispatchFormUiState.toDraftState(siteId: String): ManualDispatchDraftState {
+        val now = System.currentTimeMillis()
+        return ManualDispatchDraftState(
+            localDraftId = draftLocalId,
+            siteId = siteId,
+            documentPhotoPaths = documentPhotoPaths,
+            cargoPhotoPaths = cargoPhotoPaths,
+            manualUpdText = manualUpdText,
+            materials = materials,
+            commentText = commentText,
+            shipmentPurpose = shipmentPurpose,
+            isAssets = isAssets,
+            createdAt = now,
+            updatedAt = now,
+        )
+    }
 
     fun addDocumentPhoto(path: String) {
         _state.update { it.copy(documentPhotoPaths = it.documentPhotoPaths + path) }
@@ -114,7 +202,8 @@ class ManualDispatchFormViewModel(
         val cur = _state.value
         if (cur.isSaving || cur.finalized) return
 
-        val siteId = container.tokenStorage.state.value.siteId
+        // siteId берём из черновика: отгрузка уходит на тот объект, где начата.
+        val siteId = draftSiteId ?: container.tokenStorage.state.value.siteId
         if (siteId.isNullOrBlank()) {
             _state.update { it.copy(error = "Нет привязки к объекту, переавторизуйтесь") }
             return
@@ -230,6 +319,9 @@ class ManualDispatchFormViewModel(
                         )
                     }
                 } else {
+                    // Финализировано → черновик удаляем ДО finalized=true, чтобы
+                    // автосейв не воскресил строку (см. Stage1FormViewModel).
+                    container.manualDispatchDraftRepository.deleteById(draftLocalId)
                     _state.update { it.copy(isSaving = false, finalized = true) }
                 }
             } catch (t: Throwable) {
@@ -259,7 +351,26 @@ data class ManualDispatchFormUiState(
     val shipmentPurpose: String? = null,
     /** ОС — чекбокс «основные средства». На finalize → ShipmentRepository.UpsertInput.isAssets. */
     val isAssets: Boolean = false,
+    /** true после restoreDraft — гейт для автосейва, чтобы не писать до загрузки. */
+    val loaded: Boolean = false,
     val isSaving: Boolean = false,
     val finalized: Boolean = false,
     val error: String? = null,
 )
+
+/** Пусто ли содержимое черновика — по такому уходим с формы без сохранения строки. */
+private fun ManualDispatchFormUiState.isPristine(): Boolean =
+    documentPhotoPaths.isEmpty() && cargoPhotoPaths.isEmpty() &&
+        materials.none { it.name.isNotBlank() || it.qty.isNotBlank() } &&
+        commentText.isBlank() && manualUpdText.isBlank() &&
+        shipmentPurpose.isNullOrBlank() && !isAssets
+
+/** Полезная нагрузка для distinctUntilChanged автосейва (без волатильных флагов). */
+private fun ManualDispatchFormUiState.draftPayloadEquals(other: ManualDispatchFormUiState): Boolean =
+    documentPhotoPaths == other.documentPhotoPaths &&
+        cargoPhotoPaths == other.cargoPhotoPaths &&
+        manualUpdText == other.manualUpdText &&
+        materials == other.materials &&
+        commentText == other.commentText &&
+        shipmentPurpose == other.shipmentPurpose &&
+        isAssets == other.isAssets

@@ -1,5 +1,6 @@
 package com.example.matcheckmobile.presentation.screens.receipt
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -101,6 +102,10 @@ fun ManualEntryFormScreen(
     val focusManager = LocalFocusManager.current
     val tapOutsideSource = remember { MutableInteractionSource() }
 
+    // Системный back проходит через ту же onLeave: пустой черновик — удалить,
+    // содержательный — дозаписать (страховка от несработавшего автосейва).
+    BackHandler { vm.onLeave(onBack) }
+
     LaunchedEffect(state.finalized) {
         if (state.finalized) {
             successVisible = true
@@ -135,7 +140,7 @@ fun ManualEntryFormScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack, modifier = Modifier.size(72.dp)) {
+                    IconButton(onClick = { vm.onLeave(onBack) }, modifier = Modifier.size(72.dp)) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Назад",

@@ -22,6 +22,8 @@ import com.example.matcheckmobile.data.repository.AuthRepository
 import com.example.matcheckmobile.data.repository.ConflictRepository
 import com.example.matcheckmobile.data.repository.CounterpartyRepository
 import com.example.matcheckmobile.data.repository.DeliveryRepository
+import com.example.matcheckmobile.data.repository.ManualDispatchDraftRepository
+import com.example.matcheckmobile.data.repository.ManualEntryDraftRepository
 import com.example.matcheckmobile.data.repository.ShipmentStage1DraftRepository
 import com.example.matcheckmobile.data.repository.ShipmentStage2DraftRepository
 import com.example.matcheckmobile.data.repository.Stage1DraftRepository
@@ -42,9 +44,20 @@ import com.example.matcheckmobile.media.LocationProvider
 import com.example.matcheckmobile.media.MetadataWatermark
 import com.example.matcheckmobile.media.PhotoStorage
 import com.example.matcheckmobile.media.RemotePhotoStorage
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 
 class AppContainer(val appContext: Context) {
     val database: MatcheckDatabase = MatcheckDatabase.get(appContext)
+
+    /**
+     * Application-scoped IO-корутины: живут дольше любого ViewModel. Нужны для
+     * работ, которые обязаны завершиться даже после того, как экран/VM убит
+     * (напр. дозапись/очистка черновика «Ручного внеса» на выходе с формы —
+     * viewModelScope там уже отменён popBackStack'ом).
+     */
+    val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     val deviceSettings: DeviceSettings = DeviceSettings(appContext)
 
@@ -180,6 +193,12 @@ class AppContainer(val appContext: Context) {
 
     val shipmentStage2DraftRepository: ShipmentStage2DraftRepository =
         ShipmentStage2DraftRepository(dao = database.shipmentStage2DraftDao())
+
+    val manualEntryDraftRepository: ManualEntryDraftRepository =
+        ManualEntryDraftRepository(dao = database.manualEntryDraftDao())
+
+    val manualDispatchDraftRepository: ManualDispatchDraftRepository =
+        ManualDispatchDraftRepository(dao = database.manualDispatchDraftDao())
 
     val sourceDocumentBackfillService: SourceDocumentBackfillService = SourceDocumentBackfillService(
         api = sourceDocumentsApi,

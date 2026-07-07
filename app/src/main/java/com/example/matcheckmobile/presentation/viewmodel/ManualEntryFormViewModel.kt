@@ -1,14 +1,21 @@
 package com.example.matcheckmobile.presentation.viewmodel
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.matcheckmobile.data.repository.DeliveryRepository
+import com.example.matcheckmobile.data.repository.ManualEntryDraftState
 import com.example.matcheckmobile.di.AppContainer
 import com.example.matcheckmobile.presentation.components.MaterialDraft
+import com.example.matcheckmobile.presentation.navigation.Routes
 import com.example.matcheckmobile.sync.MatcheckSyncScheduler
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
@@ -17,24 +24,120 @@ import java.io.File
  * «Ручной внос» — приёмка без УПД и автотранспорта.
  *
  * Инспектор делает фото (документы + груз), указывает номер УПД текстом,
- * материалы и комментарий — приёмка сразу создаётся в статусе
- * `confirmed_mol`. На веб-портале попадает в «Принятые / Подтверждено МОЛ»
- * с тегом «Без документа» (sourceDocumentIds=[]), confirmedByMolUserId
- * = инспектор (сервер заполняет в createDelivery при status='confirmed_mol').
+ * материалы и комментарий. Форма работает «по draftId»: сначала на
+ * [ManualEntryListScreen] создаётся локальный черновик, форма его
+ * дозаполняет с автосейвом. По «Завершить» приёмка создаётся в статусе
+ * `confirmed_mol` (на веб-портале — «Принятые / Подтверждено МОЛ», тег «Без
+ * документа», sourceDocumentIds=[]), а черновик удаляется. До «Завершить»
+ * запись живёт только локально и на сервер не уходит.
  *
  * Отличия от Stage1FormViewModel:
  *  - нет vehiclePlate, vehicleTypeCode, inTransit (это не автотранспорт);
  *  - нет загрузки УПД (sourceDocumentIds всегда пуст);
- *  - statusCode на финализе = 'confirmed_mol' (а не 'filled');
- *  - нет draft-персистентности — экран короткий, риск потерять данные
- *    мал; в v2 при жалобах добавим.
+ *  - statusCode на финализе = 'confirmed_mol' (а не 'filled').
  */
+@OptIn(FlowPreview::class)
 class ManualEntryFormViewModel(
     private val container: AppContainer,
+    savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
+
+    private val draftLocalId: String = requireNotNull(savedStateHandle.get<String>(Routes.ARG_DRAFT_ID)) {
+        "ManualEntryFormViewModel requires ${Routes.ARG_DRAFT_ID} nav arg"
+    }
+
+    /** Объект черновика — фиксируется на создании; finalize шлёт запись именно сюда. */
+    private var draftSiteId: String? = null
 
     private val _state = MutableStateFlow(ManualEntryFormUiState())
     val state: StateFlow<ManualEntryFormUiState> = _state.asStateFlow()
+
+    init {
+        viewModelScope.launch { restoreDraft() }
+        viewModelScope.launch { observeAutoSave() }
+    }
+
+    private suspend fun restoreDraft() {
+        container.manualEntryDraftRepository.findById(draftLocalId)?.let { entity ->
+            draftSiteId = entity.siteId
+            val restored = container.manualEntryDraftRepository.toState(entity)
+            _state.update {
+                it.copy(
+                    documentPhotoPaths = restored.documentPhotoPaths,
+                    cargoPhotoPaths = restored.cargoPhotoPaths,
+                    manualUpdText = restored.manualUpdText,
+                    materials = restored.materials,
+                    commentText = restored.commentText,
+                    isAssets = restored.isAssets,
+                )
+            }
+        }
+        _state.update { it.copy(loaded = true) }
+    }
+
+    /**
+     * Автосейв черновика: подписка на state с debounce. `drop(1)` — чтобы не
+     * дёрнуть запись дефолтным пустым state до restoreDraft. Строка черновика
+     * уже создана списком (эйджер), поэтому просто upsert'им актуальные поля;
+     * очистка пустого черновика — в [onLeave].
+     */
+    private suspend fun observeAutoSave() {
+        _state
+            .drop(1)
+            .debounce(300L)
+            .distinctUntilChanged { a, b -> a.draftPayloadEquals(b) }
+            .collect { snapshot ->
+                if (!snapshot.loaded || snapshot.finalized) return@collect
+                val siteId = draftSiteId ?: return@collect
+                container.manualEntryDraftRepository.upsert(snapshot.toDraftState(siteId))
+            }
+    }
+
+    /**
+     * Уход с формы (back-arrow / системный back). Если черновик содержателен —
+     * дозаписываем актуальное состояние (страховка от того, что последний
+     * debounce автосейва не успел сработать до pop). Если пуст — удаляем строку
+     * и её temp-фото, чтобы список не засорялся отменёнными операциями.
+     *
+     * Выполняется в [AppContainer.appScope], т.к. `after()` дёргает popBackStack
+     * и viewModelScope к моменту записи уже отменён.
+     */
+    fun onLeave(after: () -> Unit) {
+        val cur = _state.value
+        val siteId = draftSiteId
+        // Только после loaded: до окончания restoreDraft `cur` ещё дефолтно-пуст,
+        // и удаление приняло бы переоткрытый содержательный черновик за пустой.
+        if (cur.loaded && !cur.finalized && siteId != null) {
+            container.appScope.launch {
+                if (cur.isPristine()) {
+                    (cur.documentPhotoPaths + cur.cargoPhotoPaths).forEach { path ->
+                        runCatching { File(path).delete() }
+                    }
+                    container.manualEntryDraftRepository.deleteById(draftLocalId)
+                } else {
+                    container.manualEntryDraftRepository.upsert(cur.toDraftState(siteId))
+                }
+            }
+        }
+        after()
+    }
+
+    /** Проекция UI-state → сохраняемый черновик. createdAt подменит repo.upsert из БД. */
+    private fun ManualEntryFormUiState.toDraftState(siteId: String): ManualEntryDraftState {
+        val now = System.currentTimeMillis()
+        return ManualEntryDraftState(
+            localDraftId = draftLocalId,
+            siteId = siteId,
+            documentPhotoPaths = documentPhotoPaths,
+            cargoPhotoPaths = cargoPhotoPaths,
+            manualUpdText = manualUpdText,
+            materials = materials,
+            commentText = commentText,
+            isAssets = isAssets,
+            createdAt = now,
+            updatedAt = now,
+        )
+    }
 
     fun addDocumentPhoto(path: String) {
         _state.update { it.copy(documentPhotoPaths = it.documentPhotoPaths + path) }
@@ -104,7 +207,9 @@ class ManualEntryFormViewModel(
         val cur = _state.value
         if (cur.isSaving || cur.finalized) return
 
-        val siteId = container.tokenStorage.state.value.siteId
+        // siteId берём из черновика: приёмка уходит на тот объект, где начата,
+        // даже если сессия позже переключилась. Fallback — текущий siteId.
+        val siteId = draftSiteId ?: container.tokenStorage.state.value.siteId
         if (siteId.isNullOrBlank()) {
             _state.update { it.copy(error = "Нет привязки к объекту, переавторизуйтесь") }
             return
@@ -214,6 +319,10 @@ class ManualEntryFormViewModel(
                         )
                     }
                 } else {
+                    // Финализировано → черновик больше не нужен. Удаляем ДО
+                    // выставления finalized=true, чтобы автосейв не воскресил
+                    // строку на следующем тике (см. Stage1FormViewModel).
+                    container.manualEntryDraftRepository.deleteById(draftLocalId)
                     _state.update { it.copy(isSaving = false, finalized = true) }
                 }
             } catch (t: Throwable) {
@@ -237,7 +346,27 @@ data class ManualEntryFormUiState(
     val commentText: String = "",
     /** ОС — чекбокс «основные средства». На finalize → DeliveryRepository.UpsertInput.isAssets. */
     val isAssets: Boolean = false,
+    /** true после restoreDraft — гейт для автосейва, чтобы не писать до загрузки. */
+    val loaded: Boolean = false,
     val isSaving: Boolean = false,
     val finalized: Boolean = false,
     val error: String? = null,
 )
+
+/** Пусто ли содержимое черновика — по такому уходим с формы без сохранения строки. */
+private fun ManualEntryFormUiState.isPristine(): Boolean =
+    documentPhotoPaths.isEmpty() && cargoPhotoPaths.isEmpty() &&
+        materials.none { it.name.isNotBlank() || it.qty.isNotBlank() } &&
+        commentText.isBlank() && manualUpdText.isBlank() && !isAssets
+
+/**
+ * Сравнение «полезной нагрузки» для distinctUntilChanged автосейва: исключаем
+ * волатильные loaded/isSaving/finalized/error, чтобы не дёргать запись на них.
+ */
+private fun ManualEntryFormUiState.draftPayloadEquals(other: ManualEntryFormUiState): Boolean =
+    documentPhotoPaths == other.documentPhotoPaths &&
+        cargoPhotoPaths == other.cargoPhotoPaths &&
+        manualUpdText == other.manualUpdText &&
+        materials == other.materials &&
+        commentText == other.commentText &&
+        isAssets == other.isAssets

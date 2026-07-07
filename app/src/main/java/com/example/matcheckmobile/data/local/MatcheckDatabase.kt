@@ -10,6 +10,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.matcheckmobile.data.local.dao.CounterpartyDao
 import com.example.matcheckmobile.data.local.dao.DeliveryLocalMetaDao
 import com.example.matcheckmobile.data.local.dao.ShipmentLocalMetaDao
+import com.example.matcheckmobile.data.local.dao.ManualDispatchDraftDao
+import com.example.matcheckmobile.data.local.dao.ManualEntryDraftDao
 import com.example.matcheckmobile.data.local.dao.MaterialDao
 import com.example.matcheckmobile.data.local.dao.MaterialOperationDao
 import com.example.matcheckmobile.data.local.dao.MutationDao
@@ -34,6 +36,8 @@ import com.example.matcheckmobile.data.local.dao.UserDao
 import com.example.matcheckmobile.data.local.entity.CounterpartyEntity
 import com.example.matcheckmobile.data.local.entity.DeliveryLocalMetaEntity
 import com.example.matcheckmobile.data.local.entity.ShipmentLocalMetaEntity
+import com.example.matcheckmobile.data.local.entity.ManualDispatchDraftEntity
+import com.example.matcheckmobile.data.local.entity.ManualEntryDraftEntity
 import com.example.matcheckmobile.data.local.entity.MaterialEntity
 import com.example.matcheckmobile.data.local.entity.MaterialOperationEntity
 import com.example.matcheckmobile.data.local.entity.MutationEntity
@@ -98,8 +102,10 @@ import com.example.matcheckmobile.data.local.entity.UserEntity
         Stage2DraftEntity::class,
         ShipmentStage1DraftEntity::class,
         ShipmentStage2DraftEntity::class,
+        ManualEntryDraftEntity::class,
+        ManualDispatchDraftEntity::class,
     ],
-    version = 22,
+    version = 23,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)
@@ -129,6 +135,8 @@ abstract class MatcheckDatabase : RoomDatabase() {
     abstract fun stage2DraftDao(): Stage2DraftDao
     abstract fun shipmentStage1DraftDao(): ShipmentStage1DraftDao
     abstract fun shipmentStage2DraftDao(): ShipmentStage2DraftDao
+    abstract fun manualEntryDraftDao(): ManualEntryDraftDao
+    abstract fun manualDispatchDraftDao(): ManualDispatchDraftDao
 
     companion object {
         private const val DB_NAME = "matcheck.db"
@@ -143,7 +151,7 @@ abstract class MatcheckDatabase : RoomDatabase() {
                     MatcheckDatabase::class.java,
                     DB_NAME,
                 )
-                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22)
+                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23)
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
                     .also { INSTANCE = it }
@@ -165,6 +173,64 @@ abstract class MatcheckDatabase : RoomDatabase() {
                             ON UPDATE NO ACTION ON DELETE CASCADE
                     )
                     """.trimIndent(),
+                )
+            }
+        }
+
+        // manual_entry_drafts + manual_dispatch_drafts — локальные черновики
+        // «Ручной внос/вынос». Самостоятельные сущности (не оверлей поверх
+        // delivery/shipment): инспектор ведёт несколько незавершённых ручных
+        // операций и возвращается к ним. На сервер уходят только по «Завершить»
+        // (тогда строка черновика удаляется). Индексы по siteId (фильтр списка)
+        // и updatedAt (как у stage1_drafts).
+        private val MIGRATION_22_23 = object : Migration(22, 23) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `manual_entry_drafts` (
+                        `localDraftId` TEXT NOT NULL,
+                        `siteId` TEXT NOT NULL,
+                        `documentPhotoPathsJson` TEXT NOT NULL,
+                        `cargoPhotoPathsJson` TEXT NOT NULL,
+                        `manualUpdText` TEXT NOT NULL,
+                        `materialsJson` TEXT NOT NULL,
+                        `commentText` TEXT NOT NULL,
+                        `isAssets` INTEGER NOT NULL DEFAULT 0,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`localDraftId`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_manual_entry_drafts_siteId` ON `manual_entry_drafts` (`siteId`)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_manual_entry_drafts_updatedAt` ON `manual_entry_drafts` (`updatedAt`)",
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `manual_dispatch_drafts` (
+                        `localDraftId` TEXT NOT NULL,
+                        `siteId` TEXT NOT NULL,
+                        `documentPhotoPathsJson` TEXT NOT NULL,
+                        `cargoPhotoPathsJson` TEXT NOT NULL,
+                        `manualUpdText` TEXT NOT NULL,
+                        `materialsJson` TEXT NOT NULL,
+                        `commentText` TEXT NOT NULL,
+                        `shipmentPurpose` TEXT,
+                        `isAssets` INTEGER NOT NULL DEFAULT 0,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`localDraftId`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_manual_dispatch_drafts_siteId` ON `manual_dispatch_drafts` (`siteId`)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_manual_dispatch_drafts_updatedAt` ON `manual_dispatch_drafts` (`updatedAt`)",
                 )
             }
         }

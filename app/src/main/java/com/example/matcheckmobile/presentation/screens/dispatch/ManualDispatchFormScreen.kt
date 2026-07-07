@@ -1,5 +1,6 @@
 package com.example.matcheckmobile.presentation.screens.dispatch
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -105,6 +106,8 @@ fun ManualDispatchFormScreen(
     val focusManager = LocalFocusManager.current
     val tapOutsideSource = remember { MutableInteractionSource() }
 
+    BackHandler { vm.onLeave(onBack) }
+
     LaunchedEffect(state.finalized) {
         if (state.finalized) {
             successVisible = true
@@ -139,7 +142,7 @@ fun ManualDispatchFormScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack, modifier = Modifier.size(72.dp)) {
+                    IconButton(onClick = { vm.onLeave(onBack) }, modifier = Modifier.size(72.dp)) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Назад",
