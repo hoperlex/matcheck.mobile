@@ -19,7 +19,7 @@ retrofit = "2.11.0"
 okhttp = "4.12.0"
 kotlinxSerialization = "1.7.3"
 securityCrypto = "1.1.0-alpha06"
-mlkitDocumentScanner = "16.0.0-beta1"
+mlkitDocumentScanner = "16.0.0"
 playServicesLocation = "21.3.0"
 sentry = "8.47.0"
 
