@@ -5,7 +5,6 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.PackageManager
-import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -65,12 +64,8 @@ fun rememberDocumentScanner(
                 .setGalleryImportAllowed(false)
                 .setPageLimit(20)
                 .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG)
-                .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_BASE)
+                .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
                 .build()
-            // Маркер варианта для диагностики чёрной полосы: UI сканера живёт в
-            // Play services и обновляется сам, поэтому в logcat рядом с нашей
-            // строкой видно, какой режим запрошен и какой DynamiteModule подъехал.
-            Log.i(TAG, "scanner mode=BASE (вариант C)")
             val client = GmsDocumentScanning.getClient(options)
             client.getStartScanIntent(activity)
                 .addOnSuccessListener { intentSender ->
@@ -107,8 +102,6 @@ fun rememberDocumentScanner(
         }
     }
 }
-
-private const val TAG = "DocScanner"
 
 private fun Context.findActivity(): Activity? {
     var ctx: Context? = this
