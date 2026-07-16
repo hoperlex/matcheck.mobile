@@ -54,8 +54,15 @@ fun rememberPhotoCapture(
     // позже напишет «GPS: нет».
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
-    ) { grants ->
-        val cameraGranted = grants[Manifest.permission.CAMERA] == true
+    ) { _ ->
+        // Состояние читаем заново, а не из grants: незапрошенных разрешений в
+        // карте нет вовсе. Если CAMERA уже выдан, а LOCATION отклонён, запрос
+        // уходит только за LOCATION — и grants[CAMERA] == null приняло бы уже
+        // выданную камеру за отказ, навсегда заблокировав съёмку.
+        val cameraGranted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.CAMERA,
+        ) == PackageManager.PERMISSION_GRANTED
         if (cameraGranted) launchCamera() else onError("Нет доступа к камере")
     }
 
