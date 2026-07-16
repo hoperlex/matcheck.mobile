@@ -65,12 +65,12 @@ fun rememberDocumentScanner(
                 .setGalleryImportAllowed(false)
                 .setPageLimit(20)
                 .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG)
-                .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_BASE_WITH_FILTER)
+                .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_BASE)
                 .build()
             // Маркер варианта для диагностики чёрной полосы: UI сканера живёт в
             // Play services и обновляется сам, поэтому в logcat рядом с нашей
             // строкой видно, какой режим запрошен и какой DynamiteModule подъехал.
-            Log.i(TAG, "scanner mode=BASE_WITH_FILTER (вариант B)")
+            Log.i(TAG, "scanner mode=BASE (вариант C)")
             val client = GmsDocumentScanning.getClient(options)
             client.getStartScanIntent(activity)
                 .addOnSuccessListener { intentSender ->
