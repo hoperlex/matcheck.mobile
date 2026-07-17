@@ -38,6 +38,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,6 +49,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import com.example.matcheckmobile.MatcheckApplication
 import com.example.matcheckmobile.presentation.components.AssetsCheckbox
 import com.example.matcheckmobile.presentation.components.FinalizeConfirmDialog
@@ -76,6 +78,7 @@ fun Stage1FormScreen(
     val vm: Stage1FormViewModel = matcheckViewModel()
     val state by vm.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
     var previewPath by remember { mutableStateOf<String?>(null) }
     // Колбэк удаления именно для текущего превью — секция (документы/груз)
     // передаёт сюда замыкание, удаляющее своё фото. Кнопка «Удалить» внутри
@@ -106,8 +109,8 @@ fun Stage1FormScreen(
     }
 
     val takeDocumentPhoto = rememberDocumentScanner(
-        photoStorage = container.photoStorage,
         onPageCaptured = vm::onDocumentPhotoTaken,
+        onError = { msg -> scope.launch { snackbar.showSnackbar(msg) } },
     )
     val takeCargoPhoto = rememberPhotoCapture(
         photoStorage = container.photoStorage,

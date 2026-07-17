@@ -52,6 +52,20 @@
             </intent-filter>
         </activity>
 
+        <!-- Свой сканер документов. Отдельная Activity нужна именно ради окна:
+             MainActivity объявлена resizeableActivity="false" и жёстко правит
+             ориентацию, из-за чего камера внутри неё получала бы леттербокс.
+             configChanges для ориентации НЕ указываем намеренно: пусть Activity
+             пересоздаётся и CameraX биндится заново под новую геометрию — иначе
+             в UseCaseGroup остался бы ViewPort от старого экрана и снимок
+             разошёлся бы с превью. -->
+        <activity
+            android:name=".presentation.scanner.DocumentScannerActivity"
+            android:exported="false"
+            android:resizeableActivity="true"
+            android:screenOrientation="fullSensor"
+            android:theme="@style/Theme.Matcheckmobile" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

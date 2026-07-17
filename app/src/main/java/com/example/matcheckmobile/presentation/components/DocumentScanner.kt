@@ -1,113 +1,79 @@
 package com.example.matcheckmobile.presentation.components
 
 import android.Manifest
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
 import android.content.pm.PackageManager
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
-import com.example.matcheckmobile.media.PhotoStorage
-import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
-import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
-import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
+import com.example.matcheckmobile.presentation.scanner.DocumentScanContract
+import com.example.matcheckmobile.presentation.scanner.DocumentScanResult
+
+private const val TAG = "DocumentScanner"
 
 /**
- * Запускает Google ML Kit Document Scanner — экран камеры с детектом краёв
- * листа, авто-кадром, перспективным выпрямлением и многостраничной съёмкой.
- * Каждая отснятая страница копируется в локальное хранилище [PhotoStorage]
- * и абсолютный путь отдаётся через [onPageCaptured] (вызов на страницу).
+ * Запускает собственный CameraX-сканер документов: полноэкранное превью, ручной
+ * затвор, многостраничная съёмка. Каждая подтверждённая страница отдаётся через
+ * [onPageCaptured] абсолютным путём, в порядке съёмки.
  *
- * Требует Google Play Services на устройстве — модуль сканера подтянется
- * автоматически при первом вызове, поэтому первый запуск может занять
- * 5-10 секунд.
+ * Раньше здесь был Google ML Kit Document Scanner — он не давал сделать съёмку
+ * ручной (в его API нет setCaptureMode) и рисовал чёрную половину экрана на
+ * части планшетов. Замороженная копия лежит в [rememberMlKitDocumentScanner]
+ * как rollback.
+ *
+ * Геолокация не запрашивается: на страницы документов водяной знак не
+ * накладывается (он перекрывал текст УПД), поэтому координаты здесь не нужны —
+ * достаточно CAMERA.
+ *
+ * @param onPageCaptured вызывается на каждую подтверждённую страницу
+ * @param onError        сбой камеры или отказ в разрешении — показать оператору
  */
 @Composable
 fun rememberDocumentScanner(
-    photoStorage: PhotoStorage,
     onPageCaptured: (String) -> Unit,
     onError: (String) -> Unit = {},
 ): () -> Unit {
     val context = LocalContext.current
 
-    val launcher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartIntentSenderForResult(),
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            val scanResult = GmsDocumentScanningResult.fromActivityResultIntent(result.data)
-            val pages = scanResult?.pages.orEmpty()
-            if (pages.isEmpty()) {
-                onError("Сканер не вернул страниц")
-                return@rememberLauncherForActivityResult
+    val scanLauncher = rememberLauncherForActivityResult(DocumentScanContract()) { result ->
+        when (result) {
+            is DocumentScanResult.Success -> result.paths.forEach(onPageCaptured)
+
+            is DocumentScanResult.Failure -> {
+                // Логируем всегда: Sentry-DSN пока не задан, и logcat — наш
+                // единственный канал разбора сбоя с боевого планшета.
+                Log.e(TAG, "Document scan failed: ${result.message}")
+                onError(result.message)
             }
-            pages.forEach { page ->
-                runCatching {
-                    val file = photoStorage.importFromUri(page.imageUri, prefix = "doc")
-                    onPageCaptured(file.absolutePath)
-                }.onFailure { t ->
-                    onError(t.message ?: "Не удалось сохранить страницу")
-                }
-            }
+
+            // Оператор вышел сам — это не ошибка, молчим.
+            DocumentScanResult.Cancelled -> Unit
         }
     }
 
-    val startScan = {
-        val activity = context.findActivity()
-        if (activity == null) {
-            onError("Нет активити для запуска сканера")
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            scanLauncher.launch(Unit)
         } else {
-            val options = GmsDocumentScannerOptions.Builder()
-                .setGalleryImportAllowed(false)
-                .setPageLimit(20)
-                .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG)
-                .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
-                .build()
-            val client = GmsDocumentScanning.getClient(options)
-            client.getStartScanIntent(activity)
-                .addOnSuccessListener { intentSender ->
-                    launcher.launch(IntentSenderRequest.Builder(intentSender).build())
-                }
-                .addOnFailureListener { e ->
-                    onError(e.message ?: "Не удалось открыть сканер документов")
-                }
+            Log.w(TAG, "CAMERA permission denied")
+            onError("Нет доступа к камере")
         }
     }
-
-    // Сканер сам разруливает CAMERA-permission; нам нужно только LOCATION
-    // для последующего проставления координат в водяной знак.
-    val locationLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestMultiplePermissions(),
-    ) { _ -> startScan() }
 
     return {
-        val locationGranted = ContextCompat.checkSelfPermission(
-            context, Manifest.permission.ACCESS_FINE_LOCATION,
-        ) == PackageManager.PERMISSION_GRANTED ||
-            ContextCompat.checkSelfPermission(
-                context, Manifest.permission.ACCESS_COARSE_LOCATION,
-            ) == PackageManager.PERMISSION_GRANTED
-        if (locationGranted) {
-            startScan()
+        val cameraGranted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.CAMERA,
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (cameraGranted) {
+            scanLauncher.launch(Unit)
         } else {
-            locationLauncher.launch(
-                arrayOf(
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                    Manifest.permission.ACCESS_COARSE_LOCATION,
-                ),
-            )
+            permissionLauncher.launch(Manifest.permission.CAMERA)
         }
     }
-}
-
-private fun Context.findActivity(): Activity? {
-    var ctx: Context? = this
-    while (ctx is ContextWrapper) {
-        if (ctx is Activity) return ctx
-        ctx = ctx.baseContext
-    }
-    return null
 }

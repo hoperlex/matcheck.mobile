@@ -41,6 +41,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,6 +70,7 @@ import com.example.matcheckmobile.presentation.util.formatLocalTime
 import com.example.matcheckmobile.presentation.viewmodel.DispatchStage2FormViewModel
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private val TabletBreakpoint = 600.dp
 
@@ -88,6 +90,7 @@ fun DispatchStage2FormScreen(
         .collectAsStateWithLifecycle(initialValue = emptyList())
     val unitCodes = remember(availableUnits) { availableUnits.map { it.code } }
     val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
     var previewPath by remember { mutableStateOf<String?>(null) }
     var previewDelete by remember { mutableStateOf<(() -> Unit)?>(null) }
     var addMaterialOpen by remember { mutableStateOf(false) }
@@ -116,8 +119,8 @@ fun DispatchStage2FormScreen(
     }
 
     val takeDocumentPhoto = rememberDocumentScanner(
-        photoStorage = container.photoStorage,
         onPageCaptured = vm::onDocumentPhotoTaken,
+        onError = { msg -> scope.launch { snackbar.showSnackbar(msg) } },
     )
     val takeVehiclePhoto = rememberPhotoCapture(
         photoStorage = container.photoStorage,
