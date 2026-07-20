@@ -58,6 +58,12 @@ android {
             // «глазами инспектора» перед выкаткой.
             applicationIdSuffix = ".dev"
             versionNameSuffix = "-dev"
+            // OpenCV тянет нативные .so на каждую ABI. В debug держим ещё и
+            // x86_64: на нём гоняются instrumentation-тест детектора краёв и
+            // проверка 16-КБ выравнивания (эмулятор Android 15).
+            ndk {
+                abiFilters += listOf("arm64-v8a", "x86_64")
+            }
             // На лаунчере подпись «Матбаланс.dev», чтобы визуально отличать
             // от production-«Матбаланс» (по applicationId Android уже их
             // разделяет, подпись делает то же самое наглядным для пользователя).
@@ -71,6 +77,13 @@ android {
             buildConfigField("String", "UPDATE_MANIFEST_URL", "\"\"")
         }
         release {
+            // Только arm64: весь парк планшетов 64-битный, а нативные .so
+            // OpenCV — основной вклад в размер APK. Если в парке появится
+            // 32-битное устройство, сюда нужно вернуть armeabi-v7a, иначе
+            // APK на нём просто не установится.
+            ndk {
+                abiFilters += "arm64-v8a"
+            }
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -155,8 +168,12 @@ dependencies {
     implementation(libs.androidx.camera.camera2)
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
+    implementation(libs.opencv)
 
     testImplementation(libs.junit)
+    // Транзакция кадра в сканере крутится в viewModelScope (Dispatchers.Main),
+    // без setMain её правила владения файлами не проверить на JVM.
+    testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)

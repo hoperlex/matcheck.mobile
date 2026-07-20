@@ -23,6 +23,9 @@ mlkitDocumentScanner = "16.0.0"
 # CameraX: ветка 1.5 (camera2-стек). Не поднимаем до 1.6.x — там новый CameraPipe-стек,
 # т.е. новый класс рисков на боевых Samsung, проверить которые до релиза нечем.
 camerax = "1.5.3"
+# OpenCV — только ради детекта краёв документа в сканере. Тянет нативные .so,
+# поэтому в release оставляем одну ABI (см. abiFilters в app/build.gradle.kts).
+opencv = "4.13.0"
 playServicesLocation = "21.3.0"
 sentry = "8.47.0"
 
@@ -53,6 +56,7 @@ androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx"
 androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "dataStore" }
 androidx-exifinterface = { group = "androidx.exifinterface", name = "exifinterface", version.ref = "exifInterface" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
 retrofit-core = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
 retrofit-kotlinx-serialization = { group = "com.squareup.retrofit2", name = "converter-kotlinx-serialization", version.ref = "retrofit" }
@@ -65,6 +69,7 @@ androidx-camera-core = { group = "androidx.camera", name = "camera-core", versio
 androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "camerax" }
 androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
 androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
+opencv = { group = "org.opencv", name = "opencv", version.ref = "opencv" }
 play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
 # Sentry: SDK ядро (io.sentry:sentry-android) + OkHttp-интеграция. В v8 OkHttp-модуль
 # переименован в io.sentry:sentry-okhttp (пакет io.sentry.okhttp), не sentry-android-okhttp.

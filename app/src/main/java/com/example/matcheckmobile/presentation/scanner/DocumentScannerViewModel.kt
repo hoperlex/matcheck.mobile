@@ -1,10 +1,10 @@
 package com.example.matcheckmobile.presentation.scanner
 
-import android.graphics.BitmapFactory
+import android.os.SystemClock
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.matcheckmobile.media.PhotoStorage
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,6 +20,8 @@ data class ScannerUiState(
     val pages: List<String> = emptyList(),
     val cameraReady: Boolean = false,
     val captureInProgress: Boolean = false,
+    /** Рамка документа для отрисовки поверх превью; `null` — документ не найден. */
+    val documentQuad: NormalizedQuad? = null,
     /** Камера не поднялась. Если [pages] не пуст — не закрываем экран, а даём выбор. */
     val fatalError: String? = null,
     val message: String? = null,
@@ -38,19 +40,20 @@ data class ScannerUiState(
 /**
  * Состояние сессии съёмки документов.
  *
- * Здесь намеренно нет типов CameraX: Activity владеет камерой и лишь сообщает
- * сюда о событиях кадра. Это оставляет транзакцию кадра и правила владения
- * файлами проверяемыми обычными JVM-тестами.
+ * Здесь намеренно нет типов CameraX и OpenCV: Activity владеет камерой, а
+ * обрезкой занимается [DocumentPageProcessor] за интерфейсом. Благодаря этому
+ * транзакция кадра и правила владения файлами проверяются JVM-тестами.
  *
- * Главная забота — не оставить сироту и не потерять уже снятое. Между
- * `createTempFile` и `pages += path` файл уже существует, но списку ещё не
- * принадлежит; поворот, Back или смерть процесса в этом окне раньше дали бы
- * либо мусор в operation_photos, либо дубль.
+ * Главная забота — не оставить сироту и не потерять уже снятое.
  */
 class DocumentScannerViewModel(
-    private val photoStorage: PhotoStorage,
+    private val fileStore: ScannerFileStore,
     private val appScope: CoroutineScope,
     private val handle: SavedStateHandle,
+    private val processor: DocumentPageProcessor,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val stabilizer: QuadStabilizer = QuadStabilizer(),
+    private val clock: () -> Long = { SystemClock.elapsedRealtime() },
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(
@@ -71,37 +74,58 @@ class DocumentScannerViewModel(
             handle[KEY_TOKEN] = value
         }
 
+    /** Путь снятого оригинала, ещё не ставшего страницей. */
     private var pendingPath: String?
         get() = handle[KEY_PENDING]
         set(value) {
             handle[KEY_PENDING] = value
         }
 
-    data class CaptureTicket(val file: File, val token: String)
+    /** Путь результата обрезки. Пишется ДО обработки, иначе смерть процесса оставит сироту. */
+    private var pendingWarpPath: String?
+        get() = handle[KEY_PENDING_WARP]
+        set(value) {
+            handle[KEY_PENDING_WARP] = value
+        }
 
     /**
-     * Старт сессии — вызывается на каждом создании Activity, включая пересоздание
-     * после поворота и восстановление процесса.
+     * Тикет кадра. Квад фиксируется **в момент нажатия**: за время shutter lag
+     * анализатор успеет увидеть другую страницу, руку или стол, и обрезка по
+     * «свежему» кваду из будущего срезала бы половину УПД.
+     */
+    data class CaptureTicket(
+        val file: File,
+        val token: String,
+        val quadSnapshot: NormalizedQuad?,
+    )
+
+    /**
+     * Старт сессии — на каждом создании Activity, включая пересоздание после
+     * поворота и восстановление процесса.
      *
-     * Незавершённый кадр считаем неподтверждённым: файл есть, но валидацию он не
-     * прошёл и списку не принадлежит. Удаляем и просим переснять — это надёжнее,
-     * чем пытаться «донести» кадр через пересоздание.
+     * Незавершённый кадр считаем неподтверждённым: файлы есть, но валидацию они
+     * не прошли и списку не принадлежат.
      */
     fun onSessionStart() {
-        val orphan = pendingPath
+        val orphans = listOfNotNull(pendingPath, pendingWarpPath)
         currentToken = null
         pendingPath = null
-        _state.update { it.copy(captureInProgress = false, cameraReady = false) }
-        if (orphan != null) {
-            appScope.launch { runCatching { File(orphan).delete() } }
+        pendingWarpPath = null
+        stabilizer.reset()
+        _state.update {
+            it.copy(captureInProgress = false, cameraReady = false, documentQuad = null)
+        }
+        if (orphans.isNotEmpty()) {
+            deleteAll(orphans)
             _state.update { it.copy(message = "Кадр не сохранился — снимите страницу заново") }
         }
     }
 
     fun onCameraReady() = _state.update { it.copy(cameraReady = true, fatalError = null) }
 
-    fun onFatalError(message: String) =
-        _state.update { it.copy(cameraReady = false, captureInProgress = false, fatalError = message) }
+    fun onFatalError(message: String) = _state.update {
+        it.copy(cameraReady = false, captureInProgress = false, documentQuad = null, fatalError = message)
+    }
 
     /** «Повторить» на экране фатальной ошибки — Activity перебиндит камеру. */
     fun retryAfterFatal() = _state.update { it.copy(fatalError = null) }
@@ -109,13 +133,29 @@ class DocumentScannerViewModel(
     fun consumeMessage() = _state.update { it.copy(message = null) }
 
     /**
-     * Открывает транзакцию кадра: фиксирует pendingPath и токен ДО takePicture,
-     * чтобы файл был отслеживаем даже если процесс умрёт сразу после съёмки.
+     * Результат очередного кадра анализа. Вызывать только с main thread и только
+     * после проверки generation — иначе рамка от уже отвязанного анализатора
+     * всплывёт поверх новой сессии.
+     */
+    fun onQuadDetected(quad: NormalizedQuad?) {
+        val stable = stabilizer.onFrame(quad, clock())
+        _state.update { it.copy(documentQuad = stable) }
+    }
+
+    /** Сброс рамки: поворот, fallback-биндинг, остановка анализатора. */
+    fun clearQuad() {
+        stabilizer.reset()
+        _state.update { it.copy(documentQuad = null) }
+    }
+
+    /**
+     * Открывает транзакцию кадра: фиксирует pendingPath, токен и **снимок квада**
+     * ДО takePicture.
      */
     fun beginCapture(): CaptureTicket? {
         if (!_state.value.canCapture) return null
         val file = try {
-            photoStorage.createTempFile(DOC_PREFIX)
+            fileStore.createPageFile()
         } catch (t: Throwable) {
             _state.update { it.copy(message = t.message ?: "Не удалось создать файл снимка") }
             return null
@@ -124,25 +164,23 @@ class DocumentScannerViewModel(
         pendingPath = file.absolutePath
         currentToken = token
         _state.update { it.copy(captureInProgress = true) }
-        return CaptureTicket(file, token)
+        return CaptureTicket(file, token, stabilizer.snapshotIfFresh(clock()))
     }
 
     /**
-     * Кадр записан. Транзакция закрывается только после успешной валидации JPEG:
-     * `length > 0` ничего не гарантирует, а недекодируемый файл всплыл бы только
-     * на submit — то есть в момент, когда терять данные дороже всего.
+     * Кадр записан. Порядок строгий, потому что терять страницу нельзя:
+     * оригинал → проверка → warp в отдельный файл → проверка → подмена.
+     * Любая осечка оставляет страницей оригинал.
      */
     fun onFrameSaved(ticket: CaptureTicket) {
         viewModelScope.launch {
-            if (isStale(ticket)) return@launch deleteOrphan(ticket.file)
+            if (isStale(ticket)) return@launch deleteAll(listOf(ticket.file.absolutePath))
 
-            val decodable = withContext(Dispatchers.IO) { isDecodableJpeg(ticket.file) }
+            val originalOk = withContext(ioDispatcher) { fileStore.isDecodableJpeg(ticket.file) }
+            if (isStale(ticket)) return@launch deleteAll(listOf(ticket.file.absolutePath))
 
-            // Пока валидировали, сессию могли закрыть или перезапустить.
-            if (isStale(ticket)) return@launch deleteOrphan(ticket.file)
-
-            if (!decodable) {
-                deleteOrphan(ticket.file)
+            if (!originalOk) {
+                deleteAll(listOf(ticket.file.absolutePath))
                 clearPending()
                 _state.update {
                     it.copy(captureInProgress = false, message = "Снимок повреждён — снимите заново")
@@ -150,14 +188,51 @@ class DocumentScannerViewModel(
                 return@launch
             }
 
-            setPages(_state.value.pages + ticket.file.absolutePath)
+            val page = ticket.quadSnapshot?.let { quad -> cropOrFallback(ticket, quad) }
+                ?: ticket.file.absolutePath
+
+            // Сессию могли закрыть, пока шла обрезка: тогда оба файла — мусор.
+            if (isStale(ticket)) {
+                return@launch deleteAll(listOfNotNull(ticket.file.absolutePath, pendingWarpPath, page))
+            }
+
+            setPages(_state.value.pages + page)
             clearPending()
             _state.update { it.copy(captureInProgress = false) }
         }
     }
 
+    /**
+     * Обрезает по рамке. Возвращает путь страницы: результат обрезки при успехе,
+     * иначе — оригинал. Необрезанный документ хуже красивого, но потерянный —
+     * хуже обоих.
+     */
+    private suspend fun cropOrFallback(ticket: CaptureTicket, quad: NormalizedQuad): String {
+        val target = try {
+            fileStore.createPageFile()
+        } catch (t: Throwable) {
+            return ticket.file.absolutePath
+        }
+        // Путь фиксируем ДО обработки: иначе смерть процесса во время warp
+        // оставит файл, о котором никто не знает.
+        pendingWarpPath = target.absolutePath
+
+        val ok = processor.cropToQuad(ticket.file, target, quad) &&
+            withContext(ioDispatcher) { fileStore.isDecodableJpeg(target) }
+
+        return if (ok) {
+            deleteAll(listOf(ticket.file.absolutePath))
+            pendingWarpPath = null
+            target.absolutePath
+        } else {
+            deleteAll(listOf(target.absolutePath))
+            pendingWarpPath = null
+            ticket.file.absolutePath
+        }
+    }
+
     fun onFrameFailed(ticket: CaptureTicket, message: String) {
-        deleteOrphan(ticket.file)
+        deleteAll(listOf(ticket.file.absolutePath))
         if (isStale(ticket)) return
         clearPending()
         _state.update { it.copy(captureInProgress = false, message = message) }
@@ -165,7 +240,7 @@ class DocumentScannerViewModel(
 
     fun removePage(path: String) {
         setPages(_state.value.pages - path)
-        appScope.launch { runCatching { File(path).delete() } }
+        deleteAll(listOf(path))
     }
 
     /**
@@ -180,15 +255,24 @@ class DocumentScannerViewModel(
     /** Отмена/Back: инвалидируем токен и чистим всё, что сняли в этой сессии. */
     fun cancelSession() {
         currentToken = null
-        val doomed = _state.value.pages + listOfNotNull(pendingPath)
+        val doomed = _state.value.pages + listOfNotNull(pendingPath, pendingWarpPath)
         pendingPath = null
+        pendingWarpPath = null
+        stabilizer.reset()
         setPages(emptyList())
         deleteAll(doomed)
     }
 
-    override fun onCleared() {
+    override fun onCleared() = disposeSessionFiles()
+
+    /**
+     * Уборка при закрытии экрана. Вынесена из `onCleared` (он `protected`), чтобы
+     * правило «после передачи владения файлы не трогаем» проверялось тестом, а не
+     * держалось на честном слове.
+     */
+    internal fun disposeSessionFiles() {
         if (!ownershipTransferred) {
-            deleteAll(_state.value.pages + listOfNotNull(pendingPath))
+            deleteAll(_state.value.pages + listOfNotNull(pendingPath, pendingWarpPath))
         }
     }
 
@@ -196,6 +280,7 @@ class DocumentScannerViewModel(
 
     private fun clearPending() {
         pendingPath = null
+        pendingWarpPath = null
         currentToken = null
     }
 
@@ -205,33 +290,18 @@ class DocumentScannerViewModel(
         handle[KEY_PAGES] = ArrayList(copy)
     }
 
-    private fun deleteOrphan(file: File) {
-        appScope.launch { runCatching { file.delete() } }
-    }
-
     /** Чистим через appScope: viewModelScope уже отменён к моменту закрытия Activity. */
     private fun deleteAll(paths: List<String>) {
         if (paths.isEmpty()) return
-        val snapshot = paths.toList()
+        val snapshot = paths.distinct()
         appScope.launch { snapshot.forEach { runCatching { File(it).delete() } } }
     }
 
     companion object {
         const val MAX_PAGES = 20
-        private const val DOC_PREFIX = "doc"
         private const val KEY_PAGES = "scanner_pages"
         private const val KEY_PENDING = "scanner_pending_path"
+        private const val KEY_PENDING_WARP = "scanner_pending_warp_path"
         private const val KEY_TOKEN = "scanner_capture_token"
-
-        /**
-         * Дешёвая проверка, что downstream сможет открыть файл: только границы,
-         * без аллокации пикселей.
-         */
-        internal fun isDecodableJpeg(file: File): Boolean {
-            if (!file.exists() || file.length() == 0L) return false
-            val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            runCatching { BitmapFactory.decodeFile(file.absolutePath, opts) }
-            return opts.outWidth > 0 && opts.outHeight > 0
-        }
     }
 }

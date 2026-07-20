@@ -2,6 +2,8 @@ package com.example.matcheckmobile.presentation.scanner
 
 import android.content.Intent
 import android.os.Bundle
+import android.os.SystemClock
+import android.util.Log
 import android.util.Size
 import android.view.Surface
 import android.view.WindowManager
@@ -10,14 +12,18 @@ import androidx.activity.addCallback
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
+import androidx.camera.core.UseCase
 import androidx.camera.core.UseCaseGroup
 import androidx.camera.core.resolutionselector.AspectRatioStrategy
 import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -53,6 +59,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -64,25 +72,31 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.doOnLayout
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
-import androidx.lifecycle.createSavedStateHandle
 import com.example.matcheckmobile.MatcheckApplication
 import com.example.matcheckmobile.presentation.components.PhotoThumb
 import com.example.matcheckmobile.ui.theme.MatcheckmobileTheme
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
+
+private const val TAG = "DocumentScanner"
+
+/** Не чаще ~10 анализов в секунду: KEEP_ONLY_LATEST убирает очередь, но не расход CPU. */
+private const val ANALYSIS_MIN_INTERVAL_MS = 100L
 
 /**
- * Собственный сканер документов на CameraX.
+ * Собственный сканер документов на CameraX с живой рамкой краёв.
  *
- * Почему отдельная Activity, а не экран в NavHost: MainActivity объявлена
- * `resizeableActivity="false"`, а её ориентацию реактивно переписывает подписка
- * на DataStore — камера внутри неё унаследовала бы леттербокс и вошла бы в гонку
- * за requestedOrientation. Здесь окно наше: своя ориентация, свой immersive.
+ * Почему отдельная Activity: MainActivity объявлена `resizeableActivity="false"`
+ * и реактивно переписывает ориентацию из DataStore — камера внутри неё
+ * унаследовала бы леттербокс и вошла бы в гонку за requestedOrientation.
  *
- * Ориентацию НЕ фиксируем в configChanges намеренно: при повороте Activity
+ * `configChanges` для ориентации намеренно НЕ объявлен: при повороте Activity
  * пересоздаётся и CameraX биндится заново под новую геометрию. Иначе в
- * UseCaseGroup остался бы ViewPort, построенный под старый экран, и снимок
- * разошёлся бы с превью.
+ * UseCaseGroup остался бы ViewPort от старого экрана и снимок разошёлся бы
+ * с превью.
  */
 class DocumentScannerActivity : ComponentActivity() {
 
@@ -91,9 +105,10 @@ class DocumentScannerActivity : ComponentActivity() {
         viewModelFactory {
             initializer {
                 DocumentScannerViewModel(
-                    photoStorage = container.photoStorage,
+                    fileStore = PhotoStorageFileStore(container.photoStorage),
                     appScope = container.appScope,
                     handle = createSavedStateHandle(),
+                    processor = OpenCvDocumentPageProcessor(),
                 )
             }
         }
@@ -106,7 +121,7 @@ class DocumentScannerActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         // Каждое создание Activity (в т.ч. после поворота и рестарта процесса)
-        // закрывает незавершённый кадр: файл есть, но валидацию не прошёл.
+        // закрывает незавершённый кадр: файлы есть, но валидацию не прошли.
         vm.onSessionStart()
 
         onBackPressedDispatcher.addCallback(this) { cancelAndFinish() }
@@ -197,6 +212,9 @@ private fun DocumentScannerScreen(
         }
     }
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
+    // Поколение сессии анализа: результат старого анализатора не должен всплыть
+    // рамкой поверх новой привязки после поворота или фолбэка.
+    val analysisGeneration = remember { AtomicInteger(0) }
 
     LaunchedEffect(state.message) {
         state.message?.let {
@@ -207,9 +225,12 @@ private fun DocumentScannerScreen(
 
     DisposableEffect(previewView, lifecycleOwner, bindAttempt) {
         var provider: ProcessCameraProvider? = null
-        var boundPreview: Preview? = null
-        var boundCapture: ImageCapture? = null
+        val bound = mutableListOf<UseCase>()
+        var analysis: ImageAnalysis? = null
         var disposed = false
+        val analysisExecutor = Executors.newSingleThreadExecutor()
+        val generation = analysisGeneration.incrementAndGet()
+        val mainExecutor = ContextCompat.getMainExecutor(context)
 
         // viewPort доступен только после layout — до этого UseCaseGroup собрать нельзя.
         previewView.doOnLayout {
@@ -237,55 +258,79 @@ private fun DocumentScannerScreen(
                         .build()
                         .apply { setSurfaceProvider(previewView.surfaceProvider) }
 
-                    val capture = ImageCapture.Builder()
-                        .setOutputFormat(ImageCapture.OUTPUT_FORMAT_JPEG)
-                        .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+                    val capture = buildImageCapture(rotation)
+                    val detector = DocumentEdgeDetector()
+                    // Тот же targetRotation, что у превью и захвата: CameraX считает
+                    // rotationDegrees относительно target rotation конкретного
+                    // use case, иначе рамка разъедется в альбоме.
+                    val analyzer = ImageAnalysis.Builder()
                         .setTargetRotation(rotation)
+                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                         .setResolutionSelector(
                             ResolutionSelector.Builder()
                                 .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
-                                // Downstream жмёт до 2048 и не апскейлит — ниже
-                                // опускаться нельзя, иначе УПД станет нечитаемым.
                                 .setResolutionStrategy(
                                     ResolutionStrategy(
-                                        Size(2048, 1536),
-                                        ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER,
+                                        Size(640, 480),
+                                        ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER,
                                     ),
                                 )
                                 .build(),
                         )
                         .build()
+                    analysis = analyzer
 
-                    // ViewPort связывает превью и захват с одной областью сенсора:
-                    // без него снимок не совпадёт с тем, что видел оператор.
-                    val group = UseCaseGroup.Builder()
-                        .setViewPort(viewPort)
-                        .addUseCase(preview)
-                        .addUseCase(capture)
-                        .build()
+                    var lastAnalysisAt = 0L
+                    analyzer.setAnalyzer(analysisExecutor) { proxy ->
+                        try {
+                            if (analysisGeneration.get() != generation) return@setAnalyzer
+                            val now = SystemClock.elapsedRealtime()
+                            if (now - lastAnalysisAt < ANALYSIS_MIN_INTERVAL_MS) return@setAnalyzer
+                            lastAnalysisAt = now
 
-                    cameraProvider.bindToLifecycle(
-                        lifecycleOwner,
-                        CameraSelector.DEFAULT_BACK_CAMERA,
-                        group,
+                            val quad = detectQuad(detector, proxy)
+                            mainExecutor.execute {
+                                // Второй раз сверяем поколение уже на main: пока
+                                // летели сюда, сессию могли перепривязать.
+                                if (analysisGeneration.get() == generation) vm.onQuadDetected(quad)
+                            }
+                        } finally {
+                            proxy.close()
+                        }
+                    }
+
+                    // ViewPort связывает превью, анализ и захват с одной областью
+                    // сенсора: без него снимок и рамка не совпадут с превью.
+                    val useCases = bindWithFallback(
+                        cameraProvider, lifecycleOwner, viewPort, preview, capture, analyzer,
                     )
-                    boundPreview = preview
-                    boundCapture = capture
+                    bound.addAll(useCases)
+                    if (analyzer !in useCases) {
+                        // Три use case не поднялись — работаем без рамки.
+                        analyzer.clearAnalyzer()
+                        analysis = null
+                        mainExecutor.execute { vm.clearQuad() }
+                    }
                     imageCapture = capture
                     vm.onCameraReady()
                 } catch (t: Throwable) {
+                    Log.e(TAG, "Camera bind failed", t)
                     onFatal(t.message ?: "Не удалось запустить камеру")
                 }
-            }, ContextCompat.getMainExecutor(context))
+            }, mainExecutor)
         }
 
         onDispose {
             disposed = true
             imageCapture = null
-            // Отвязываем свои use case'ы поимённо: unbindAll() снёс бы и чужую
-            // сессию, если она появится в процессе.
-            val useCases = listOfNotNull(boundPreview, boundCapture).toTypedArray()
-            if (useCases.isNotEmpty()) provider?.unbind(*useCases)
+            // Порядок важен: сперва глушим поток кадров, потом отвязываем и только
+            // затем гасим executor — иначе CameraX отправит кадр в закрытый пул.
+            analysisGeneration.incrementAndGet()
+            analysis?.clearAnalyzer()
+            val stillBound = bound.filter { provider?.isBound(it) == true }
+            if (stillBound.isNotEmpty()) provider?.unbind(*stillBound.toTypedArray())
+            mainExecutor.execute { vm.clearQuad() }
+            analysisExecutor.shutdown()
         }
     }
 
@@ -300,6 +345,20 @@ private fun DocumentScannerScreen(
             factory = { previewView },
             modifier = Modifier.fillMaxSize(),
         )
+
+        // Рамка документа. Canvas совпадает с превью по размеру, поэтому
+        // нормализованный квад разворачивается простым умножением.
+        state.documentQuad?.let { quad ->
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val pts = quad.points.map { it.x * size.width to it.y * size.height }
+                val path = Path().apply {
+                    moveTo(pts[0].first, pts[0].second)
+                    for (i in 1 until pts.size) lineTo(pts[i].first, pts[i].second)
+                    close()
+                }
+                drawPath(path, color = Color(0xFF4CAF50), style = Stroke(width = 4.dp.toPx()))
+            }
+        }
 
         // Управление — оверлеем поверх камеры. Safe-insets только здесь: превью
         // они ужимать не должны.
@@ -382,6 +441,91 @@ private fun DocumentScannerScreen(
                 .windowInsetsPadding(WindowInsets.safeDrawing),
         ) { data -> Snackbar(snackbarData = data) }
     }
+}
+
+private fun buildImageCapture(rotation: Int): ImageCapture =
+    ImageCapture.Builder()
+        .setOutputFormat(ImageCapture.OUTPUT_FORMAT_JPEG)
+        .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+        .setTargetRotation(rotation)
+        .setResolutionSelector(
+            ResolutionSelector.Builder()
+                .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
+                // Downstream жмёт до 2048 и не апскейлит — ниже опускаться нельзя,
+                // иначе УПД станет нечитаемым.
+                .setResolutionStrategy(
+                    ResolutionStrategy(
+                        Size(2048, 1536),
+                        ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER,
+                    ),
+                )
+                .build(),
+        )
+        .build()
+
+/**
+ * Пытается поднять три use case, при неудаче — превью с захватом.
+ *
+ * Связка Preview + ImageCapture + ImageAnalysis поддерживается не на каждом
+ * устройстве, и терять из-за рамки саму съёмку нельзя. Фатально только если
+ * не поднялась и вторая попытка.
+ */
+private fun bindWithFallback(
+    provider: ProcessCameraProvider,
+    lifecycleOwner: androidx.lifecycle.LifecycleOwner,
+    viewPort: androidx.camera.core.ViewPort,
+    preview: Preview,
+    capture: ImageCapture,
+    analysis: ImageAnalysis,
+): List<UseCase> {
+    fun group(vararg useCases: UseCase) = UseCaseGroup.Builder()
+        .setViewPort(viewPort)
+        .apply { useCases.forEach { addUseCase(it) } }
+        .build()
+
+    return try {
+        provider.bindToLifecycle(
+            lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, group(preview, capture, analysis),
+        )
+        listOf(preview, capture, analysis)
+    } catch (t: Throwable) {
+        Log.w(TAG, "Bind with analysis failed, retrying without it", t)
+        provider.unbind(preview, capture, analysis)
+        provider.bindToLifecycle(
+            lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, group(preview, capture),
+        )
+        listOf(preview, capture)
+    }
+}
+
+/**
+ * Достаёт из кадра рамку документа.
+ *
+ * Работаем только по `cropRect`: полный буфер в портрете содержит невидимые
+ * оператору полосы, и найденный там контур стал бы рамкой-призраком.
+ */
+private fun detectQuad(detector: DocumentEdgeDetector, proxy: ImageProxy): NormalizedQuad? {
+    val plane = proxy.planes.firstOrNull() ?: return null
+    val buffer = plane.buffer.apply { rewind() }
+    val bytes = ByteArray(buffer.remaining())
+    buffer.get(bytes)
+
+    val crop = proxy.cropRect
+    val luma = cropLuma(
+        plane = bytes,
+        rowStride = plane.rowStride,
+        pixelStride = plane.pixelStride,
+        cropLeft = crop.left,
+        cropTop = crop.top,
+        cropWidth = crop.width(),
+        cropHeight = crop.height(),
+    ) ?: return null
+
+    val candidates = detector.detectCandidates(luma, crop.width(), crop.height())
+        .mapNotNull {
+            buildNormalizedQuad(it, crop.width(), crop.height(), proxy.imageInfo.rotationDegrees)
+        }
+    return selectLargestQuad(candidates)
 }
 
 @Composable
