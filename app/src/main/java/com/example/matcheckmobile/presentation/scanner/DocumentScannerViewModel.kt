@@ -25,6 +25,8 @@ data class ScannerUiState(
     /** Камера не поднялась. Если [pages] не пуст — не закрываем экран, а даём выбор. */
     val fatalError: String? = null,
     val message: String? = null,
+    /** Строка диагностического HUD (только debug); в release не заполняется. */
+    val debugStatus: String? = null,
 ) {
     /** Затвор заблокирован и во время кадра, и пока камера не в ready. */
     val canCapture: Boolean
@@ -147,6 +149,12 @@ class DocumentScannerViewModel(
         stabilizer.reset()
         _state.update { it.copy(documentQuad = null) }
     }
+
+    /** Диагностический HUD (только debug). Вызывать с main thread. */
+    fun setDebugStatus(status: String) = _state.update { it.copy(debugStatus = status) }
+
+    /** Опубликована ли рамка — для строки HUD (`shown`). */
+    fun isQuadShown(): Boolean = _state.value.documentQuad != null
 
     /**
      * Открывает транзакцию кадра: фиксирует pendingPath, токен и **снимок квада**

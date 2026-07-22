@@ -75,11 +75,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.example.matcheckmobile.BuildConfig
 import com.example.matcheckmobile.MatcheckApplication
 import com.example.matcheckmobile.presentation.components.PhotoThumb
 import com.example.matcheckmobile.ui.theme.MatcheckmobileTheme
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 private const val TAG = "DocumentScanner"
 
@@ -231,6 +233,10 @@ private fun DocumentScannerScreen(
         val analysisExecutor = Executors.newSingleThreadExecutor()
         val generation = analysisGeneration.incrementAndGet()
         val mainExecutor = ContextCompat.getMainExecutor(context)
+        // Диагностика (см. HUD): кадры считаем в самом callback анализатора —
+        // «привязалось» (bound) и «кадры идут» (running) это разные вещи.
+        val frames = AtomicInteger(0)
+        val analysisState = AtomicReference("starting")
 
         // viewPort доступен только после layout — до этого UseCaseGroup собрать нельзя.
         previewView.doOnLayout {
@@ -284,15 +290,24 @@ private fun DocumentScannerScreen(
                     analyzer.setAnalyzer(analysisExecutor) { proxy ->
                         try {
                             if (analysisGeneration.get() != generation) return@setAnalyzer
+                            // Кадр реально пришёл — считаем ВСЕ кадры (до троттлинга).
+                            val f = frames.incrementAndGet()
+                            analysisState.set("running")
                             val now = SystemClock.elapsedRealtime()
                             if (now - lastAnalysisAt < ANALYSIS_MIN_INTERVAL_MS) return@setAnalyzer
                             lastAnalysisAt = now
 
-                            val quad = detectQuad(detector, proxy)
+                            val result = analyzeFrame(detector, proxy)
                             mainExecutor.execute {
                                 // Второй раз сверяем поколение уже на main: пока
                                 // летели сюда, сессию могли перепривязать.
-                                if (analysisGeneration.get() == generation) vm.onQuadDetected(quad)
+                                if (analysisGeneration.get() != generation) return@execute
+                                vm.onQuadDetected(result.quad)
+                                if (BuildConfig.DEBUG) {
+                                    vm.setDebugStatus(
+                                        debugHud(analysisState.get(), f, result, vm.isQuadShown()),
+                                    )
+                                }
                             }
                         } finally {
                             proxy.close()
@@ -305,11 +320,22 @@ private fun DocumentScannerScreen(
                         cameraProvider, lifecycleOwner, viewPort, preview, capture, analyzer,
                     )
                     bound.addAll(useCases)
-                    if (analyzer !in useCases) {
+                    val analysisBound = analyzer in useCases
+                    if (!analysisBound) {
                         // Три use case не поднялись — работаем без рамки.
                         analyzer.clearAnalyzer()
                         analysis = null
+                        analysisState.set("dropped")
+                        Log.i(TAG, "analysis dropped (fallback to preview+capture)")
                         mainExecutor.execute { vm.clearQuad() }
+                    } else {
+                        analysisState.set("bound")
+                        Log.i(TAG, "analysis bound (preview+capture+analysis)")
+                    }
+                    // Стартовая строка HUD: если кадры не пойдут вовсе — на экране
+                    // останется «analysis: bound/dropped, frames(0)», это и есть диагноз.
+                    if (BuildConfig.DEBUG) {
+                        vm.setDebugStatus(debugHud(analysisState.get(), 0, FrameAnalysis(null, EMPTY_STATS), false))
                     }
                     imageCapture = capture
                     vm.onCameraReady()
@@ -357,6 +383,23 @@ private fun DocumentScannerScreen(
                     close()
                 }
                 drawPath(path, color = Color(0xFF4CAF50), style = Stroke(width = 4.dp.toPx()))
+            }
+        }
+
+        // Диагностический HUD — только в debug. Показывает, где теряется рамка
+        // (см. дерево диагностики в плане). В release не рисуется.
+        if (BuildConfig.DEBUG) {
+            state.debugStatus?.let { status ->
+                Text(
+                    text = status,
+                    color = Color(0xFF00E676),
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .windowInsetsPadding(WindowInsets.safeDrawing)
+                        .background(Color.Black.copy(alpha = 0.55f))
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                )
             }
         }
 
@@ -498,14 +541,37 @@ private fun bindWithFallback(
     }
 }
 
+/** Результат разбора кадра: рамка (или null) + счётчики для диагностики. */
+private data class FrameAnalysis(val quad: NormalizedQuad?, val stats: DetectResult)
+
 /**
- * Достаёт из кадра рамку документа.
+ * Строка диагностического HUD. `valid` (квад прошёл валидацию в этом кадре) и
+ * `shown` (рамка реально опубликована после стабилизатора) — разные вещи; их
+ * расхождение указывает на проблему стабилизации, а не порогов.
+ */
+private fun debugHud(analysisState: String, frames: Int, result: FrameAnalysis, shown: Boolean): String {
+    val cv = when (OpenCvBootstrap.state) {
+        OpenCvBootstrap.State.PENDING -> if (analysisState == "dropped") "n/a" else "pending"
+        OpenCvBootstrap.State.OK -> "ok"
+        OpenCvBootstrap.State.FAIL -> "FAIL"
+    }
+    val detect = if (result.stats.error) "FAIL" else "ok"
+    val valid = if (result.quad != null) "yes" else "no"
+    val s = result.stats
+    return "cv: $cv · analysis: $analysisState frames($frames) · detect: $detect\n" +
+        "raw: ${s.raw} · p4: ${s.exact4} · p5-6: ${s.near4} · valid: $valid · shown: ${if (shown) "yes" else "no"}"
+}
+
+private val EMPTY_STATS = DetectResult(emptyList(), raw = 0, exact4 = 0, near4 = 0, error = false)
+
+/**
+ * Достаёт из кадра рамку документа и статистику детекта.
  *
  * Работаем только по `cropRect`: полный буфер в портрете содержит невидимые
  * оператору полосы, и найденный там контур стал бы рамкой-призраком.
  */
-private fun detectQuad(detector: DocumentEdgeDetector, proxy: ImageProxy): NormalizedQuad? {
-    val plane = proxy.planes.firstOrNull() ?: return null
+private fun analyzeFrame(detector: DocumentEdgeDetector, proxy: ImageProxy): FrameAnalysis {
+    val plane = proxy.planes.firstOrNull() ?: return FrameAnalysis(null, EMPTY_STATS)
     val buffer = plane.buffer.apply { rewind() }
     val bytes = ByteArray(buffer.remaining())
     buffer.get(bytes)
@@ -519,13 +585,13 @@ private fun detectQuad(detector: DocumentEdgeDetector, proxy: ImageProxy): Norma
         cropTop = crop.top,
         cropWidth = crop.width(),
         cropHeight = crop.height(),
-    ) ?: return null
+    ) ?: return FrameAnalysis(null, EMPTY_STATS)
 
-    val candidates = detector.detectCandidates(luma, crop.width(), crop.height())
-        .mapNotNull {
-            buildNormalizedQuad(it, crop.width(), crop.height(), proxy.imageInfo.rotationDegrees)
-        }
-    return selectLargestQuad(candidates)
+    val stats = detector.detectWithStats(luma, crop.width(), crop.height())
+    val candidates = stats.candidates.mapNotNull {
+        buildNormalizedQuad(it, crop.width(), crop.height(), proxy.imageInfo.rotationDegrees)
+    }
+    return FrameAnalysis(selectLargestQuad(candidates), stats)
 }
 
 @Composable
