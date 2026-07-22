@@ -154,6 +154,58 @@ class DocumentScannerViewModelTest {
         assertTrue(ticket.file.exists())
     }
 
+    // ── debugCapture: строки диагностики HUD должны точно называть ветку ──
+    // (BuildConfig.DEBUG=true в testDebugUnitTest, поле заполняется)
+
+    @Test
+    fun `debugCapture reports cropped with area on success`() = runTest(dispatcher) {
+        val vm = newVm().ready()
+        vm.onQuadDetected(quad())
+        val ticket = vm.beginCapture()!!
+        vm.onFrameSaved(ticket)
+        advanceUntilIdle()
+
+        assertTrue(vm.state.value.debugCapture!!.startsWith("capture: cropped area="))
+    }
+
+    @Test
+    fun `debugCapture distinguishes processor-failed from result-invalid`() = runTest(dispatcher) {
+        processor.succeed = false
+        val vm1 = newVm().ready()
+        vm1.onQuadDetected(quad())
+        vm1.onFrameSaved(vm1.beginCapture()!!)
+        advanceUntilIdle()
+        assertTrue(vm1.state.value.debugCapture!!.contains("обрезка не удалась"))
+
+        processor.succeed = true
+        processor.writeGarbage = true
+        val vm2 = newVm().ready()
+        vm2.onQuadDetected(quad())
+        vm2.onFrameSaved(vm2.beginCapture()!!)
+        advanceUntilIdle()
+        assertTrue(vm2.state.value.debugCapture!!.contains("результат битый"))
+    }
+
+    @Test
+    fun `debugCapture reports FULL when no quad snapshot`() = runTest(dispatcher) {
+        val vm = newVm().ready()
+        val ticket = vm.beginCapture()!! // рамки не было → quadSnapshot == null
+        assertNull(ticket.quadSnapshot)
+        vm.onFrameSaved(ticket)
+        advanceUntilIdle()
+
+        assertTrue(vm.state.value.debugCapture!!.contains("рамки не было"))
+    }
+
+    @Test
+    fun `beginCapture marks processing so stale result is not shown`() = runTest(dispatcher) {
+        val vm = newVm().ready()
+        vm.onQuadDetected(quad())
+        vm.beginCapture()
+
+        assertEquals("capture: обработка…", vm.state.value.debugCapture)
+    }
+
     @Test
     fun `broken original is dropped and reported`() = runTest(dispatcher) {
         val vm = newVm().ready()

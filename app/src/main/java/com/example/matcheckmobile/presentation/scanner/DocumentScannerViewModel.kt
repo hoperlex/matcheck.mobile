@@ -1,6 +1,7 @@
 package com.example.matcheckmobile.presentation.scanner
 
 import android.os.SystemClock
+import com.example.matcheckmobile.BuildConfig
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -15,6 +16,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
+import kotlin.math.roundToInt
 
 data class ScannerUiState(
     val pages: List<String> = emptyList(),
@@ -25,8 +27,10 @@ data class ScannerUiState(
     /** Камера не поднялась. Если [pages] не пуст — не закрываем экран, а даём выбор. */
     val fatalError: String? = null,
     val message: String? = null,
-    /** Строка диагностического HUD (только debug); в release не заполняется. */
+    /** Строка диагностического HUD — анализ (только debug); в release не заполняется. */
     val debugStatus: String? = null,
+    /** Строка HUD про последний снимок: обрезалось или откат (только debug). */
+    val debugCapture: String? = null,
 ) {
     /** Затвор заблокирован и во время кадра, и пока камера не в ready. */
     val canCapture: Boolean
@@ -114,6 +118,7 @@ class DocumentScannerViewModel(
         pendingPath = null
         pendingWarpPath = null
         stabilizer.reset()
+        setDebugCapture(null)
         _state.update {
             it.copy(captureInProgress = false, cameraReady = false, documentQuad = null)
         }
@@ -153,6 +158,11 @@ class DocumentScannerViewModel(
     /** Диагностический HUD (только debug). Вызывать с main thread. */
     fun setDebugStatus(status: String) = _state.update { it.copy(debugStatus = status) }
 
+    /** Строка HUD про снимок (только debug), например «capture: cropped area=64%». */
+    private fun setDebugCapture(text: String?) {
+        if (BuildConfig.DEBUG) _state.update { it.copy(debugCapture = text) }
+    }
+
     /** Опубликована ли рамка — для строки HUD (`shown`). */
     fun isQuadShown(): Boolean = _state.value.documentQuad != null
 
@@ -171,6 +181,9 @@ class DocumentScannerViewModel(
         val token = UUID.randomUUID().toString()
         pendingPath = file.absolutePath
         currentToken = token
+        // Сбрасываем строку прошлого снимка сразу, иначе на втором кадре виден
+        // результат первого.
+        setDebugCapture("capture: обработка…")
         _state.update { it.copy(captureInProgress = true) }
         return CaptureTicket(file, token, stabilizer.snapshotIfFresh(clock()))
     }
@@ -197,7 +210,11 @@ class DocumentScannerViewModel(
             }
 
             val page = ticket.quadSnapshot?.let { quad -> cropOrFallback(ticket, quad) }
-                ?: ticket.file.absolutePath
+                ?: run {
+                    // Свежей рамки на момент затвора не было — сохраняем полный кадр.
+                    setDebugCapture("capture: FULL — рамки не было")
+                    ticket.file.absolutePath
+                }
 
             // Сессию могли закрыть, пока шла обрезка: тогда оба файла — мусор.
             if (isStale(ticket)) {
@@ -219,20 +236,28 @@ class DocumentScannerViewModel(
         val target = try {
             fileStore.createPageFile()
         } catch (t: Throwable) {
+            setDebugCapture("capture: FULL — не создать файл")
             return ticket.file.absolutePath
         }
         // Путь фиксируем ДО обработки: иначе смерть процесса во время warp
         // оставит файл, о котором никто не знает.
         pendingWarpPath = target.absolutePath
 
-        val ok = processor.cropToQuad(ticket.file, target, quad) &&
-            withContext(ioDispatcher) { fileStore.isDecodableJpeg(target) }
+        // Ветки разделены: cropToQuad мог вернуть true, но результат не декодируется.
+        // Диагностике важно различать «процессор не смог» и «результат битый».
+        val cropped = processor.cropToQuad(ticket.file, target, quad)
+        val valid = cropped && withContext(ioDispatcher) { fileStore.isDecodableJpeg(target) }
 
-        return if (ok) {
+        return if (valid) {
+            setDebugCapture("capture: cropped area=${(quad.area * 100).roundToInt()}%")
             deleteAll(listOf(ticket.file.absolutePath))
             pendingWarpPath = null
             target.absolutePath
         } else {
+            setDebugCapture(
+                if (!cropped) "capture: FULL — обрезка не удалась"
+                else "capture: FULL — результат битый",
+            )
             deleteAll(listOf(target.absolutePath))
             pendingWarpPath = null
             ticket.file.absolutePath

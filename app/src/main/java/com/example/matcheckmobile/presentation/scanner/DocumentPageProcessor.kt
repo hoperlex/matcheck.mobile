@@ -52,6 +52,7 @@ class OpenCvDocumentPageProcessor(
             var result: Bitmap? = null
             val srcMat = Mat()
             val dstMat = Mat()
+            val grayMat = Mat()
             var srcPoints: MatOfPoint2f? = null
             var dstPoints: MatOfPoint2f? = null
             var transform: Mat? = null
@@ -91,6 +92,18 @@ class OpenCvDocumentPageProcessor(
                 )
                 if (dstMat.empty()) return@withContext false
 
+                // Скан-фильтр: вид отсканированной страницы, как в ML Kit.
+                // adaptiveThreshold требует одноканальный 8-бит вход; переводим в
+                // grayscale, бинаризуем по локальному фону (убирает тени/засветку),
+                // возвращаемся в RGBA для matToBitmap.
+                Imgproc.cvtColor(dstMat, grayMat, Imgproc.COLOR_RGBA2GRAY)
+                Imgproc.adaptiveThreshold(
+                    grayMat, grayMat, 255.0,
+                    Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C, Imgproc.THRESH_BINARY,
+                    SCAN_BLOCK_SIZE, SCAN_C,
+                )
+                Imgproc.cvtColor(grayMat, dstMat, Imgproc.COLOR_GRAY2RGBA)
+
                 result = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
                 Utils.matToBitmap(dstMat, result)
 
@@ -115,6 +128,7 @@ class OpenCvDocumentPageProcessor(
             } finally {
                 srcMat.release()
                 dstMat.release()
+                grayMat.release()
                 srcPoints?.release()
                 dstPoints?.release()
                 transform?.release()
@@ -160,5 +174,13 @@ class OpenCvDocumentPageProcessor(
     private companion object {
         const val MAX_SIDE = 2048
         const val JPEG_QUALITY = 92
+
+        // Скан-фильтр. BLOCK_SIZE — размер окна локального фона, ОБЯЗАН быть
+        // нечётным и >= 3 (требование adaptiveThreshold). C вычитается из среднего:
+        // больше C — агрессивнее чистит фон, но легче съесть бледный текст.
+        // Стартовые значения подобраны под лист А4 с расстояния вытянутой руки;
+        // если ослабляет цветные печати — уменьшить/сделать мягкий фильтр без порога.
+        const val SCAN_BLOCK_SIZE = 21 // нечётное
+        const val SCAN_C = 12.0
     }
 }

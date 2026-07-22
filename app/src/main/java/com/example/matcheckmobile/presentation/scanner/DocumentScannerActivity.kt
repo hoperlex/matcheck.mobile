@@ -386,20 +386,22 @@ private fun DocumentScannerScreen(
             }
         }
 
-        // Диагностический HUD — только в debug. Показывает, где теряется рамка
-        // (см. дерево диагностики в плане). В release не рисуется.
-        if (BuildConfig.DEBUG) {
-            state.debugStatus?.let { status ->
-                Text(
-                    text = status,
-                    color = Color(0xFF00E676),
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .windowInsetsPadding(WindowInsets.safeDrawing)
-                        .background(Color.Black.copy(alpha = 0.55f))
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                )
+        // Диагностический HUD — только в debug. Две строки анализа + строка про
+        // последний снимок. Один Column, иначе второй Text налёг бы на первый.
+        if (BuildConfig.DEBUG && (state.debugStatus != null || state.debugCapture != null)) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .background(Color.Black.copy(alpha = 0.55f))
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+            ) {
+                state.debugStatus?.let {
+                    Text(it, color = Color(0xFF00E676), style = MaterialTheme.typography.labelSmall)
+                }
+                state.debugCapture?.let {
+                    Text(it, color = Color(0xFFFFD54F), style = MaterialTheme.typography.labelSmall)
+                }
             }
         }
 
