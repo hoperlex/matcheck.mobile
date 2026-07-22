@@ -39,6 +39,28 @@ data class NormalizedQuad(
     /** Разворачивает нормализованные координаты в пиксели Canvas или bitmap. */
     fun scaleTo(width: Int, height: Int): List<QuadPoint> =
         points.map { QuadPoint(it.x * width, it.y * height) }
+
+    /**
+     * Пиксели вершин в системе координат **ориентированного** `cropRect` — вход для
+     * CameraX `CoordinateTransform` (source построен с `usingRotationDegrees=true`,
+     * поэтому ждёт точки уже после поворота). При 90/270 стороны crop меняются
+     * местами, ровно как `getRotatedCropRect` внутри CameraX. Формат —
+     * `[x0,y0, x1,y1, x2,y2, x3,y3]`, порядок вершин TL→TR→BR→BL сохранён.
+     */
+    fun toOrientedCropPixels(cropWidth: Int, cropHeight: Int, rotationDegrees: Int): FloatArray {
+        val swap = when (((rotationDegrees % 360) + 360) % 360) {
+            90, 270 -> true
+            else -> false
+        }
+        val w = if (swap) cropHeight else cropWidth
+        val h = if (swap) cropWidth else cropHeight
+        val out = FloatArray(8)
+        points.forEachIndexed { i, p ->
+            out[i * 2] = p.x * w
+            out[i * 2 + 1] = p.y * h
+        }
+        return out
+    }
 }
 
 /** Рамка, прошедшая стабилизацию, вместе с моментом её фиксации. */

@@ -23,6 +23,9 @@ import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.camera.view.transform.CoordinateTransform
+import androidx.camera.view.transform.ImageProxyTransformFactory
+import androidx.camera.view.transform.OutputTransform
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -207,16 +210,24 @@ private fun DocumentScannerScreen(
 
     val previewView = remember {
         PreviewView(context).apply {
-            // COMPATIBLE (TextureView) надёжнее уживается с Compose-overlay.
+            // COMPATIBLE (TextureView) надёжнее уживается с Compose-overlay и
+            // ОБЯЗАТЕЛЕН для getOutputTransform(), по которому выравниваем рамку.
             // Выставляем строго до назначения surfaceProvider.
             implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-            scaleType = PreviewView.ScaleType.FILL_CENTER
+            // FIT_CENTER: показываем весь кадр целиком (A4 не срезается), приняв
+            // поля по краям. Рамку на эти поля не сдвинет — координаты берём из
+            // CoordinateTransform, он учитывает леттербокс сам.
+            scaleType = PreviewView.ScaleType.FIT_CENTER
         }
     }
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
     // Поколение сессии анализа: результат старого анализатора не должен всплыть
     // рамкой поверх новой привязки после поворота или фолбэка.
     val analysisGeneration = remember { AtomicInteger(0) }
+    // Source-трансформ текущей привязки: по нему стабилизированная рамка
+    // переводится в пиксели превью. Постоянен для привязки, ставим один раз;
+    // обнуляем при пересборке/фолбэке/dispose, чтобы не выровнять по старому.
+    var analysisSource by remember { mutableStateOf<AnalysisSource?>(null) }
 
     LaunchedEffect(state.message) {
         state.message?.let {
@@ -226,6 +237,8 @@ private fun DocumentScannerScreen(
     }
 
     DisposableEffect(previewView, lifecycleOwner, bindAttempt) {
+        // Новая привязка — прежний source-трансформ недействителен.
+        analysisSource = null
         var provider: ProcessCameraProvider? = null
         val bound = mutableListOf<UseCase>()
         var analysis: ImageAnalysis? = null
@@ -261,6 +274,14 @@ private fun DocumentScannerScreen(
 
                     val preview = Preview.Builder()
                         .setTargetRotation(rotation)
+                        // 4:3 как предпочтение: показанная область — ровный лист,
+                        // A4 влезает. Выравнивание рамки от аспекта не зависит —
+                        // при fallback на 16:9 CoordinateTransform сохранит геометрию.
+                        .setResolutionSelector(
+                            ResolutionSelector.Builder()
+                                .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
+                                .build(),
+                        )
                         .build()
                         .apply { setSurfaceProvider(previewView.surfaceProvider) }
 
@@ -303,6 +324,9 @@ private fun DocumentScannerScreen(
                                 // летели сюда, сессию могли перепривязать.
                                 if (analysisGeneration.get() != generation) return@execute
                                 vm.onQuadDetected(result.quad)
+                                // Source-трансформ постоянен для привязки — ставим
+                                // один раз, дальше рамка выравнивается по нему.
+                                if (analysisSource == null) analysisSource = result.source
                                 if (BuildConfig.DEBUG) {
                                     vm.setDebugStatus(
                                         debugHud(analysisState.get(), f, result, vm.isQuadShown()),
@@ -327,7 +351,8 @@ private fun DocumentScannerScreen(
                         analysis = null
                         analysisState.set("dropped")
                         Log.i(TAG, "analysis dropped (fallback to preview+capture)")
-                        mainExecutor.execute { vm.clearQuad() }
+                        // Без анализа рамку не показываем и source не держим.
+                        mainExecutor.execute { vm.clearQuad(); analysisSource = null }
                     } else {
                         analysisState.set("bound")
                         Log.i(TAG, "analysis bound (preview+capture+analysis)")
@@ -335,7 +360,7 @@ private fun DocumentScannerScreen(
                     // Стартовая строка HUD: если кадры не пойдут вовсе — на экране
                     // останется «analysis: bound/dropped, frames(0)», это и есть диагноз.
                     if (BuildConfig.DEBUG) {
-                        vm.setDebugStatus(debugHud(analysisState.get(), 0, FrameAnalysis(null, EMPTY_STATS), false))
+                        vm.setDebugStatus(debugHud(analysisState.get(), 0, FrameAnalysis(null, EMPTY_STATS, null), false))
                     }
                     imageCapture = capture
                     vm.onCameraReady()
@@ -355,6 +380,7 @@ private fun DocumentScannerScreen(
             analysis?.clearAnalyzer()
             val stillBound = bound.filter { provider?.isBound(it) == true }
             if (stillBound.isNotEmpty()) provider?.unbind(*stillBound.toTypedArray())
+            analysisSource = null
             mainExecutor.execute { vm.clearQuad() }
             analysisExecutor.shutdown()
         }
@@ -365,24 +391,24 @@ private fun DocumentScannerScreen(
             .fillMaxSize()
             .background(Color.Black),
     ) {
-        // Превью на всё окно: никакого Column с отдельной нижней зоной и никакого
-        // aspectRatio() — именно так у ML Kit и появлялась чёрная половина экрана.
+        // Превью на всё окно, FIT_CENTER. Рамку не привязываем к аспекту:
+        // координаты берём из фактической CameraX-трансформации, поэтому FIT-
+        // леттербокс учитывается сам и рамка не «поедет» на разных планшетах.
         AndroidView(
             factory = { previewView },
             modifier = Modifier.fillMaxSize(),
         )
 
-        // Рамка документа. Canvas совпадает с превью по размеру, поэтому
-        // нормализованный квад разворачивается простым умножением.
+        // Рамка документа. Переводим СТАБИЛИЗИРОВАННЫЙ квад (тот же, что уйдёт в
+        // JPEG-обрезку) в пиксели превью через CoordinateTransform — так рамка
+        // совпадёт с превью при любом леттербоксе FIT. Не рисуем, пока нет квада,
+        // source-трансформа или готового потока превью (getOutputTransform == null).
         state.documentQuad?.let { quad ->
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                val pts = quad.points.map { it.x * size.width to it.y * size.height }
-                val path = Path().apply {
-                    moveTo(pts[0].first, pts[0].second)
-                    for (i in 1 until pts.size) lineTo(pts[i].first, pts[i].second)
-                    close()
+            val overlay = analysisSource?.let { overlayPath(quad, it, previewView) }
+            if (overlay != null) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    drawPath(overlay, color = Color(0xFF4CAF50), style = Stroke(width = 4.dp.toPx()))
                 }
-                drawPath(path, color = Color(0xFF4CAF50), style = Stroke(width = 4.dp.toPx()))
             }
         }
 
@@ -543,8 +569,45 @@ private fun bindWithFallback(
     }
 }
 
-/** Результат разбора кадра: рамка (или null) + счётчики для диагностики. */
-private data class FrameAnalysis(val quad: NormalizedQuad?, val stats: DetectResult)
+/** Результат разбора кадра: рамка (или null) + счётчики + source-трансформ. */
+private data class FrameAnalysis(
+    val quad: NormalizedQuad?,
+    val stats: DetectResult,
+    val source: AnalysisSource?,
+)
+
+/**
+ * Всё для перевода рамки в пиксели превью: source-трансформ кадра плюс
+ * размеры/поворот его `cropRect`. Постоянно в пределах одной привязки.
+ */
+private class AnalysisSource(
+    val source: OutputTransform,
+    val cropWidth: Int,
+    val cropHeight: Int,
+    val rotationDegrees: Int,
+)
+
+/**
+ * Переводит стабилизированную рамку в пиксели превью. `null`, если поток превью
+ * ещё не готов (`getOutputTransform()` == null) — тогда рамку просто не рисуем.
+ *
+ * `mapPoints` учитывает crop, разрешение, поворот и FIT-леттербокс, поэтому
+ * рамка совпадает с превью независимо от планшета и ориентации.
+ */
+private fun overlayPath(quad: NormalizedQuad, src: AnalysisSource, previewView: PreviewView): Path? {
+    val target = previewView.outputTransform ?: return null
+    val pts = quad.toOrientedCropPixels(src.cropWidth, src.cropHeight, src.rotationDegrees)
+    CoordinateTransform(src.source, target).mapPoints(pts)
+    return Path().apply {
+        moveTo(pts[0], pts[1])
+        var i = 2
+        while (i < pts.size) {
+            lineTo(pts[i], pts[i + 1])
+            i += 2
+        }
+        close()
+    }
+}
 
 /**
  * Строка диагностического HUD. `valid` (квад прошёл валидацию в этом кадре) и
@@ -573,7 +636,7 @@ private val EMPTY_STATS = DetectResult(emptyList(), raw = 0, exact4 = 0, near4 =
  * оператору полосы, и найденный там контур стал бы рамкой-призраком.
  */
 private fun analyzeFrame(detector: DocumentEdgeDetector, proxy: ImageProxy): FrameAnalysis {
-    val plane = proxy.planes.firstOrNull() ?: return FrameAnalysis(null, EMPTY_STATS)
+    val plane = proxy.planes.firstOrNull() ?: return FrameAnalysis(null, EMPTY_STATS, null)
     val buffer = plane.buffer.apply { rewind() }
     val bytes = ByteArray(buffer.remaining())
     buffer.get(bytes)
@@ -587,13 +650,22 @@ private fun analyzeFrame(detector: DocumentEdgeDetector, proxy: ImageProxy): Fra
         cropTop = crop.top,
         cropWidth = crop.width(),
         cropHeight = crop.height(),
-    ) ?: return FrameAnalysis(null, EMPTY_STATS)
+    ) ?: return FrameAnalysis(null, EMPTY_STATS, null)
 
+    val rotation = proxy.imageInfo.rotationDegrees
     val stats = detector.detectWithStats(luma, crop.width(), crop.height())
     val candidates = stats.candidates.mapNotNull {
-        buildNormalizedQuad(it, crop.width(), crop.height(), proxy.imageInfo.rotationDegrees)
+        buildNormalizedQuad(it, crop.width(), crop.height(), rotation)
     }
-    return FrameAnalysis(selectLargestQuad(candidates), stats)
+    // Source-трансформ для перевода рамки в пиксели превью. usingCropRect=true —
+    // точки относительно cropRect (как их и строит детектор); usingRotationDegrees=
+    // true — наш квад уже ориентирован. Обязательно до proxy.close().
+    val source = ImageProxyTransformFactory().apply {
+        setUsingCropRect(true)
+        setUsingRotationDegrees(true)
+    }.getOutputTransform(proxy)
+    val analysisSource = AnalysisSource(source, crop.width(), crop.height(), rotation)
+    return FrameAnalysis(selectLargestQuad(candidates), stats, analysisSource)
 }
 
 @Composable

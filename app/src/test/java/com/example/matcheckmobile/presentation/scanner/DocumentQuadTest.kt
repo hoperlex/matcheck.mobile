@@ -238,6 +238,31 @@ class DocumentQuadTest {
     }
 
     @Test
+    fun `toOrientedCropPixels scales by crop size at 0 degrees`() {
+        // Без поворота — те же дименсии, что у scaleTo, но плоским FloatArray.
+        val pts = inset(0.25f).toOrientedCropPixels(cropWidth = 800, cropHeight = 400, rotationDegrees = 0)
+        assertEquals(8, pts.size)
+        // TL
+        assertEquals(200f, pts[0], 0.001f)
+        assertEquals(100f, pts[1], 0.001f)
+        // BR (третья вершина) — порядок TL→TR→BR→BL сохранён
+        assertEquals(600f, pts[4], 0.001f)
+        assertEquals(300f, pts[5], 0.001f)
+    }
+
+    @Test
+    fun `toOrientedCropPixels swaps width and height for 90 and 270`() {
+        // source построен с usingRotationDegrees=true → ждёт точки в
+        // ориентированном размере crop: при 90/270 стороны меняются местами.
+        listOf(90, 270).forEach { rotation ->
+            val pts = inset(0.25f).toOrientedCropPixels(800, 400, rotation)
+            // TL.x нормируется на cropHeight(=400), TL.y — на cropWidth(=800).
+            assertEquals("поворот $rotation: x", 100f, pts[0], 0.001f)
+            assertEquals("поворот $rotation: y", 200f, pts[1], 0.001f)
+        }
+    }
+
+    @Test
     fun `warpTargetSize caps the long side`() {
         val (w, h) = warpTargetSize(inset(0f), 4000, 3000, maxSide = 2048)
         assertEquals(2048, w)
