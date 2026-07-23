@@ -28,9 +28,6 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Matcheckmobile">
-        <meta-data
-            android:name="com.google.mlkit.vision.DEPENDENCIES"
-            android:value="docscan_full" />
         <!-- Sentry инициализируем вручную (initSentry в MatcheckApplication) с
              кастомным beforeSend-скраббингом → авто-инициализацию отключаем. -->
         <meta-data
@@ -51,20 +48,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-
-        <!-- Свой сканер документов. Отдельная Activity нужна именно ради окна:
-             MainActivity объявлена resizeableActivity="false" и жёстко правит
-             ориентацию, из-за чего камера внутри неё получала бы леттербокс.
-             configChanges для ориентации НЕ указываем намеренно: пусть Activity
-             пересоздаётся и CameraX биндится заново под новую геометрию — иначе
-             в UseCaseGroup остался бы ViewPort от старого экрана и снимок
-             разошёлся бы с превью. -->
-        <activity
-            android:name=".presentation.scanner.DocumentScannerActivity"
-            android:exported="false"
-            android:resizeableActivity="true"
-            android:screenOrientation="fullSensor"
-            android:theme="@style/Theme.Matcheckmobile" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

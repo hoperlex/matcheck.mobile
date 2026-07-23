@@ -64,7 +64,6 @@ import com.example.matcheckmobile.presentation.components.PhotoPreviewDialog
 import com.example.matcheckmobile.presentation.components.RemotePhotoPreviewDialog
 import com.example.matcheckmobile.presentation.components.RemotePhotoRef
 import com.example.matcheckmobile.presentation.components.Stage1PhotosSection
-import com.example.matcheckmobile.presentation.components.rememberDocumentScanner
 import com.example.matcheckmobile.presentation.components.rememberPhotoCapture
 import com.example.matcheckmobile.presentation.util.formatLocalTime
 import com.example.matcheckmobile.presentation.viewmodel.DispatchStage2FormViewModel
@@ -118,9 +117,11 @@ fun DispatchStage2FormScreen(
         }
     }
 
-    val takeDocumentPhoto = rememberDocumentScanner(
-        onPageCaptured = vm::onDocumentPhotoTaken,
+    val takeDocumentPhoto = rememberPhotoCapture(
+        photoStorage = container.photoStorage,
+        onPhotoTaken = vm::onDocumentPhotoTaken,
         onError = { msg -> scope.launch { snackbar.showSnackbar(msg) } },
+        requestLocation = false, // документам локация не нужна — штамп не наносится
     )
     val takeVehiclePhoto = rememberPhotoCapture(
         photoStorage = container.photoStorage,

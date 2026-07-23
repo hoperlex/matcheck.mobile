@@ -60,7 +60,6 @@ import com.example.matcheckmobile.presentation.components.PhotoPreviewDialog
 import com.example.matcheckmobile.presentation.components.TransitCheckbox
 import com.example.matcheckmobile.presentation.components.VehicleLoadInfo
 import com.example.matcheckmobile.presentation.components.VehicleTypeChips
-import com.example.matcheckmobile.presentation.components.rememberDocumentScanner
 import com.example.matcheckmobile.presentation.components.rememberPhotoCapture
 import com.example.matcheckmobile.presentation.viewmodel.Stage1FormViewModel
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
@@ -108,9 +107,11 @@ fun Stage1FormScreen(
         }
     }
 
-    val takeDocumentPhoto = rememberDocumentScanner(
-        onPageCaptured = vm::onDocumentPhotoTaken,
+    val takeDocumentPhoto = rememberPhotoCapture(
+        photoStorage = container.photoStorage,
+        onPhotoTaken = vm::onDocumentPhotoTaken,
         onError = { msg -> scope.launch { snackbar.showSnackbar(msg) } },
+        requestLocation = false, // документам локация не нужна — штамп не наносится
     )
     val takeCargoPhoto = rememberPhotoCapture(
         photoStorage = container.photoStorage,
