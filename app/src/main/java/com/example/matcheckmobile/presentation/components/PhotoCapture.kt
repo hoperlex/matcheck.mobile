@@ -1,18 +1,28 @@
 package com.example.matcheckmobile.presentation.components
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import androidx.exifinterface.media.ExifInterface
+import com.example.matcheckmobile.BuildConfig
 import com.example.matcheckmobile.media.PhotoStorage
+import com.example.matcheckmobile.media.normalizeExifOrientationInPlace
 import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Возвращает функцию-запускатель съёмки фото. При первом вызове запрашивает runtime-разрешение
@@ -32,6 +42,7 @@ fun rememberPhotoCapture(
     requestLocation: Boolean = true,
 ): () -> Unit {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     // Saveable: система может убить процесс, пока открыта камера. rememberSaveable вернёт путь
     // после воссоздания, и результат TakePicture (его хранит ActivityResultRegistry) не потеряется.
     var pendingPath by rememberSaveable { mutableStateOf<String?>(null) }
@@ -50,7 +61,20 @@ fun rememberPhotoCapture(
                 runCatching { File(path).delete() }
                 onError("Пустой снимок")
             }
-            else -> onPhotoTaken(path)
+            // Системная камера пишет ориентацию EXIF-тегом, а не в пиксели. Веб-портал
+            // тег не уважает → без нормализации фото документа выходит повёрнутым.
+            // Выпрямляем на IO (полный декод+энкод нельзя на main) ДО onPhotoTaken.
+            // normalizeExifOrientationInPlace транзакционен: при осечке фото не портит.
+            else -> {
+                val savedPath = path
+                scope.launch {
+                    withContext(Dispatchers.IO) {
+                        logCaptureExifDiagnostics(context, photoStorage, savedPath)
+                        runCatching { normalizeExifOrientationInPlace(File(savedPath)) }
+                    }
+                    onPhotoTaken(savedPath)
+                }
+            }
         }
     }
 
@@ -113,5 +137,37 @@ fun rememberPhotoCapture(
             }.toTypedArray()
             permissionLauncher.launch(toRequest)
         }
+    }
+}
+
+private const val TAG = "PhotoCapture"
+
+/**
+ * Разовая DEBUG-диагностика: подтвердить на реальном планшете, действительно ли
+ * EXIF-ориентация читается по-разному из абсолютного пути и из потока content-URI
+ * (гипотеза, почему prepareFromUri не выправлял документ). В release не пишет
+ * ничего (BuildConfig.DEBUG == false). Убрать после снятия одного дампа.
+ */
+private fun logCaptureExifDiagnostics(context: Context, photoStorage: PhotoStorage, path: String) {
+    if (!BuildConfig.DEBUG) return
+    runCatching {
+        val file = File(path)
+        val byPath = ExifInterface(file.absolutePath)
+            .getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_UNDEFINED)
+        val byStream = context.contentResolver
+            .openInputStream(photoStorage.toContentUri(file))
+            ?.use {
+                ExifInterface(it).getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_UNDEFINED,
+                )
+            }
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        Log.d(
+            TAG,
+            "capture EXIF orientation: path=$byPath stream=$byStream " +
+                "pixels=${bounds.outWidth}x${bounds.outHeight} bytes=${file.length()}",
+        )
     }
 }
