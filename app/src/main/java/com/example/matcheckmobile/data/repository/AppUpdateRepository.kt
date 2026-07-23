@@ -77,12 +77,16 @@ class AppUpdateRepository(
      */
     fun checkForUpdate() {
         if (!BuildConfig.UPDATE_CHECK_ENABLED) return
-        // Не дёргаем повторно, если уже идёт цикл (Checking/Downloading/ReadyToInstall).
-        // Available/Failed заменим — пользователь возможно хочет повторить.
+        // Не дёргаем повторно только пока реально идёт цикл (Checking/Downloading).
+        // ReadyToInstall НЕ пропускаем: запуск системного installer'а без колбэка,
+        // и если инспектор отменил установку (например на экране Play Protect),
+        // приложение об этом не узнаёт и осталось бы в ReadyToInstall без видимой
+        // кнопки обновления до полного перезапуска. Перепроверка вернёт Available
+        // (чип + диалог). После успешной установки процесс стартует уже новой
+        // версией → проверка сама увидит UpToDate, ложного повтора не будет.
         when (_state.value) {
             is AppUpdateState.Checking,
-            is AppUpdateState.Downloading,
-            is AppUpdateState.ReadyToInstall -> return
+            is AppUpdateState.Downloading -> return
             else -> Unit
         }
         scope.launch {
