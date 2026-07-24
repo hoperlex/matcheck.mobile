@@ -14,6 +14,7 @@ import com.example.matcheckmobile.data.remote.api.dto.MarkDeletionRequest
 import com.example.matcheckmobile.data.remote.api.dto.ShipmentConflictResponse
 import com.example.matcheckmobile.data.remote.api.dto.ShipmentDto
 import com.example.matcheckmobile.data.remote.api.dto.ShipmentUpsertRequest
+import com.example.matcheckmobile.domain.StatusPolicy
 import io.sentry.Sentry
 import io.sentry.SentryLevel
 import kotlinx.serialization.json.Json
@@ -44,6 +45,11 @@ class MutationProcessor(
     private val shipmentDao: RemoteShipmentDao,
     private val deliveriesApi: DeliveriesApi,
     private val shipmentsApi: ShipmentsApi,
+    /**
+     * Телеметрия факта отмены конфликтной мутации при terminal server-win
+     * (только метаданные, без содержимого). Инъектируется — в JVM-тестах no-op.
+     */
+    private val telemetryDiscard: (List<MutationEntity>) -> Unit = DiscardTelemetry.sentry,
 ) {
 
     private val json: Json = Json { ignoreUnknownKeys = true; coerceInputValues = true }
@@ -69,6 +75,19 @@ class MutationProcessor(
             when (outcome) {
                 is Outcome.Ok -> {
                     mutationDao.deleteById(m.id)
+                    pushed++
+                }
+                is Outcome.TerminalServerWin -> {
+                    // Сервер уже терминальный (confirmed_mol): snapshot применён
+                    // чисто в tryApplyOccSnapshot. Удаляем ТОЛЬКО текущую
+                    // конфликтную мутацию; поздние операции сущности сохраняем
+                    // (blockedEntities не даёт им выполниться в этом снимке
+                    // pending, но не удаляет). Атомарность здесь не транзакционная,
+                    // но безопасна за счёт повторяемости: при падении до deleteById
+                    // мутация переиграется и снова получит терминальный 409.
+                    mutationDao.deleteById(m.id)
+                    blockedEntities += key
+                    runCatching { telemetryDiscard(listOf(m)) } // best-effort, не влияет на sync
                     pushed++
                 }
                 is Outcome.Conflict -> {
@@ -235,11 +254,11 @@ class MutationProcessor(
         return when (failure) {
             is MutationFailure.Conflict -> {
                 val isIdempotentCreate = m.operation == "upsert" && (m.baseVersion ?: 0) == 0
-                val applied = tryApplyOccSnapshot(m, raw, markConflictPending = !isIdempotentCreate)
-                when {
-                    !applied -> Outcome.Drop("http 409 без snapshot: $rawSnippet")
-                    isIdempotentCreate -> Outcome.Ok
-                    else -> Outcome.Conflict(failure.tag)
+                when (tryApplyOccSnapshot(m, raw, isIdempotentCreate)) {
+                    SnapshotResult.NOT_APPLIED -> Outcome.Drop("http 409 без snapshot: $rawSnippet")
+                    SnapshotResult.APPLIED_IDEMPOTENT -> Outcome.Ok
+                    SnapshotResult.APPLIED_TERMINAL -> Outcome.TerminalServerWin
+                    SnapshotResult.APPLIED_CONFLICT -> Outcome.Conflict(failure.tag)
                 }
             }
             MutationFailure.PendingDeletion,
@@ -259,42 +278,59 @@ class MutationProcessor(
         }
     }
 
+    private enum class SnapshotResult { NOT_APPLIED, APPLIED_IDEMPOTENT, APPLIED_TERMINAL, APPLIED_CONFLICT }
+
+    /**
+     * Применяет серверный snapshot из тела 409-ответа в Room и сообщает, как
+     * трактовать конфликт. Флаг `conflictPending` ставится только когда правку
+     * НЕ отпускаем (`markConflict`): не для idempotent-create и не для терминала.
+     *
+     * Terminal server-win — ТОЛЬКО для delivery (scope). Для shipment поведение
+     * прежнее: idempotent-create → чистое применение, иначе → заморозка.
+     */
     private suspend fun tryApplyOccSnapshot(
         m: MutationEntity,
         raw: String?,
-        markConflictPending: Boolean = true,
-    ): Boolean {
-        if (raw.isNullOrBlank()) return false
+        isIdempotentCreate: Boolean,
+    ): SnapshotResult {
+        if (raw.isNullOrBlank()) return SnapshotResult.NOT_APPLIED
         return when (m.entityType) {
             "delivery" -> runCatching {
                 val parsed = json.decodeFromString(DeliveryConflictResponse.serializer(), raw)
+                val terminal = StatusPolicy.isTerminal(parsed.server.status.code)
+                val markConflict = !isIdempotentCreate && !terminal
                 val entity = parsed.server.toEntity().copy(
-                    conflictPending = markConflictPending,
-                    serverSnapshotJson = if (markConflictPending) raw else null,
-                    lastSyncError = if (markConflictPending) "conflict serverVersion=${parsed.serverVersion}" else null,
+                    conflictPending = markConflict,
+                    serverSnapshotJson = if (markConflict) raw else null,
+                    lastSyncError = if (markConflict) "conflict serverVersion=${parsed.serverVersion}" else null,
                 )
                 deliveryDao.saveAggregate(
                     delivery = entity,
                     items = parsed.server.items.map { it.toEntity(parsed.server.id) },
                     photos = parsed.server.photos.map { it.toEntity(parsed.server.id) },
                 )
-                true
-            }.getOrDefault(false)
+                when {
+                    isIdempotentCreate -> SnapshotResult.APPLIED_IDEMPOTENT // приоритет: create без потери правки
+                    terminal -> SnapshotResult.APPLIED_TERMINAL
+                    else -> SnapshotResult.APPLIED_CONFLICT
+                }
+            }.getOrDefault(SnapshotResult.NOT_APPLIED)
             "shipment" -> runCatching {
                 val parsed = json.decodeFromString(ShipmentConflictResponse.serializer(), raw)
+                val markConflict = !isIdempotentCreate // scope: terminal server-win пока только для delivery
                 val entity = parsed.server.toEntity().copy(
-                    conflictPending = markConflictPending,
-                    serverSnapshotJson = if (markConflictPending) raw else null,
-                    lastSyncError = if (markConflictPending) "conflict serverVersion=${parsed.serverVersion}" else null,
+                    conflictPending = markConflict,
+                    serverSnapshotJson = if (markConflict) raw else null,
+                    lastSyncError = if (markConflict) "conflict serverVersion=${parsed.serverVersion}" else null,
                 )
                 shipmentDao.saveAggregate(
                     shipment = entity,
                     items = parsed.server.items.map { it.toEntity(parsed.server.id) },
                     photos = parsed.server.photos.map { it.toEntity(parsed.server.id) },
                 )
-                true
-            }.getOrDefault(false)
-            else -> false
+                if (isIdempotentCreate) SnapshotResult.APPLIED_IDEMPOTENT else SnapshotResult.APPLIED_CONFLICT
+            }.getOrDefault(SnapshotResult.NOT_APPLIED)
+            else -> SnapshotResult.NOT_APPLIED
         }
     }
 
@@ -402,6 +438,8 @@ class MutationProcessor(
 
     sealed interface Outcome {
         data object Ok : Outcome
+        /** 409, но сервер уже терминальный (delivery confirmed_mol): server-win — удалить конфликтную мутацию. */
+        data object TerminalServerWin : Outcome
         data class Conflict(val tag: String) : Outcome
         data class Drop(val reason: String) : Outcome
         data class Backoff(val error: String) : Outcome

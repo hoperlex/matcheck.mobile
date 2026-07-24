@@ -38,6 +38,9 @@ import com.example.matcheckmobile.data.repository.ReceiptSessionRepository
 import com.example.matcheckmobile.data.repository.ShipmentRepository
 import com.example.matcheckmobile.data.repository.SourceDocumentRepository
 import com.example.matcheckmobile.data.repository.SyncRepository
+import com.example.matcheckmobile.data.repository.RoomTransactionRunner
+import com.example.matcheckmobile.data.repository.TerminalConflictResolver
+import com.example.matcheckmobile.data.repository.TransactionRunner
 import com.example.matcheckmobile.data.settings.DeviceSettings
 import com.example.matcheckmobile.sync.MatcheckSyncScheduler
 import com.example.matcheckmobile.media.LocationProvider
@@ -110,6 +113,14 @@ class AppContainer(val appContext: Context) {
         photosApi = photosApi,
     )
 
+    private val transactionRunner: TransactionRunner = RoomTransactionRunner(database)
+
+    val terminalConflictResolver: TerminalConflictResolver = TerminalConflictResolver(
+        deliveryDao = database.remoteDeliveryDao(),
+        mutationDao = database.mutationDao(),
+        tx = transactionRunner,
+    )
+
     val syncRepository: SyncRepository = SyncRepository(
         syncApi = syncApi,
         deliveriesApi = deliveriesApi,
@@ -127,6 +138,7 @@ class AppContainer(val appContext: Context) {
         mutationDao = database.mutationDao(),
         mutationProcessor = mutationProcessor,
         photoUploadProcessor = photoUploadProcessor,
+        terminalConflictResolver = terminalConflictResolver,
         // После успешного pull тихо подтягиваем актуальный user.siteId.
         // Если siteId реально изменился — чистим server-snapshot (УПД/
         // приёмки/отгрузки) и планируем новый sync под новый siteId

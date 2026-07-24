@@ -23,6 +23,7 @@ import com.example.matcheckmobile.data.remote.api.dto.ReconcileRequestDto
 import com.example.matcheckmobile.data.remote.api.dto.ShipmentUpsertRequest
 import com.example.matcheckmobile.data.remote.api.dto.SyncDeltaResponse
 import com.example.matcheckmobile.data.settings.DeviceSettings
+import com.example.matcheckmobile.domain.StatusPolicy
 import kotlinx.serialization.json.Json
 import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -62,6 +63,11 @@ class SyncRepository(
     private val mutationDao: MutationDao,
     private val mutationProcessor: MutationProcessor,
     private val photoUploadProcessor: PhotoUploadProcessor,
+    /**
+     * Авто-разрешение терминальных OCC-конфликтов приёмок (server-win) —
+     * чинит «приёмка навсегда застряла на Этапе 2». Только delivery.
+     */
+    private val terminalConflictResolver: TerminalConflictResolver,
     /**
      * Side-effect: после успешного pull тихо подтягивает с /me актуальный
      * user.siteId инспектора и обновляет tokenStorage. Если null —
@@ -113,6 +119,10 @@ class SyncRepository(
     suspend fun syncOnce(initialWindowDays: Int = DEFAULT_INITIAL_WINDOW_DAYS): Result<SyncSummary> = syncMutex.withLock {
         runCatching {
             mutationProcessor.processAll()
+            // Снять терминальные конфликты БЕЗ сети (ветка B / накопленное
+            // равно-версионное состояние) — до pull, чтобы отрабатывало даже
+            // когда /sync недоступен. Best-effort: сбой не ломает основной sync.
+            runCatching { terminalConflictResolver.sweepLocalTerminal() }
             val summary = pullAllPages(initialWindowDays)
             photoUploadProcessor.processAll()
             // Best-effort обновление siteId инспектора. Делаем именно здесь
@@ -193,22 +203,33 @@ class SyncRepository(
 
     private suspend fun reconcileDeliveries(ids: List<String>) {
         if (ids.isEmpty()) return
-        // Не затираем локальный конфликт server-snapshot'ом (как applyResponse).
-        val skip = deliveryDao.listConflictPendingIds().toSet()
+        // Решение (пропустить конфликт / server-win / обычная запись) принимается
+        // ЦЕЛИКОМ внутри транзакции по свежему чтению entity — предвычисленный
+        // список conflictPending мог устареть за время сетевого GET и дать сироту.
         var ok = 0
+        var skipped = 0
         var fail = 0
         for (id in ids.distinct()) {
-            if (id in skip) continue
             runCatching {
-                val dto = deliveriesApi.get(id)
-                deliveryDao.saveAggregate(
-                    delivery = dto.toEntity(),
-                    items = dto.items.map { it.toEntity(dto.id) },
-                    photos = dto.photos.map { it.toEntity(dto.id) },
-                )
-            }.onSuccess { ok++ }.onFailure { fail++ }
+                val dto = deliveriesApi.get(id) // сеть — ВНЕ транзакции
+                terminalConflictResolver.applyReconciled(
+                    id = id,
+                    isServerTerminal = StatusPolicy.isTerminal(dto.status.code),
+                ) {
+                    deliveryDao.saveAggregate(
+                        delivery = dto.toEntity(),
+                        items = dto.items.map { it.toEntity(dto.id) },
+                        photos = dto.photos.map { it.toEntity(dto.id) },
+                    )
+                }
+            }.onSuccess { result ->
+                when (result) {
+                    is TerminalConflictResolver.Outcome.Skipped -> skipped++
+                    is TerminalConflictResolver.Outcome.Applied -> ok++
+                }
+            }.onFailure { fail++ }
         }
-        Log.i(TAG, "reconcile detail deliveries: ok=$ok fail=$fail")
+        Log.i(TAG, "reconcile detail deliveries: ok=$ok skipped=$skipped fail=$fail")
     }
 
     private suspend fun reconcileShipments(ids: List<String>) {
