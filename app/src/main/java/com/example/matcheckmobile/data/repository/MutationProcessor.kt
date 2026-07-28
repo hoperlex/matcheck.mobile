@@ -63,8 +63,12 @@ class MutationProcessor(
         val pending = mutationDao.listPending(System.currentTimeMillis())
         // FIFO в рамках одной сущности — если предыдущая мутация осталась
         // (5xx backoff / conflictPending), последующие на той же entityId
-        // не трогаем до её резолюции.
-        val blockedEntities = mutableSetOf<String>()
+        // не трогаем до её резолюции. conflictPending-мутации в listPending НЕ
+        // попадают, поэтому предзаполняем blockedEntities их сущностями — иначе
+        // поздняя неконфликтная мутация обгонит замороженную и осиротит её.
+        val blockedEntities = mutationDao.listConflicts()
+            .map { it.entityType + ":" + it.entityId }
+            .toMutableSet()
 
         for (m in pending) {
             val key = m.entityType + ":" + m.entityId
@@ -297,7 +301,10 @@ class MutationProcessor(
         return when (m.entityType) {
             "delivery" -> runCatching {
                 val parsed = json.decodeFromString(DeliveryConflictResponse.serializer(), raw)
-                val terminal = StatusPolicy.isTerminal(parsed.server.status.code)
+                // Auto server-win — строго только для целевого D2 upsert. Конфликтные
+                // mark_deletion/unmark_deletion/будущие операции остаются на ручную
+                // резолюцию (терминал для них не считаем).
+                val terminal = m.operation == "upsert" && StatusPolicy.isTerminal(parsed.server.status.code)
                 val markConflict = !isIdempotentCreate && !terminal
                 val entity = parsed.server.toEntity().copy(
                     conflictPending = markConflict,

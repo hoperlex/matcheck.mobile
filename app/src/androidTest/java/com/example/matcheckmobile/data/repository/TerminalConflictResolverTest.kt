@@ -166,4 +166,54 @@ class TerminalConflictResolverTest {
         assertFalse(deliveryDao.findById(id)!!.conflictPending)
         assertTrue(mutationDao.findFor("delivery", id).isEmpty())
     }
+
+    @Test
+    fun sweep_orphanViaListConflicts_cleaned_evenWhenEntityFlagCleared() = runBlocking {
+        // Blocker 1(b): флаг entity уже снят (напр. поздней мутацией), но конфликтная
+        // upsert-мутация висит сиротой. Union-скан по listConflicts должен её убрать.
+        val id = "d6"
+        deliveryDao.saveAggregate(delivery(id, "confirmed_mol", conflict = false), emptyList(), emptyList())
+        mutationDao.upsert(mutation("m6", id, conflict = true)) // сирота: mutation conflict, entity flag=false
+
+        resolver().sweepLocalTerminal()
+
+        assertTrue("сирота-мутация удалена union-сканом", mutationDao.findFor("delivery", id).isEmpty())
+    }
+
+    @Test
+    fun sweep_keepsNonUpsertConflict_andKeepsEntityFlag() = runBlocking {
+        // Blocker 2: удаляем только конфликтный upsert; конфликтный mark_deletion
+        // остаётся, флаг entity НЕ снимается (есть другой конфликт).
+        val id = "d7"
+        deliveryDao.saveAggregate(delivery(id, "confirmed_mol", conflict = true), emptyList(), emptyList())
+        mutationDao.upsert(mutation("m7-upsert", id, conflict = true, op = "upsert"))
+        mutationDao.upsert(mutation("m7-mark", id, conflict = true, op = "mark_deletion"))
+
+        resolver().sweepLocalTerminal()
+
+        val muts = mutationDao.findFor("delivery", id)
+        assertEquals("остался только mark_deletion", 1, muts.size)
+        assertEquals("m7-mark", muts.first().id)
+        assertTrue("флаг entity сохранён — есть другой конфликт", deliveryDao.findById(id)!!.conflictPending)
+    }
+
+    @Test
+    fun applyReconciled_keepsNonUpsertConflict_reflagsEntity() = runBlocking {
+        val id = "d8"
+        deliveryDao.saveAggregate(delivery(id, "filled", conflict = true), emptyList(), emptyList())
+        mutationDao.upsert(mutation("m8-upsert", id, conflict = true, op = "upsert"))
+        mutationDao.upsert(mutation("m8-mark", id, conflict = true, op = "mark_deletion"))
+
+        val out = resolver().applyReconciled(id, isServerTerminal = true) {
+            deliveryDao.saveAggregate(delivery(id, "confirmed_mol", conflict = false), emptyList(), emptyList())
+        }
+
+        assertTrue(out is TerminalConflictResolver.Outcome.Applied)
+        val row = deliveryDao.findById(id)!!
+        assertEquals("confirmed_mol", row.statusCode)
+        assertTrue("флаг возвращён — остался mark_deletion конфликт", row.conflictPending)
+        val muts = mutationDao.findFor("delivery", id)
+        assertEquals(1, muts.size)
+        assertEquals("m8-mark", muts.first().id)
+    }
 }

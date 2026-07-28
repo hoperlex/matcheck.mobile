@@ -3,25 +3,28 @@ package com.example.matcheckmobile.data.repository
 import com.example.matcheckmobile.data.local.dao.MutationDao
 import com.example.matcheckmobile.data.local.dao.RemoteDeliveryDao
 import com.example.matcheckmobile.data.local.entity.MutationEntity
+import com.example.matcheckmobile.data.local.entity.RemoteDeliveryEntity
 import com.example.matcheckmobile.domain.StatusPolicy
 
 /**
  * Авто-разрешение ТЕРМИНАЛЬНЫХ OCC-конфликтов приёмок (delivery) в пользу
  * сервера (server-win) — чинит «приёмка навсегда застряла на Этапе 2».
  *
- * Scope — только delivery. Отгрузки (shipment) не трогаем.
+ * Scope (жёсткий): только delivery и только конфликтные **upsert**-мутации.
+ * Конфликтные `mark_deletion`/`unmark_deletion`/будущие операции НЕ трогаем —
+ * они остаются замороженными для обычной резолюции; флаг entity снимаем лишь
+ * если после удаления upsert-конфликтов других конфликтов не осталось.
  *
  * Две точки применения (обе — решение и данные ЦЕЛИКОМ внутри транзакции,
  * чтобы не создать сироту при гонке с параллельным push):
- *  - [sweepLocalTerminal] — без сети: снимает conflictPending у строк, чей
- *    ЛОКАЛЬНЫЙ статус уже терминальный (ветка B / накопленное состояние, где
- *    версии равны и reconcile такую строку как staleOnClient не отдаёт).
+ *  - [sweepLocalTerminal] — без сети: снимает конфликт у приёмок с ЛОКАЛЬНЫМ
+ *    терминальным статусом. Перебирает ОБЪЕДИНЕНИЕ id с флагом entity и id из
+ *    `mutationDao.listConflicts()` — ловит «сироту» (конфликтная мутация висит,
+ *    а флаг entity уже снят более поздней мутацией).
  *  - [applyReconciled] — по свежему серверному статусу из reconcile-detail
  *    (ветка A: локально ещё filled, сервер уже confirmed_mol).
  *
- * Удаляем ТОЛЬКО conflictPending-мутации; поздние неконфликтные операции
- * (новая редакция, mark_deletion/unmark_deletion) сохраняются и уйдут на
- * портал следующим sync. Отменённый конфликтный payload — осознанная потеря,
+ * Отменённый конфликтный upsert-payload — осознанная потеря (Вариант A),
  * фиксируется телеметрией (только метаданные) best-effort.
  */
 class TerminalConflictResolver(
@@ -37,21 +40,20 @@ class TerminalConflictResolver(
     }
 
     /**
-     * Без сети: для каждой conflictPending-приёмки с локальным терминальным
-     * статусом — снять конфликт (server-win) внутри транзакции.
+     * Без сети: для каждой приёмки, у которой есть конфликт (по флагу entity ИЛИ
+     * по conflictPending-мутации) и ЛОКАЛЬНЫЙ статус терминальный — server-win
+     * внутри транзакции.
      */
     suspend fun sweepLocalTerminal() {
-        for (id in deliveryDao.listConflictPendingIds()) {
+        val ids = (
+            deliveryDao.listConflictPendingIds() +
+                mutationDao.listConflicts().filter { it.entityType == "delivery" }.map { it.entityId }
+            ).distinct()
+        for (id in ids) {
             val discarded = tx.run {
                 val cur = deliveryDao.findById(id) ?: return@run emptyList<MutationEntity>()
-                if (!cur.conflictPending || !StatusPolicy.isTerminal(cur.statusCode)) {
-                    return@run emptyList<MutationEntity>()
-                }
-                val removed = deleteConflictMutations(id)
-                deliveryDao.upsert(
-                    cur.copy(conflictPending = false, serverSnapshotJson = null, lastSyncError = null),
-                )
-                removed
+                if (!StatusPolicy.isTerminal(cur.statusCode)) return@run emptyList<MutationEntity>()
+                serverWinUpserts(id, cur)
             }
             report(discarded)
         }
@@ -59,13 +61,12 @@ class TerminalConflictResolver(
 
     /**
      * Решение по свежему серверному dto ВНУТРИ транзакции:
-     *  - локально conflictPending + сервер терминальный → server-win: снять
-     *    конфликтные мутации и записать серверное состояние ([write]);
-     *  - локально conflictPending + сервер ещё нетерминальный → [Outcome.Skipped]
-     *    (не перезаписываем свежий конфликт — ждём ручной резолюции);
+     *  - локально conflictPending + сервер терминальный → server-win над
+     *    конфликтными upsert-мутациями + записать серверное состояние ([write]);
+     *  - локально conflictPending + сервер ещё нетерминальный → [Outcome.Skipped];
      *  - иначе — обычная запись серверного состояния.
      *
-     * [write] выполняет saveAggregate(dto) — вызывается внутри транзакции.
+     * [write] выполняет saveAggregate(dto) внутри транзакции.
      */
     suspend fun applyReconciled(
         id: String,
@@ -76,9 +77,16 @@ class TerminalConflictResolver(
             val cur = deliveryDao.findById(id)
             if (cur?.conflictPending == true) {
                 if (!isServerTerminal) return@run Outcome.Skipped
-                val removed = deleteConflictMutations(id)
-                write()
-                Outcome.Applied(removed)
+                val all = mutationDao.findFor("delivery", id)
+                val upsertConflicts = all.filter { it.conflictPending && it.operation == "upsert" }
+                upsertConflicts.forEach { mutationDao.deleteById(it.id) }
+                write() // saveAggregate(dto) → confirmed_mol, conflictPending=false (toEntity default)
+                // Если остались другие конфликты (не-upsert) — write() уже снял флаг,
+                // возвращаем его, чтобы они не потерялись для ручной резолюции.
+                if (all.any { it.conflictPending && it.operation != "upsert" }) {
+                    deliveryDao.findById(id)?.let { deliveryDao.upsert(it.copy(conflictPending = true)) }
+                }
+                Outcome.Applied(upsertConflicts)
             } else {
                 write()
                 Outcome.Applied(emptyList())
@@ -88,10 +96,21 @@ class TerminalConflictResolver(
         return result
     }
 
-    private suspend fun deleteConflictMutations(id: String): List<MutationEntity> {
-        val conflictMuts = mutationDao.findFor("delivery", id).filter { it.conflictPending }
-        conflictMuts.forEach { mutationDao.deleteById(it.id) }
-        return conflictMuts
+    /**
+     * Удаляет ТОЛЬКО конфликтные upsert-мутации приёмки; снимает флаг entity лишь
+     * если других conflictPending-мутаций не осталось. Возвращает удалённые
+     * мутации (для телеметрии).
+     */
+    private suspend fun serverWinUpserts(id: String, cur: RemoteDeliveryEntity): List<MutationEntity> {
+        val all = mutationDao.findFor("delivery", id)
+        val upsertConflicts = all.filter { it.conflictPending && it.operation == "upsert" }
+        if (upsertConflicts.isEmpty() && !cur.conflictPending) return emptyList() // чистить нечего
+        upsertConflicts.forEach { mutationDao.deleteById(it.id) }
+        val hasOtherConflicts = all.any { it.conflictPending && it.operation != "upsert" }
+        if (cur.conflictPending && !hasOtherConflicts) {
+            deliveryDao.upsert(cur.copy(conflictPending = false, serverSnapshotJson = null, lastSyncError = null))
+        }
+        return upsertConflicts
     }
 
     /** Телеметрия — best-effort, после commit; её сбой не должен влиять на sync. */

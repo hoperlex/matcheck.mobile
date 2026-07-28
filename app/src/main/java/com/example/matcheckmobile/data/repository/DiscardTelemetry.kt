@@ -1,5 +1,6 @@
 package com.example.matcheckmobile.data.repository
 
+import android.util.Log
 import com.example.matcheckmobile.data.local.entity.MutationEntity
 import io.sentry.Sentry
 import io.sentry.SentryLevel
@@ -14,13 +15,25 @@ import java.security.MessageDigest
  * Drop-ветка). Server-win — осознанная потеря конфликтной старой правки;
  * телеметрия фиксирует ФАКТ (тип/операция/версия/размер/SHA-256) для
  * мониторинга, а не восстановимость.
+ *
+ * ВНИМАНИЕ: Sentry сейчас DSN-gated и в проде ВЫКЛЮЧЕН (`SENTRY_DSN=""` в
+ * build.gradle) — `Sentry.captureMessage` там no-op. Поэтому дублируем факт в
+ * `Log.w` (локальный logcat-след). До настройки боевого DSN «телеметрия»
+ * доступна только через logcat/adb.
  */
 object DiscardTelemetry {
+    private const val TAG = "DiscardTelemetry"
+
     /** no-op — для JVM-тестов, чтобы Android Log/Sentry не ломали чистый тест. */
     val noop: (List<MutationEntity>) -> Unit = { }
 
     val sentry: (List<MutationEntity>) -> Unit = { discarded ->
         discarded.forEach { m ->
+            Log.w(
+                TAG,
+                "auto server-win discard: ${m.entityType} ${m.operation} ${m.entityId} " +
+                    "baseVersion=${m.baseVersion ?: -1} payloadSize=${m.payloadJson?.length ?: 0}",
+            )
             Sentry.withScope { scope ->
                 scope.setTag("entityType", m.entityType)
                 scope.setTag("operation", m.operation)
