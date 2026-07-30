@@ -142,6 +142,18 @@ class SyncRepository(
     suspend fun <T> runExclusively(block: suspend () -> T): T = syncMutex.withLock { block() }
 
     /**
+     * Снимает минутный throttle reconcile'а.
+     *
+     * Throttle живёт в памяти процесса и не знает о смене контекста. После
+     * смены аккаунта или объекта база начинается с нуля, и докачка хвоста
+     * нужна немедленно — иначе reconcile, отработавший минуту назад для
+     * ПРОШЛОГО объекта, откладывал бы её на целую минуту.
+     */
+    fun resetReconcileThrottle() {
+        lastReconcileAtMs = 0L
+    }
+
+    /**
      * Полный цикл: push мутаций → pull дельты → push фото. Порядок важен:
      * фото можно грузить только после того, как parent (delivery/shipment)
      * ушла на сервер и получила version > 0. Поэтому photo upload — после

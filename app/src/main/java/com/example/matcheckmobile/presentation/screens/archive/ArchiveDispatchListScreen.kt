@@ -186,9 +186,10 @@ fun ArchiveDispatchListScreen(
     }
 }
 
-private fun isTodayLocal(dayStartMs: Long): Boolean {
-    val zone = java.time.ZoneId.systemDefault()
-    val today = java.time.LocalDate.now(zone)
-    val group = java.time.Instant.ofEpochMilli(dayStartMs).atZone(zone).toLocalDate()
-    return today == group
-}
+/**
+ * «Сегодня» — по бизнес-зоне объекта, а не по настройкам планшета. Иначе
+ * группа считалась бы московской датой (см. BusinessTime в ViewModel), а
+ * подсветка «сегодня» — датой устройства, и они расходились бы.
+ */
+private fun isTodayLocal(dayStartMs: Long): Boolean =
+    com.example.matcheckmobile.domain.BusinessTime.isToday(dayStartMs)

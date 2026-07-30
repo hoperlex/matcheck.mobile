@@ -6,6 +6,7 @@ import androidx.work.WorkInfo
 import com.example.matcheckmobile.data.local.entity.RemoteDeliveryEntity
 import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.di.AppContainer
+import com.example.matcheckmobile.domain.BusinessTime
 import com.example.matcheckmobile.domain.model.sourceDocTitlePrefix
 import com.example.matcheckmobile.sync.MatcheckSyncScheduler
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,8 +21,6 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.Instant
-import java.time.LocalDate
-import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 /**
@@ -120,16 +119,12 @@ class ArchiveIntakeListViewModel(private val container: AppContainer) : ViewMode
 
         val ownDeliveries = deliveries.filter { it.siteId == currentSiteId }
         val docById = sourceDocs.associateBy { it.id }
-        // Зона фиксирована (см. BUSINESS_ZONE): при ZoneId.systemDefault()
+        // Зона фиксирована (см. BusinessTime): при ZoneId.systemDefault()
         // два планшета с разными настройками времени разносили одну запись по
         // разным дням, и архив «не совпадал». Окно — семь КАЛЕНДАРНЫХ дат
         // (сегодня и шесть предыдущих), а не 168 часов.
-        val zone = BUSINESS_ZONE
-        val windowStartMs = LocalDate.now(zone)
-            .minusDays(ARCHIVE_WINDOW_DAYS - 1)
-            .atStartOfDay(zone)
-            .toInstant()
-            .toEpochMilli()
+        val zone = BusinessTime.ZONE
+        val windowStartMs = BusinessTime.windowStartMs(ARCHIVE_WINDOW_DAYS)
 
         val rows = ownDeliveries.mapNotNull { d ->
             val arrivedAtMs = parseMs(d.arrivedAt)
@@ -194,17 +189,7 @@ class ArchiveIntakeListViewModel(private val container: AppContainer) : ViewMode
         const val SYNC_FAILED_MESSAGE = "Не удалось обновить — проверьте связь"
         const val UPD_SUMMARY_MAX_INLINE = 2
         val ARCHIVE_STATUSES = listOf("confirmed_mol")
-        /**
-         * Единая бизнес-зона объектов. Все объекты — Москва и область, портал
-         * считает отчёты по московскому времени. Брать ZoneId.systemDefault()
-         * нельзя: настройки времени на планшетах различаются, и один и тот же
-         * заезд попадал в разные дни архива на разных устройствах. Появится
-         * объект в другой зоне — понадобится поле timezone у site (БД, /sync,
-         * Room), сейчас его нет.
-         */
-        val BUSINESS_ZONE: ZoneId = ZoneId.of("Europe/Moscow")
-
-        /** Семь календарных дат: сегодня и шесть предыдущих. */
+        /** Семь календарных дат: сегодня и шесть предыдущих. Зона — [BusinessTime.ZONE]. */
         const val ARCHIVE_WINDOW_DAYS = 7L
         // Формат как в задаче: «14.06.26» (двузначный год). Чисто визуальная
         // метка группы — sort идёт по dayStartMs, а не по строке.

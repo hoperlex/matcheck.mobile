@@ -6,6 +6,7 @@ import com.example.matcheckmobile.data.local.entity.RemoteSourceDocumentEntity
 import com.example.matcheckmobile.data.local.entity.Stage1DraftEntity
 import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.di.AppContainer
+import com.example.matcheckmobile.domain.BusinessTime
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -189,7 +190,7 @@ class IntakeUpdSelectViewModel(container: AppContainer) : ViewModel() {
          */
         private val dayTicker = flow {
             while (true) {
-                emit(LocalDate.now().toString())
+                emit(BusinessTime.todayIso())
                 delay(60_000L)
             }
         }.distinctUntilChanged()

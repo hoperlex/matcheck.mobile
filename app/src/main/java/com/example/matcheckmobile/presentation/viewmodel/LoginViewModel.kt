@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.matcheckmobile.data.auth.AccountSwitchCoordinator
+import com.example.matcheckmobile.data.auth.PendingWork
 import com.example.matcheckmobile.data.auth.RememberedCredentialsStore
 import com.example.matcheckmobile.data.remote.sse.SseConnectionManager
 import com.example.matcheckmobile.data.repository.AuthRepository
@@ -164,9 +165,20 @@ class LoginViewModel(
                 onFailure = { throwable ->
                     val error = (throwable as? LoginException)?.error
                         ?: LoginError.Unknown(throwable.message)
-                    // Согласие на удаление действует ровно на одну попытку:
-                    // после неудачи оно не должно молча сработать позже.
-                    _state.update { it.copy(isSubmitting = false, error = error, wipeConfirmed = false) }
+                    // Барьер сработал уже у самой активации сессии — например
+                    // после автоматического разлогина, когда токенов нет и
+                    // предварительный диалог по email открыть было нечем.
+                    // Показываем тот же диалог с кнопками, а не сухой текст.
+                    val blocked = error as? LoginError.UnsentDataOnDevice
+                    _state.update {
+                        it.copy(
+                            isSubmitting = false,
+                            // Согласие на удаление действует ровно на одну попытку.
+                            wipeConfirmed = false,
+                            pendingSwitch = blocked?.pending,
+                            error = if (blocked != null) null else error,
+                        )
+                    }
                 },
             )
         }
@@ -199,7 +211,7 @@ data class LoginUiState(
      * Непусто → показываем диалог «на планшете осталась работа прошлого
      * аккаунта». Вход не выполняется, пока человек не выберет вариант.
      */
-    val pendingSwitch: AccountSwitchCoordinator.PendingWork? = null,
+    val pendingSwitch: PendingWork? = null,
     val isSyncingBeforeSwitch: Boolean = false,
     val switchError: String? = null,
     /** Человек согласился удалить неотправленное. Живёт одну попытку входа. */

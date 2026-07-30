@@ -26,6 +26,21 @@ import com.example.matcheckmobile.presentation.viewmodel.SettingsViewModel
  */
 @Composable
 fun LogoutGuardDialog(vm: SettingsViewModel) {
+    val logoutError by vm.logoutError.collectAsStateWithLifecycle()
+    logoutError?.let { message ->
+        // Очистка не удалась — сессия НАМЕРЕННО осталась живой: данные ещё на
+        // планшете, и отправить их можно только под текущим токеном.
+        AlertDialog(
+            onDismissRequest = vm::consumeLogoutError,
+            title = { Text("Выход отменён") },
+            text = { Text("$message\n\nДанные остались на планшете, вы по-прежнему в системе.") },
+            confirmButton = {
+                TextButton(onClick = vm::consumeLogoutError) { Text("Понятно") }
+            },
+        )
+        return
+    }
+
     val pending by vm.pendingBeforeLogout.collectAsStateWithLifecycle()
     val work = pending ?: return
 

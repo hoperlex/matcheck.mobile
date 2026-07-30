@@ -190,8 +190,13 @@ private fun errorMessage(error: LoginError): String = when (error) {
     LoginError.WeakPassword -> "Пароль слишком простой"
     LoginError.Network -> "Нет соединения с сервером"
     LoginError.ServerError -> "Ошибка на сервере. Попробуйте позже."
+    // Обычно до текста не доходит: ViewModel открывает диалог с выбором.
+    // Строка — запасной вариант, если диалог почему-то не показан.
     is LoginError.UnsentDataOnDevice ->
         "На планшете осталась неотправленная работа прошлого аккаунта " +
-            "(${error.summary}). Войдите под ним и дождитесь синхронизации."
+            "(${error.pending.describe()})."
+    is LoginError.WipeIncomplete ->
+        "Не удалось полностью очистить данные прошлого аккаунта " +
+            "(осталось файлов: ${error.failedFiles}). Вход отменён, попробуйте ещё раз."
     is LoginError.Unknown -> error.message?.takeIf { it.isNotBlank() } ?: "Не удалось войти"
 }

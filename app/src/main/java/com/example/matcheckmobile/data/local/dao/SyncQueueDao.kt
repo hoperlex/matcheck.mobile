@@ -17,4 +17,8 @@ interface SyncQueueDao {
 
     @Query("SELECT * FROM sync_queue ORDER BY createdAt")
     fun observeAll(): Flow<List<SyncQueueEntity>>
+
+    /** Остатки legacy-очереди — для барьера при выходе. */
+    @Query("SELECT COUNT(*) FROM sync_queue")
+    suspend fun count(): Int
 }

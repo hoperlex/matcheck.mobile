@@ -1,6 +1,8 @@
 package com.example.matcheckmobile.data.repository
 
 import com.example.matcheckmobile.data.auth.AccountSwitchBlocked
+import com.example.matcheckmobile.data.auth.PendingWork
+import com.example.matcheckmobile.data.auth.AccountWipeFailed
 import com.example.matcheckmobile.data.auth.LogoutAuditLog
 import com.example.matcheckmobile.data.auth.SessionGate
 import com.example.matcheckmobile.data.auth.TokenStorage
@@ -106,10 +108,30 @@ class AuthRepository(
      * Возвращает true, если значение действительно обновилось.
      */
     suspend fun refreshSiteIdFromServer(): Boolean {
-        val me = runCatching { authApi.me() }.getOrNull() ?: return false
+        val fetched = fetchServerSiteId() ?: return false
+        return tokenStorage.updateSiteId(fetched)
+    }
+
+    /**
+     * Возвращает объект пользователя с сервера, **не трогая TokenStorage**, или
+     * null, если менять нечего (сеть упала, /me вернул то же значение, либо
+     * сработал guard против затирания живого siteId пустым).
+     *
+     * Разделение чтения и записи — не косметика. Раньше siteId сначала
+     * сохранялся, и только потом писался персистентный долг на сброс snapshot;
+     * смерть процесса между этими шагами делала смену объекта невидимой
+     * навсегда (следующий /me возвращал уже сохранённое значение). Теперь
+     * вызывающий сам решает порядок: сначала долг, потом токен.
+     * См. AppContainer.refreshSiteIdAfterPull.
+     */
+    suspend fun fetchServerSiteId(): String? {
+        val me = runCatching { authApi.me() }.getOrNull() ?: return null
         val current = tokenStorage.state.value.siteId
-        if (me.siteId.isNullOrBlank() && !current.isNullOrBlank()) return false
-        return tokenStorage.updateSiteId(me.siteId)
+        // Пустой siteId с сервера поверх живого — не применяем (см. выше).
+        if (me.siteId.isNullOrBlank() && !current.isNullOrBlank()) return null
+        val fetched = me.siteId
+        if (fetched.isNullOrBlank() || fetched == current) return null
+        return fetched
     }
 
     /**
@@ -192,7 +214,10 @@ class AuthRepository(
         // Барьер смены аккаунта — не сетевая ошибка, а осознанный отказ:
         // прокидываем как отдельный код, чтобы UI предложил синхронизацию.
         if (error is AccountSwitchBlocked) {
-            return LoginException(LoginError.UnsentDataOnDevice(error.pending.describe()))
+            return LoginException(LoginError.UnsentDataOnDevice(error.pending))
+        }
+        if (error is AccountWipeFailed) {
+            return LoginException(LoginError.WipeIncomplete(error.outcome.failedFiles))
         }
         if (error is HttpException) {
             val raw = runCatching { error.response()?.errorBody()?.string() }.getOrNull()
@@ -234,9 +259,17 @@ sealed class LoginError {
 
     /**
      * Вход другим аккаунтом отклонён: на планшете осталась неотправленная
-     * работа прошлого инспектора. [summary] — перечисление, что именно.
+     * работа прошлого инспектора. Несём [pending] целиком, а не строку —
+     * UI должен показать тот же диалог с выбором «отправить / удалить и
+     * войти / отмена», иначе после автоматического разлогина пользователь
+     * упирается в текст без единой кнопки.
      */
-    data class UnsentDataOnDevice(val summary: String) : LoginError()
+    data class UnsentDataOnDevice(
+        val pending: PendingWork,
+    ) : LoginError()
+
+    /** Очистка не завершилась — вход отменён, чтобы данные не осиротели. */
+    data class WipeIncomplete(val failedFiles: Int) : LoginError()
     data class Unknown(val message: String?) : LoginError()
 }
 

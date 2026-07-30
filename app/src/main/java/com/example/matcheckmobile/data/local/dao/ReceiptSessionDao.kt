@@ -52,4 +52,8 @@ interface ReceiptSessionDao {
 
     @Query("DELETE FROM receipt_sessions WHERE localId = :id")
     suspend fun deleteById(id: String)
+
+    /** Незасинканные legacy-приёмки — для барьера при выходе. */
+    @Query("SELECT COUNT(*) FROM receipt_sessions WHERE syncStatus IN (:statuses)")
+    suspend fun countBySyncStatuses(statuses: List<SyncStatus>): Int
 }

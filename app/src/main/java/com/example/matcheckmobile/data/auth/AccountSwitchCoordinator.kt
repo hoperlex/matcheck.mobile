@@ -6,7 +6,6 @@ import com.example.matcheckmobile.data.local.MatcheckDatabase
 import com.example.matcheckmobile.data.remote.sse.SseConnectionManager
 import com.example.matcheckmobile.data.repository.SyncRepository
 import com.example.matcheckmobile.data.settings.DeviceSettings
-import com.example.matcheckmobile.domain.model.RemotePhotoStatus
 import com.example.matcheckmobile.sync.MatcheckSyncScheduler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -18,29 +17,25 @@ import java.io.File
  * пользователя не будут ни отправлены под токеном нового, ни потеряны молча.
  *
  * Зачем. Раньше вход другим логином не трогал Room: чистила только кнопка
- * «Выйти» (SettingsViewModel), а автоматический разлогин (401 / инвалидация
- * сессии) стирал лишь токены. В результате планшет, побывавший под аккаунтом
- * объекта А, после входа под аккаунтом объекта Б переотправлял его записи —
- * и сервер переклеивал им объект. Инцидент 2026-07: 287 приёмок и 141
- * отгрузка ЗИЛ33 уехали на TEST.
+ * «Выйти», а автоматический разлогин стирал лишь токены. Планшет, побывавший
+ * под аккаунтом объекта А, после входа под аккаунтом объекта Б переотправлял
+ * его записи, и сервер переклеивал им объект. Инцидент 2026-07: 287 приёмок и
+ * 141 отгрузка ЗИЛ33 уехали на TEST.
  *
- * Порядок шагов важен и закрывает гонку login ↔ WorkManager: между сохранением
- * новых токенов и очисткой базы периодический sync успевал отправить чужие
- * записи уже под новой сессией.
+ * Порядок шагов закрывает гонку login ↔ WorkManager: между сохранением новых
+ * токенов и очисткой базы периодический sync успевал отправить чужие записи
+ * уже под новой сессией.
  *
  * 1. гасим SSE (его события дёргают немедленный sync);
  * 2. отменяем и дожидаемся снятия sync-задач WorkManager;
  * 3. берём sync-мьютекс — дожидаемся уже идущего syncOnce;
  * 4. внутри него чистим Room, sync-курсор и каталоги с фото.
  *
- * [SessionGate] на всё время логина (включая активацию новой сессии) поднимает
- * `AuthRepository.login` — иначе между очисткой и сохранением токенов воркер
- * успел бы наполнить базу данными ещё старого аккаунта.
+ * [SessionGate] на всё время логина поднимает `AuthRepository.login`.
  *
  * Данные удаляются ТОЛЬКО когда удалять нечего либо человек это явно
- * подтвердил ([prepareForLogin] с `confirmedWipe = true`). Без подтверждения
- * вход отклоняется с [AccountSwitchBlocked], старая сессия остаётся в силе, и
- * инспектор может сначала синхронизироваться под своим логином.
+ * подтвердил. Все проверки **fail-closed**: сбой подсчёта трактуется как
+ * «неотправленное есть», а не как «чисто».
  */
 class AccountSwitchCoordinator(
     private val appContext: Context,
@@ -53,64 +48,35 @@ class AccountSwitchCoordinator(
     /**
      * Готовит устройство ко входу пользователя [newUserId].
      *
-     * Чистим ТОЛЬКО при реальной смене: сохранённый id непустой и отличается
-     * от нового. Пустой id — первый вход после установки (или после «Выйти»,
-     * которая уже всё почистила), и трогать базу нельзя: там могут лежать
-     * незалитые фото и черновики текущего инспектора.
+     * Чистим ТОЛЬКО при реальной смене: сохранённый id непустой и отличается от
+     * нового. Пустой id — первый вход после установки (или после «Выйти»,
+     * которая уже всё почистила).
      *
-     * @param confirmedWipe человек согласился потерять неотправленное.
-     * @throws AccountSwitchBlocked если на планшете есть неотправленные данные,
-     *   а подтверждения нет. Вызывается из `AuthRepository.login` ДО сохранения
-     *   токенов, поэтому исключение просто отменяет вход.
+     * Сравнение именно по **id**, а не по email: id известен только после
+     * ответа сервера, зато он канонический. Предварительный диалог на экране
+     * логина работает по email — это оптимизация, а барьер здесь.
+     *
+     * @throws AccountSwitchBlocked если есть неотправленные данные без согласия.
      * @return true, если очистка выполнялась.
      */
     suspend fun prepareForLogin(newUserId: String, confirmedWipe: Boolean = false): Boolean {
         val previousUserId = deviceSettings.currentUserIdFlow.first()
         if (previousUserId.isEmpty() || previousUserId == newUserId) return false
 
-        // Барьер на случай, если UI не спросил (автологин, гонка, чужая точка
-        // входа): проверяем очередь прямо здесь, у самой активации сессии.
         val pending = pendingWork()
         if (!pending.isEmpty && !confirmedWipe) throw AccountSwitchBlocked(pending)
 
-        wipeAccountData()
+        val outcome = wipeAccountData()
+        if (!outcome.isComplete) throw AccountWipeFailed(outcome)
         Log.i(TAG, "account switch: local data wiped ($previousUserId → $newUserId)")
         return true
     }
 
     /**
-     * Что на планшете ещё не доехало до сервера. Считается по «сырым» данным,
-     * а не по индикатору синхронизации: пользователю показываем конкретные
-     * числа, прежде чем предлагать удаление.
+     * Что на планшете ещё не доехало до сервера. Классификация таблиц и
+     * fail-closed-семантика — в [PendingWorkProbe].
      */
-    suspend fun pendingWork(): PendingWork {
-        val mutationDao = database.mutationDao()
-        val deliveryDao = database.remoteDeliveryDao()
-        val shipmentDao = database.remoteShipmentDao()
-        val mutations = runCatching {
-            mutationDao.listPending(Long.MAX_VALUE).size + mutationDao.listConflicts().size
-        }.getOrDefault(0)
-        val photos = runCatching {
-            deliveryDao.findPhotosByStatus(UNSENT_PHOTO_STATUSES).size +
-                shipmentDao.findPhotosByStatus(UNSENT_PHOTO_STATUSES).size
-        }.getOrDefault(0)
-        val quarantined = runCatching {
-            deliveryDao.findPhotosByStatus(QUARANTINE_ONLY).size +
-                shipmentDao.findPhotosByStatus(QUARANTINE_ONLY).size
-        }.getOrDefault(0)
-        val drafts = runCatching {
-            database.stage1DraftDao().count() +
-                database.stage2DraftDao().count() +
-                database.shipmentStage1DraftDao().count() +
-                database.shipmentStage2DraftDao().count()
-        }.getOrDefault(0)
-        return PendingWork(
-            mutations = mutations,
-            photos = photos,
-            drafts = drafts,
-            quarantinedPhotos = quarantined,
-        )
-    }
+    suspend fun pendingWork(): PendingWork = PendingWorkProbe(database).probe()
 
     /**
      * Полная очистка данных аккаунта. Одна процедура и для смены аккаунта, и
@@ -118,81 +84,89 @@ class AccountSwitchCoordinator(
      * jpeg'и прошлого инспектора (`clearAllTables` файлы не трогает).
      *
      * Токены здесь НЕ трогаем: при смене аккаунта их сразу перезапишет новая
-     * сессия, а при выходе это делает `AuthRepository.logout()` — уже после
-     * очистки, чтобы UI не увидел пустую базу под старой сессией.
+     * сессия, при выходе это делает `AuthRepository.logout()` — но только если
+     * очистка удалась.
+     *
+     * Незавершённость фиксируется персистентно: файлы могли не удалиться
+     * (заняты, ошибка ФС), и об этом раньше никто не узнавал — `runCatching`
+     * глотал сбой внутри. Отметка снимается лишь после полного успеха, а
+     * [resumePendingWipe] доделывает остаток на следующем старте.
      */
-    suspend fun wipeAccountData() {
+    suspend fun wipeAccountData(): WipeOutcome {
         sseConnectionManager.stop()
         MatcheckSyncScheduler.cancelSyncWorkAndAwait(appContext)
-        syncRepository.runExclusively {
-            withContext(Dispatchers.IO) {
+        return syncRepository.runExclusively {
+            deviceSettings.setWipePending(true)
+            val failedFiles = withContext(Dispatchers.IO) {
                 database.clearAllTables()
                 deletePhotoDirectories()
             }
             deviceSettings.clearSyncCursor()
             deviceSettings.clearPendingSiteReset()
+            syncRepository.resetReconcileThrottle()
+            if (failedFiles == 0) deviceSettings.setWipePending(false)
+            WipeOutcome(failedFiles = failedFiles)
         }
     }
 
     /**
-     * Файлы фото живут в filesDir и переживают `clearAllTables()`: строки
-     * исчезают, а jpeg'и остаются мусором на диске (и, что важнее, снимками
-     * прошлого инспектора на чужом планшете).
+     * Доделывает очистку, прерванную в прошлый раз (файлы не удалились или
+     * процесс умер посреди wipe). Room к этому моменту уже пуст — остаются
+     * только файлы.
      */
-    private fun deletePhotoDirectories() {
+    suspend fun resumePendingWipe(): Boolean {
+        if (!deviceSettings.isWipePending()) return false
+        val failed = withContext(Dispatchers.IO) { deletePhotoDirectories() }
+        if (failed == 0) {
+            deviceSettings.setWipePending(false)
+            Log.i(TAG, "незавершённая очистка доделана")
+        } else {
+            Log.w(TAG, "очистка всё ещё неполная: осталось файлов $failed")
+        }
+        return failed == 0
+    }
+
+    /**
+     * Файлы фото живут в filesDir и переживают `clearAllTables()`: строки
+     * исчезают, а jpeg'и остаются на диске снимками прошлого инспектора.
+     *
+     * @return сколько файлов удалить НЕ удалось.
+     */
+    private fun deletePhotoDirectories(): Int {
+        var failed = 0
         for (name in PHOTO_DIRS) {
             val dir = File(appContext.filesDir, name)
             if (!dir.isDirectory) continue
-            dir.listFiles()?.forEach { file -> runCatching { file.deleteRecursively() } }
+            val entries = runCatching { dir.listFiles() }.getOrNull() ?: continue
+            for (file in entries) {
+                val ok = runCatching { file.deleteRecursively() }.getOrDefault(false)
+                if (!ok && file.exists()) failed++
+            }
         }
+        return failed
     }
 
-    /** Неотправленное на планшете — то, что пропадёт при очистке. */
-    data class PendingWork(
-        val mutations: Int,
-        /** Снимки, которые ещё можно доставить обычной синхронизацией. */
-        val photos: Int,
-        val drafts: Int,
-        /**
-         * Карантин чужого объекта. Считается отдельно: синхронизация его не
-         * вылечит (сервер отвечает 403 всегда), решается только руками в
-         * «Очереди синхронизации» — сохранить и удалить.
-         */
-        val quarantinedPhotos: Int,
-    ) {
-        val isEmpty: Boolean
-            get() = mutations == 0 && photos == 0 && drafts == 0 && quarantinedPhotos == 0
-
-        /** Можно ли надеяться, что синхронизация очистит очередь. */
-        val syncCanHelp: Boolean get() = mutations > 0 || photos > 0
-
-        /** Человекочитаемое перечисление для диалога подтверждения. */
-        fun describe(): String = buildList {
-            if (mutations > 0) add("записей в очереди: $mutations")
-            if (photos > 0) add("незагруженных фото: $photos")
-            if (drafts > 0) add("черновиков: $drafts")
-            if (quarantinedPhotos > 0) {
-                add("фото чужого объекта: $quarantinedPhotos (только вручную, в «Очереди синхронизации»)")
-            }
-        }.joinToString(", ")
+    /** Итог очистки. Неполная очистка — не повод стирать сессию. */
+    data class WipeOutcome(val failedFiles: Int) {
+        val isComplete: Boolean get() = failedFiles == 0
     }
 
     private companion object {
         const val TAG = "AccountSwitch"
         val PHOTO_DIRS = listOf("remote_photos", "operation_photos")
-        val UNSENT_PHOTO_STATUSES = listOf(
-            RemotePhotoStatus.PENDING_UPLOAD,
-            RemotePhotoStatus.UPLOADING,
-            RemotePhotoStatus.UPLOAD_ERROR,
-        )
-        val QUARANTINE_ONLY = listOf(RemotePhotoStatus.QUARANTINED_FOREIGN_SITE)
     }
 }
 
 /**
  * Вход другим аккаунтом отклонён: на планшете есть работа прошлого
- * пользователя, которую удалять без спроса нельзя.
+ * пользователя, которую удалять без спроса нельзя. Несёт [pending] целиком,
+ * чтобы UI мог показать тот же диалог с выбором, а не сухую строку ошибки.
  */
 class AccountSwitchBlocked(
-    val pending: AccountSwitchCoordinator.PendingWork,
+    val pending: PendingWork,
 ) : IllegalStateException("account switch blocked: ${pending.describe()}")
+
+/** Очистка не завершилась полностью — сессию не трогаем, иначе данные осиротеют. */
+class AccountWipeFailed(
+    val outcome: AccountSwitchCoordinator.WipeOutcome,
+) : IllegalStateException("account wipe incomplete: ${outcome.failedFiles} files left")

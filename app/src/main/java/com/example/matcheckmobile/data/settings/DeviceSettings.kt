@@ -98,6 +98,24 @@ class DeviceSettings(private val context: Context) {
         context.dataStore.edit { it.remove(KEY_PENDING_SITE_RESET) }
     }
 
+    /**
+     * Очистка данных аккаунта начата, но не подтверждена как полная.
+     *
+     * Нужен, потому что удаление файлов может не удаться (файл занят, ошибка
+     * ФС), а раньше такой сбой глотался внутри и наружу не выходил: токены
+     * стирались, а снимки прошлого инспектора оставались на диске. Флаг
+     * снимается только после полного успеха; остаток доделывает
+     * `AccountSwitchCoordinator.resumePendingWipe` на следующем старте.
+     */
+    suspend fun setWipePending(value: Boolean) {
+        context.dataStore.edit {
+            if (value) it[KEY_WIPE_PENDING] = true else it.remove(KEY_WIPE_PENDING)
+        }
+    }
+
+    suspend fun isWipePending(): Boolean =
+        context.dataStore.data.first()[KEY_WIPE_PENDING] ?: false
+
     suspend fun setServerBaseUrl(url: String) {
         context.dataStore.edit { it[KEY_SERVER_URL] = url }
     }
@@ -113,6 +131,7 @@ class DeviceSettings(private val context: Context) {
         private val KEY_SERVER_URL = stringPreferencesKey("server_url")
         private val KEY_SYNC_CURSOR = stringPreferencesKey("sync_cursor")
         private val KEY_PENDING_SITE_RESET = stringPreferencesKey("pending_site_reset")
+        private val KEY_WIPE_PENDING = booleanPreferencesKey("wipe_pending")
         private val KEY_PREFERS_LANDSCAPE = booleanPreferencesKey("prefers_landscape")
     }
 }

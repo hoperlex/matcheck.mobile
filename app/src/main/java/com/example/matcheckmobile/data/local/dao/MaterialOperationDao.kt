@@ -60,4 +60,11 @@ interface MaterialOperationDao {
             "receivedAtServer = :receivedAtServer, lastSyncError = NULL WHERE localId = :id"
     )
     suspend fun markSynced(id: String, status: SyncStatus, serverId: String?, receivedAtServer: Long)
+
+    /** Незасинканные свободные legacy-операции — для барьера при выходе. */
+    @Query(
+        "SELECT COUNT(*) FROM material_operations WHERE syncStatus IN (:statuses) " +
+            "AND sessionLocalId IS NULL"
+    )
+    suspend fun countFreeBySyncStatuses(statuses: List<SyncStatus>): Int
 }

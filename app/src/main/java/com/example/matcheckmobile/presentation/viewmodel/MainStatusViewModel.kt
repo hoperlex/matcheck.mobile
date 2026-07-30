@@ -7,6 +7,7 @@ import androidx.work.WorkManager
 import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.data.repository.OperationRepository
 import com.example.matcheckmobile.di.AppContainer
+import com.example.matcheckmobile.domain.BusinessTime
 import com.example.matcheckmobile.sync.MatcheckSyncScheduler
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
@@ -144,7 +145,7 @@ class MainStatusViewModel(container: AppContainer) : ViewModel() {
         if (arrivedAt.isNullOrBlank()) return false
         return runCatching {
             Instant.parse(arrivedAt)
-                .atZone(ZoneId.systemDefault())
+                .atZone(BusinessTime.ZONE)
                 .toLocalDate()
                 .toString()
         }.getOrNull() == todayLocal
@@ -213,12 +214,14 @@ class MainStatusViewModel(container: AppContainer) : ViewModel() {
 
     companion object {
         /**
-         * Тикер локальной даты раз в минуту: гарантирует, что после полуночи
+         * Тикер бизнес-даты раз в минуту: гарантирует, что после полуночи
          * счётчик «Сегодня/Будущие» пересчитается без действий пользователя.
+         * Зона — [BusinessTime.ZONE], та же, что у архива: иначе «Сегодня» на
+         * главной и группы архива расходятся на планшете с другой зоной.
          */
         private val dayTicker = flow {
             while (true) {
-                emit(LocalDate.now().toString())
+                emit(BusinessTime.todayIso())
                 delay(60_000L)
             }
         }.distinctUntilChanged()

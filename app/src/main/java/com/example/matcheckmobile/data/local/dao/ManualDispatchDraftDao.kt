@@ -21,4 +21,8 @@ interface ManualDispatchDraftDao {
 
     @Query("DELETE FROM manual_dispatch_drafts WHERE localDraftId = :id")
     suspend fun deleteById(id: String)
+
+    /** См. ManualEntryDraftDao.count. */
+    @Query("SELECT COUNT(*) FROM manual_dispatch_drafts")
+    suspend fun count(): Int
 }

@@ -41,9 +41,15 @@ class MatcheckApplication : Application() {
         container = AppContainer(this)
         appScope.launch { seedDefaultsIfNeeded() }
         // Незавершённый частичный сброс после смены объекта: процесс мог быть
-        // убит между записью нового siteId и чисткой snapshot. Долг лежит в
-        // DataStore, доделываем его на старте — не дожидаясь сети и синка.
-        appScope.launch { runCatching { container.siteChangeReset.resumeIfNeeded() } }
+        // убит между записью долга и чисткой snapshot. Долг лежит в DataStore,
+        // доделываем его на старте — не дожидаясь сети и синка. Внутри берётся
+        // sync-мьютекс: ниже уже запускается requestImmediateSync, и без
+        // барьера сброс и воркер писали бы в одни таблицы одновременно.
+        appScope.launch { container.resumeSiteResetExclusively() }
+        // Незавершённая очистка данных аккаунта: файлы могли не удалиться
+        // (заняты, ошибка ФС) или процесс умер посреди wipe. Room к этому
+        // моменту уже пуст — доудаляем остатки jpeg'ов прошлого инспектора.
+        appScope.launch { runCatching { container.accountSwitchCoordinator.resumePendingWipe() } }
 
         // In-app updater: проверяем GH Releases при cold start (один раз,
         // асинхронно, не блокирует UI) + раз в 6 часов через WorkManager,

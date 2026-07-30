@@ -24,4 +24,8 @@ interface ManualEntryDraftDao {
 
     @Query("DELETE FROM manual_entry_drafts WHERE localDraftId = :id")
     suspend fun deleteById(id: String)
+
+    /** Для барьера «не потерять неотправленное» при выходе/смене аккаунта. */
+    @Query("SELECT COUNT(*) FROM manual_entry_drafts")
+    suspend fun count(): Int
 }

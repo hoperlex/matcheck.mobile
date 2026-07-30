@@ -10,7 +10,10 @@ import com.example.matcheckmobile.data.local.entity.RemoteDeliveryPhotoEntity
 import com.example.matcheckmobile.data.local.entity.RemoteShipmentEntity
 import com.example.matcheckmobile.data.settings.DeviceSettings
 import com.example.matcheckmobile.domain.model.RemotePhotoStatus
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -61,6 +64,10 @@ class SiteChangeResetTest {
         db.close()
     }
 
+    /** siteId «в токене» — эмулируем TokenStorage простым полем. */
+    private var tokenSite: String? = "site-old"
+    private var throttleResets = 0
+
     private fun newReset() = SiteChangeReset(
         deviceSettings = settings,
         deliveryDao = db.remoteDeliveryDao(),
@@ -69,6 +76,9 @@ class SiteChangeResetTest {
         mutationDao = db.mutationDao(),
         quarantine = quarantine,
         tx = RoomTransactionRunner(db),
+        tokenSiteId = { tokenSite },
+        persistTokenSiteId = { tokenSite = it },
+        onResetDone = { throttleResets++ },
     )
 
     // --- фикстуры ---
@@ -204,6 +214,56 @@ class SiteChangeResetTest {
 
         assertEquals("site-new", settings.currentSiteIdFlow.first())
         assertEquals("site-new", settings.readPendingSiteReset())
+    }
+
+    @Test
+    fun crashBetweenDebtAndToken_isRepairedOnResume() = runBlocking {
+        // В1: процесс умер после markPending, но до сохранения siteId в токене.
+        // Раньше это было необратимо в обратном порядке; теперь долг остался и
+        // сброс обязан сам досохранить siteId, иначе списки продолжат
+        // фильтроваться по прошлому объекту.
+        seedPlain("d1")
+        tokenSite = "site-old"
+        newReset().markPending("site-new")
+
+        assertTrue(newReset().resumeIfNeeded())
+
+        assertEquals("токен догнал новый объект", "site-new", tokenSite)
+        assertNull(db.remoteDeliveryDao().findById("d1"))
+        assertNull(settings.readPendingSiteReset())
+        assertEquals("throttle reconcile сброшен", 1, throttleResets)
+    }
+
+    @Test
+    fun photoCapturedDuringReset_survives() = runBlocking {
+        // В2: раньше список защищённых читался ДО транзакции, и фото, снятое в
+        // окне между проверкой и удалением, уезжало каскадом. Тест гоняет
+        // настоящую Room-конкурентность: вставка идёт из другой корутины на
+        // отдельном диспетчере, пока сброс уже начался.
+        repeat(40) { i -> seedPlain("bulk-$i") }
+        db.remoteDeliveryDao().saveAggregate(delivery("d-race"), emptyList(), emptyList())
+        val reset = newReset()
+        reset.markPending("site-new")
+
+        coroutineScope {
+            val racer = launch(Dispatchers.IO) {
+                // Фото появляется у уже существующей приёмки во время сброса.
+                db.remoteDeliveryDao().upsertPhoto(
+                    photo("p-race", "d-race", RemotePhotoStatus.PENDING_UPLOAD),
+                )
+            }
+            launch(Dispatchers.IO) { reset.resumeIfNeeded() }
+            racer.join()
+        }
+
+        // Либо фото успело до транзакции — тогда родитель защищён и оба живы,
+        // либо не успело — тогда удалены оба, и осиротевшего фото нет.
+        // Недопустимо третье: фото есть, а родителя нет.
+        val parent = db.remoteDeliveryDao().findById("d-race")
+        val photoRow = db.remoteDeliveryDao().findPhotoById("p-race")
+        if (photoRow != null) {
+            assertNotNull("фото не должно пережить своего родителя", parent)
+        }
     }
 
     private companion object {

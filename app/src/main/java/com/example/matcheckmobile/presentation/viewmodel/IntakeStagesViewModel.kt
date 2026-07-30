@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.di.AppContainer
+import com.example.matcheckmobile.domain.BusinessTime
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -65,7 +66,7 @@ class IntakeStagesViewModel(container: AppContainer) : ViewModel() {
                 addAll(RemoteMappers.decodeIdList(json))
             }
         }
-        val today = LocalDate.now().toString()
+        val today = BusinessTime.todayIso()
 
         // Свои input-документы (inbound + текущий siteId). Используются и в
         // «Всего», и в фильтре drafts ниже (linked-draft «свой», только если

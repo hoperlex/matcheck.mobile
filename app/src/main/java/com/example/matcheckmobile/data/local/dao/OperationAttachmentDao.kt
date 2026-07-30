@@ -42,4 +42,8 @@ interface OperationAttachmentDao {
             "lastUploadError = NULL WHERE localId = :id"
     )
     suspend fun markUploaded(id: String, status: UploadStatus, remoteUrl: String)
+
+    /** Незагруженные legacy-вложения — для барьера при выходе. */
+    @Query("SELECT COUNT(*) FROM operation_attachments WHERE uploadStatus IN (:statuses)")
+    suspend fun countByStatuses(statuses: List<UploadStatus>): Int
 }

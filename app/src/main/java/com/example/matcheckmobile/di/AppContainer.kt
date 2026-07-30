@@ -142,6 +142,11 @@ class AppContainer(val appContext: Context) {
         mutationDao = database.mutationDao(),
         quarantine = foreignSiteQuarantine,
         tx = transactionRunner,
+        tokenSiteId = { tokenStorage.state.value.siteId },
+        persistTokenSiteId = { tokenStorage.updateSiteId(it) },
+        // syncRepository объявлен ниже — обращаемся лениво, к моменту вызова
+        // контейнер уже собран.
+        onResetDone = { syncRepository.resetReconcileThrottle() },
     )
 
     val terminalConflictResolver: TerminalConflictResolver = TerminalConflictResolver(
@@ -186,15 +191,24 @@ class AppContainer(val appContext: Context) {
      * штамп объекта на фото 1 Этапа и siteId-фильтры списков — поэтому она
      * выполняется ДО загрузки фото и не страдает от её сбоев.
      *
-     * Обнаружив смену объекта, СРАЗУ пишем долг на сброс в DataStore (вместе с
-     * новым siteId, одной транзакцией). Раньше намерение жило в @Volatile-поле
-     * и терялось при убийстве процесса — планшет навсегда оставался со
-     * снимком прошлого объекта.
+     * Порядок шагов критичен и обратен интуитивному:
+     *
+     * 1. читаем новый siteId с сервера, НЕ трогая TokenStorage;
+     * 2. пишем персистентный долг на сброс snapshot;
+     * 3. и только теперь сохраняем siteId в токене.
+     *
+     * Если шаг 2 упал — токен не меняем вовсе: пусть лучше приложение ещё
+     * поработает на старом объекте и повторит попытку на следующем синке.
+     * Если процесс умрёт между 2 и 3, долг останется, и SiteChangeReset
+     * досохранит siteId сам. Обратный порядок (как было раньше) давал
+     * необратимую потерю: siteId сохранён, долга нет, следующий /me не видит
+     * изменений — планшет навсегда со снимком прошлого объекта.
      */
     private suspend fun refreshSiteIdAfterPull() {
-        if (!authRepository.refreshSiteIdFromServer()) return
-        val newSiteId = tokenStorage.state.value.effectiveSiteId.orEmpty()
-        runCatching { siteChangeReset.markPending(newSiteId) }
+        val fetched = authRepository.fetchServerSiteId() ?: return
+        val marked = runCatching { siteChangeReset.markPending(fetched) }.isSuccess
+        if (!marked) return
+        tokenStorage.updateSiteId(fetched)
     }
 
     /**
@@ -213,6 +227,22 @@ class AppContainer(val appContext: Context) {
      */
     private suspend fun applySiteChangeAfterPhotos() {
         val done = runCatching { siteChangeReset.resumeIfNeeded() }.getOrDefault(false)
+        if (done) MatcheckSyncScheduler.requestImmediateSync(appContext)
+    }
+
+    /**
+     * Догоняющий сброс со старта приложения — процесс мог быть убит между
+     * записью долга и чисткой snapshot.
+     *
+     * ОБЯЗАТЕЛЬНО под sync-мьютексом: без него сброс идёт параллельно воркеру,
+     * который на старте уже запущен через requestImmediateSync, и они топчутся
+     * по одним и тем же таблицам. Из onBeforeSync мьютекс уже взят — там
+     * вызывается resumeIfNeeded напрямую, иначе был бы deadlock.
+     */
+    suspend fun resumeSiteResetExclusively() {
+        val done = runCatching {
+            syncRepository.runExclusively { siteChangeReset.resumeIfNeeded() }
+        }.getOrDefault(false)
         if (done) MatcheckSyncScheduler.requestImmediateSync(appContext)
     }
 

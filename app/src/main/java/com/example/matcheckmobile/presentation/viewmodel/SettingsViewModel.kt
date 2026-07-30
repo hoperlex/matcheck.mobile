@@ -2,7 +2,7 @@ package com.example.matcheckmobile.presentation.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.matcheckmobile.data.auth.AccountSwitchCoordinator
+import com.example.matcheckmobile.data.auth.PendingWork
 import com.example.matcheckmobile.di.AppContainer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -67,9 +67,17 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
      * null, пока не проверяли.
      */
     private val _pendingBeforeLogout =
-        MutableStateFlow<AccountSwitchCoordinator.PendingWork?>(null)
-    val pendingBeforeLogout: StateFlow<AccountSwitchCoordinator.PendingWork?> =
+        MutableStateFlow<PendingWork?>(null)
+    val pendingBeforeLogout: StateFlow<PendingWork?> =
         _pendingBeforeLogout.asStateFlow()
+
+    /** Очистка при выходе не удалась — показываем и НЕ рвём сессию. */
+    private val _logoutError = MutableStateFlow<String?>(null)
+    val logoutError: StateFlow<String?> = _logoutError.asStateFlow()
+
+    fun consumeLogoutError() {
+        _logoutError.value = null
+    }
 
     /**
      * Запрос на выход. Если на планшете осталась неотправленная работа —
@@ -126,7 +134,17 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
      * того, как UI ушёл на Login.
      */
     private suspend fun performLogout() {
-        runCatching { container.accountSwitchCoordinator.wipeAccountData() }
+        val outcome = runCatching { container.accountSwitchCoordinator.wipeAccountData() }
+        val done = outcome.getOrNull()?.isComplete == true
+        if (!done) {
+            // Fail-closed: сессию не рвём. Иначе данные остались бы на диске,
+            // а токенов, под которыми их можно отправить, уже нет — и никто бы
+            // об этом не узнал (раньше ошибка просто глоталась).
+            _logoutError.value = outcome.exceptionOrNull()?.let {
+                "Не удалось очистить данные: ${it.message ?: it::class.simpleName}"
+            } ?: "Очистка прошла не полностью — часть файлов не удалилась. Попробуйте ещё раз."
+            return
+        }
         container.authRepository.logout()
     }
 
