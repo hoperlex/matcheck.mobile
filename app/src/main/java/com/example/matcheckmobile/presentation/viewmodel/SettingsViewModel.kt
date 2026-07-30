@@ -140,9 +140,12 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
             // Fail-closed: сессию не рвём. Иначе данные остались бы на диске,
             // а токенов, под которыми их можно отправить, уже нет — и никто бы
             // об этом не узнал (раньше ошибка просто глоталась).
+            // Текст берём из самого итога: таймаут барьера и неудалённые файлы —
+            // разные причины, и путать их нельзя.
             _logoutError.value = outcome.exceptionOrNull()?.let {
                 "Не удалось очистить данные: ${it.message ?: it::class.simpleName}"
-            } ?: "Очистка прошла не полностью — часть файлов не удалилась. Попробуйте ещё раз."
+            } ?: outcome.getOrNull()?.let { "Выход не выполнен: ${it.describe()}." }
+                ?: "Выход не выполнен, попробуйте ещё раз."
             return
         }
         container.authRepository.logout()

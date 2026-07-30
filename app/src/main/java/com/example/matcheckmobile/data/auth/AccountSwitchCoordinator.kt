@@ -10,6 +10,7 @@ import com.example.matcheckmobile.sync.MatcheckSyncScheduler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 
 /**
@@ -94,19 +95,30 @@ class AccountSwitchCoordinator(
      */
     suspend fun wipeAccountData(): WipeOutcome {
         sseConnectionManager.stop()
-        MatcheckSyncScheduler.cancelSyncWorkAndAwait(appContext)
-        return syncRepository.runExclusively {
-            deviceSettings.setWipePending(true)
-            val failedFiles = withContext(Dispatchers.IO) {
-                database.clearAllTables()
-                deletePhotoDirectories()
+        // Барьер ограничен по времени. Без таймаута выход намертво зависал без
+        // единого признака на экране: sync-мьютекс держит идущий syncOnce, а
+        // PUT фото в S3 идёт блокирующим вызовом и отмену не замечает — до двух
+        // минут на снимок. Лучше честно сказать «не удалось, попробуйте ещё
+        // раз», чем притвориться, что кнопка не нажималась.
+        val outcome = withTimeoutOrNull(BARRIER_TIMEOUT_MS) {
+            MatcheckSyncScheduler.cancelSyncWorkAndAwait(appContext)
+            syncRepository.runExclusively {
+                deviceSettings.setWipePending(true)
+                val failedFiles = withContext(Dispatchers.IO) {
+                    database.clearAllTables()
+                    deletePhotoDirectories()
+                }
+                deviceSettings.clearSyncCursor()
+                deviceSettings.clearPendingSiteReset()
+                syncRepository.resetReconcileThrottle()
+                if (failedFiles == 0) deviceSettings.setWipePending(false)
+                WipeOutcome(failedFiles = failedFiles)
             }
-            deviceSettings.clearSyncCursor()
-            deviceSettings.clearPendingSiteReset()
-            syncRepository.resetReconcileThrottle()
-            if (failedFiles == 0) deviceSettings.setWipePending(false)
-            WipeOutcome(failedFiles = failedFiles)
         }
+        if (outcome == null) Log.w(TAG, "wipe: не дождались завершения синхронизации за ${BARRIER_TIMEOUT_MS}мс")
+        // Таймаут — fail-closed: сессию не рвём, данные на месте, человек
+        // повторит, когда синхронизация закончится.
+        return outcome ?: WipeOutcome(failedFiles = -1)
     }
 
     /**
@@ -146,13 +158,30 @@ class AccountSwitchCoordinator(
         return failed
     }
 
-    /** Итог очистки. Неполная очистка — не повод стирать сессию. */
+    /**
+     * Итог очистки. Неполная очистка — не повод стирать сессию.
+     * [failedFiles] < 0 — не дождались барьера синхронизации (таймаут).
+     */
     data class WipeOutcome(val failedFiles: Int) {
         val isComplete: Boolean get() = failedFiles == 0
+        val timedOut: Boolean get() = failedFiles < 0
+
+        fun describe(): String = when {
+            timedOut -> "синхронизация ещё идёт — попробуйте через минуту"
+            failedFiles > 0 -> "не удалось удалить файлов: $failedFiles"
+            else -> "очистка завершена"
+        }
     }
 
     private companion object {
         const val TAG = "AccountSwitch"
+
+        /**
+         * Потолок ожидания барьера. 90 с — с запасом перекрывает writeTimeout
+         * одного PUT фото в S3 (120 с делится на попытки), но не превращает
+         * кнопку выхода в чёрную дыру.
+         */
+        const val BARRIER_TIMEOUT_MS = 90_000L
         val PHOTO_DIRS = listOf("remote_photos", "operation_photos")
     }
 }
