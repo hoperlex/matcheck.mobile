@@ -151,6 +151,7 @@ class AppContainer(val appContext: Context) {
 
     val terminalConflictResolver: TerminalConflictResolver = TerminalConflictResolver(
         deliveryDao = database.remoteDeliveryDao(),
+        shipmentDao = database.remoteShipmentDao(),
         mutationDao = database.mutationDao(),
         tx = transactionRunner,
     )

@@ -6,9 +6,11 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.example.matcheckmobile.data.local.MatcheckDatabase
 import com.example.matcheckmobile.data.local.dao.MutationDao
 import com.example.matcheckmobile.data.local.dao.RemoteDeliveryDao
+import com.example.matcheckmobile.data.local.dao.RemoteShipmentDao
 import com.example.matcheckmobile.data.local.entity.MutationEntity
 import com.example.matcheckmobile.data.local.entity.RemoteDeliveryEntity
 import com.example.matcheckmobile.data.local.entity.RemoteDeliveryPhotoEntity
+import com.example.matcheckmobile.data.local.entity.RemoteShipmentEntity
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -34,6 +36,7 @@ class TerminalConflictResolverTest {
 
     private lateinit var db: MatcheckDatabase
     private lateinit var deliveryDao: RemoteDeliveryDao
+    private lateinit var shipmentDao: RemoteShipmentDao
     private lateinit var mutationDao: MutationDao
     private lateinit var tx: TransactionRunner
 
@@ -44,6 +47,7 @@ class TerminalConflictResolverTest {
             .allowMainThreadQueries()
             .build()
         deliveryDao = db.remoteDeliveryDao()
+        shipmentDao = db.remoteShipmentDao()
         mutationDao = db.mutationDao()
         tx = RoomTransactionRunner(db)
     }
@@ -84,7 +88,7 @@ class TerminalConflictResolverTest {
         )
 
     private fun resolver(telemetry: (List<MutationEntity>) -> Unit = DiscardTelemetry.noop) =
-        TerminalConflictResolver(deliveryDao, mutationDao, tx, telemetry)
+        TerminalConflictResolver(deliveryDao, shipmentDao, mutationDao, tx, telemetry)
 
     // --- tests ---
 
@@ -215,5 +219,112 @@ class TerminalConflictResolverTest {
         val muts = mutationDao.findFor("delivery", id)
         assertEquals(1, muts.size)
         assertEquals("m8-mark", muts.first().id)
+    }
+
+    // --- отгрузки: та же логика, что у приёмок. Раньше её просто не было,
+    // и выезд с конфликтом версий висел на 2 Этапе до ручного разрешения.
+
+    private fun shipment(id: String, status: String, conflict: Boolean) = RemoteShipmentEntity(
+        id = id, statusCode = status, statusLabel = status, statusColor = null,
+        kind = "contractor", purpose = null, siteId = "site-1", receiverCounterpartyId = null,
+        receiverMolId = null, destSiteId = null, vehiclePlate = null, driverName = null,
+        shippedAt = "2026-07-24T00:00:00Z", inspectorId = null, comment = null,
+        confirmedByMolUserId = null, confirmedByMolUserEmail = null, confirmedByMolAt = null,
+        pendingDeletionAt = null, pendingDeletionByUserId = null, pendingDeletionByUserEmail = null,
+        pendingDeletionReason = null, version = if (conflict) 2 else 1,
+        sourceDocumentIdsJson = "[]", createdAt = "2026-07-24T00:00:00Z",
+        updatedAt = "2026-07-24T00:00:00Z", conflictPending = conflict,
+        serverSnapshotJson = if (conflict) "{\"snapshot\":true}" else null,
+        lastSyncError = if (conflict) "conflict serverVersion=2" else null,
+    )
+
+    private fun shipmentMutation(id: String, shipmentId: String, conflict: Boolean, op: String = "upsert") =
+        MutationEntity(
+            id = id, entityType = "shipment", operation = op, entityId = shipmentId,
+            baseVersion = 1, payloadJson = "{\"comment\":\"local edit\"}", attempts = 1,
+            nextAttemptAt = null, lastError = if (conflict) "conflict" else null,
+            conflictPending = conflict, createdAt = 1L,
+        )
+
+    @Test
+    fun sweepLocalTerminal_resolvesShipmentConflict() = runBlocking {
+        val id = "s1"
+        shipmentDao.saveAggregate(shipment(id, "confirmed_mol", conflict = true), emptyList(), emptyList())
+        mutationDao.upsert(shipmentMutation("ms1", id, conflict = true))
+
+        resolver().sweepLocalTerminal()
+
+        val row = shipmentDao.findById(id)!!
+        assertFalse("конфликт снят — выезд уходит со 2 Этапа сам", row.conflictPending)
+        assertNull(row.serverSnapshotJson)
+        assertTrue("конфликтная мутация удалена", mutationDao.findFor("shipment", id).isEmpty())
+    }
+
+    @Test
+    fun sweepLocalTerminal_keepsNonTerminalShipment() = runBlocking {
+        // Сервер ещё не финализировал выезд → конфликт настоящий, решает человек.
+        val id = "s2"
+        shipmentDao.saveAggregate(shipment(id, "shipped", conflict = true), emptyList(), emptyList())
+        mutationDao.upsert(shipmentMutation("ms2", id, conflict = true))
+
+        resolver().sweepLocalTerminal()
+
+        assertTrue(shipmentDao.findById(id)!!.conflictPending)
+        assertEquals(1, mutationDao.findFor("shipment", id).size)
+    }
+
+    @Test
+    fun sweepLocalTerminal_shipment_keepsNonUpsertConflict() = runBlocking {
+        // Scope узкий: отменяем только upsert. mark_deletion остаётся человеку.
+        val id = "s3"
+        shipmentDao.saveAggregate(shipment(id, "confirmed_mol", conflict = true), emptyList(), emptyList())
+        mutationDao.upsert(shipmentMutation("ms3-upsert", id, conflict = true, op = "upsert"))
+        mutationDao.upsert(shipmentMutation("ms3-mark", id, conflict = true, op = "mark_deletion"))
+
+        resolver().sweepLocalTerminal()
+
+        val muts = mutationDao.findFor("shipment", id)
+        assertEquals("остался только mark_deletion", 1, muts.size)
+        assertEquals("ms3-mark", muts.first().id)
+        assertTrue("флаг entity сохранён", shipmentDao.findById(id)!!.conflictPending)
+    }
+
+    @Test
+    fun applyReconciled_shipment_serverWin() = runBlocking {
+        val id = "s4"
+        shipmentDao.saveAggregate(shipment(id, "shipped", conflict = true), emptyList(), emptyList())
+        mutationDao.upsert(shipmentMutation("ms4", id, conflict = true))
+
+        val out = resolver().applyReconciled(
+            id = id,
+            isServerTerminal = true,
+            entityType = TerminalConflictResolver.ENTITY_SHIPMENT,
+        ) {
+            shipmentDao.saveAggregate(shipment(id, "confirmed_mol", conflict = false), emptyList(), emptyList())
+        }
+
+        assertTrue(out is TerminalConflictResolver.Outcome.Applied)
+        val row = shipmentDao.findById(id)!!
+        assertEquals("confirmed_mol", row.statusCode)
+        assertFalse(row.conflictPending)
+        assertTrue(mutationDao.findFor("shipment", id).isEmpty())
+    }
+
+    @Test
+    fun applyReconciled_shipment_skipsWhenServerNotTerminal() = runBlocking {
+        val id = "s5"
+        shipmentDao.saveAggregate(shipment(id, "shipped", conflict = true), emptyList(), emptyList())
+        mutationDao.upsert(shipmentMutation("ms5", id, conflict = true))
+
+        val out = resolver().applyReconciled(
+            id = id,
+            isServerTerminal = false,
+            entityType = TerminalConflictResolver.ENTITY_SHIPMENT,
+        ) {
+            error("write не должен вызываться при пропуске")
+        }
+
+        assertTrue(out is TerminalConflictResolver.Outcome.Skipped)
+        assertTrue("конфликт сохранён для ручного разрешения", shipmentDao.findById(id)!!.conflictPending)
     }
 }

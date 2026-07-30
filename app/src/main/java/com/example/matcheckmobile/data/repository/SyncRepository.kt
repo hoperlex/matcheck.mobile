@@ -64,8 +64,8 @@ class SyncRepository(
     private val mutationProcessor: MutationProcessor,
     private val photoUploadProcessor: PhotoUploadProcessor,
     /**
-     * Авто-разрешение терминальных OCC-конфликтов приёмок (server-win) —
-     * чинит «приёмка навсегда застряла на Этапе 2». Только delivery.
+     * Авто-разрешение терминальных OCC-конфликтов (server-win) — чинит
+     * «запись навсегда застряла на Этапе 2». Приёмки и отгрузки.
      */
     private val terminalConflictResolver: TerminalConflictResolver,
     /**
@@ -286,21 +286,34 @@ class SyncRepository(
 
     private suspend fun reconcileShipments(ids: List<String>) {
         if (ids.isEmpty()) return
-        val skip = shipmentDao.listConflictPendingIds().toSet()
+        // Симметрично приёмкам: решение принимается внутри транзакции по свежему
+        // чтению. Раньше конфликтные выезды просто пропускались (skip-множество)
+        // и оставались висеть на 2 Этапе навсегда.
         var ok = 0
+        var skipped = 0
         var fail = 0
         for (id in ids.distinct()) {
-            if (id in skip) continue
             runCatching {
-                val dto = shipmentsApi.get(id)
-                shipmentDao.saveAggregate(
-                    shipment = dto.toEntity(),
-                    items = dto.items.map { it.toEntity(dto.id) },
-                    photos = dto.photos.map { it.toEntity(dto.id) },
-                )
-            }.onSuccess { ok++ }.onFailure { fail++ }
+                val dto = shipmentsApi.get(id) // сеть — ВНЕ транзакции
+                terminalConflictResolver.applyReconciled(
+                    id = id,
+                    isServerTerminal = StatusPolicy.isTerminal(dto.status.code),
+                    entityType = TerminalConflictResolver.ENTITY_SHIPMENT,
+                ) {
+                    shipmentDao.saveAggregate(
+                        shipment = dto.toEntity(),
+                        items = dto.items.map { it.toEntity(dto.id) },
+                        photos = dto.photos.map { it.toEntity(dto.id) },
+                    )
+                }
+            }.onSuccess { result ->
+                when (result) {
+                    is TerminalConflictResolver.Outcome.Skipped -> skipped++
+                    is TerminalConflictResolver.Outcome.Applied -> ok++
+                }
+            }.onFailure { fail++ }
         }
-        Log.i(TAG, "reconcile detail shipments: ok=$ok fail=$fail")
+        Log.i(TAG, "reconcile detail shipments: ok=$ok skipped=$skipped fail=$fail")
     }
 
     private suspend fun reconcileSourceDocs(ids: List<String>) {

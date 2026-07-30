@@ -402,7 +402,13 @@ class MutationProcessor(
             }.getOrDefault(SnapshotResult.NOT_APPLIED)
             "shipment" -> runCatching {
                 val parsed = json.decodeFromString(ShipmentConflictResponse.serializer(), raw)
-                val markConflict = !isIdempotentCreate // scope: terminal server-win пока только для delivery
+                // Симметрично приёмкам: если сервер уже перевёл выезд в терминал
+                // (confirmed_mol), доставить туда локальную правку невозможно —
+                // запись финализирована и ушла в архив, спорить не о чем.
+                // Раньше терминал для отгрузок не учитывался, и выезд замирал
+                // на 2 Этапе до ручного разрешения.
+                val terminal = m.operation == "upsert" && StatusPolicy.isTerminal(parsed.server.status.code)
+                val markConflict = !isIdempotentCreate && !terminal
                 val entity = parsed.server.toEntity().copy(
                     conflictPending = markConflict,
                     serverSnapshotJson = if (markConflict) raw else null,
@@ -413,7 +419,11 @@ class MutationProcessor(
                     items = parsed.server.items.map { it.toEntity(parsed.server.id) },
                     photos = parsed.server.photos.map { it.toEntity(parsed.server.id) },
                 )
-                if (isIdempotentCreate) SnapshotResult.APPLIED_IDEMPOTENT else SnapshotResult.APPLIED_CONFLICT
+                when {
+                    isIdempotentCreate -> SnapshotResult.APPLIED_IDEMPOTENT // приоритет: create без потери правки
+                    terminal -> SnapshotResult.APPLIED_TERMINAL
+                    else -> SnapshotResult.APPLIED_CONFLICT
+                }
             }.getOrDefault(SnapshotResult.NOT_APPLIED)
             else -> SnapshotResult.NOT_APPLIED
         }
