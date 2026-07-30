@@ -46,6 +46,11 @@ class MutationProcessor(
     private val deliveriesApi: DeliveriesApi,
     private val shipmentsApi: ShipmentsApi,
     /**
+     * Обработка 403 `foreign_site`: снимки уходят в терминальный карантин,
+     * очередь записи удаляется, сама запись — только если спасать нечего.
+     */
+    private val quarantine: ForeignSiteQuarantine,
+    /**
      * Телеметрия факта отмены конфликтной мутации при terminal server-win
      * (только метаданные, без содержимого). Инъектируется — в JVM-тестах no-op.
      */
@@ -59,6 +64,14 @@ class MutationProcessor(
         var conflicts = 0
         var dropped = 0
         var transientErrors = 0
+
+        // Наследие 1.0.29 (Б4): та версия не знала кода `foreign_site` и
+        // складывала такие отказы как conflictPending с сырым телом в
+        // lastError. Из-за предзаполнения blockedEntities из listConflicts()
+        // они блокировали сущность навсегда и до карантина бы не дошли.
+        // Разбираем их до основного цикла; после первого прохода запрос
+        // ничего не находит — sweep идемпотентен.
+        dropped += sweepLegacyForeignSiteFailures()
 
         val pending = mutationDao.listPending(System.currentTimeMillis())
         // FIFO в рамках одной сущности — если предыдущая мутация осталась
@@ -104,6 +117,31 @@ class MutationProcessor(
                     )
                     blockedEntities += key
                     conflicts++
+                }
+                is Outcome.PurgeForeign -> {
+                    // 403 foreign_site: запись принадлежит другому объекту —
+                    // это остаток прошлого аккаунта на планшете. Держать её в
+                    // очереди бессмысленно (сервер будет отказывать всегда), а
+                    // Drop оставил бы conflictPending и заблокировал сущность.
+                    // Очередь удаляем, но НЕ данные: неотправленные снимки
+                    // уходят в терминальный карантин и ждут решения человека.
+                    val result = runCatching { purgeForeignEntity(m) }
+                    blockedEntities += key
+                    Sentry.withScope { scope ->
+                        scope.setTag("entityType", m.entityType)
+                        scope.setTag("operation", m.operation)
+                        scope.setLevel(SentryLevel.WARNING)
+                        val outcome = result.getOrNull()
+                        Sentry.captureMessage(
+                            when (outcome) {
+                                is ForeignSiteQuarantine.Outcome.Quarantined ->
+                                    "mutation purged: foreign_site (quarantined ${outcome.count} photos)"
+                                ForeignSiteQuarantine.Outcome.Deleted -> "mutation purged: foreign_site (no photos)"
+                                null -> "mutation purge failed: foreign_site"
+                            },
+                        )
+                    }
+                    dropped++
                 }
                 is Outcome.Drop -> {
                     // Drop = «мутация отброшена» (главный симптом «инспектор отправил,
@@ -155,6 +193,31 @@ class MutationProcessor(
         }
 
         return PushResult(pushed = pushed, conflicts = conflicts, dropped = dropped, retried = transientErrors)
+    }
+
+    /**
+     * Разбирает мутации, чей `lastError` содержит `foreign_site`, — их мог
+     * записать клиент 1.0.29 в окне между деплоем сервера и обновлением
+     * планшета. Обрабатываются тем же путём, что и свежий 403: снимки в
+     * карантин, очередь записи снимается.
+     *
+     * @return сколько мутаций разобрано.
+     */
+    private suspend fun sweepLegacyForeignSiteFailures(): Int {
+        val legacy = runCatching { mutationDao.listForeignSiteFailures() }.getOrDefault(emptyList())
+        if (legacy.isEmpty()) return 0
+        // Одна запись может иметь несколько мутаций — purge снимает их разом,
+        // поэтому идём по уникальным сущностям.
+        val byEntity = legacy.distinctBy { it.entityType + ":" + it.entityId }
+        for (m in byEntity) {
+            runCatching { purgeForeignEntity(m) }
+        }
+        Sentry.withScope { scope ->
+            scope.setLevel(SentryLevel.WARNING)
+            scope.setTag("entities", byEntity.size.toString())
+            Sentry.captureMessage("legacy foreign_site mutations swept")
+        }
+        return byEntity.size
     }
 
     private suspend fun dispatch(m: MutationEntity): Outcome {
@@ -229,6 +292,20 @@ class MutationProcessor(
         }
     }
 
+    /**
+     * Убирает из очереди запись чужого объекта, не теряя её содержимое.
+     * Вся работа — в [ForeignSiteQuarantine]: неотправленные снимки получают
+     * терминальный статус и остаются на планшете, мутации удаляются, сама
+     * запись исчезает только когда спасать нечего.
+     */
+    private suspend fun purgeForeignEntity(m: MutationEntity): ForeignSiteQuarantine.Outcome? =
+        when (m.entityType) {
+            ForeignSiteQuarantine.ENTITY_DELIVERY -> quarantine.quarantineDelivery(m.entityId)
+            ForeignSiteQuarantine.ENTITY_SHIPMENT -> quarantine.quarantineShipment(m.entityId)
+            // Неизвестный тип: спасать нечего, просто снимаем мутацию с очереди.
+            else -> { mutationDao.deleteById(m.id); null }
+        }
+
     private suspend fun saveDeliveryFromServer(dto: DeliveryDto) {
         deliveryDao.saveAggregate(
             delivery = dto.toEntity(),
@@ -275,6 +352,7 @@ class MutationProcessor(
             MutationFailure.CannotMarkStatus -> {
                 Outcome.Drop("http $code · ${failure}")
             }
+            MutationFailure.ForeignSite -> Outcome.PurgeForeign
             is MutationFailure.Other -> {
                 if (code in 500..599) Outcome.Backoff("http $code · $rawSnippet")
                 else Outcome.Drop("http $code · $rawSnippet")
@@ -449,6 +527,13 @@ class MutationProcessor(
         data object TerminalServerWin : Outcome
         data class Conflict(val tag: String) : Outcome
         data class Drop(val reason: String) : Outcome
+        /**
+         * 403 foreign_site: сервер отказал, потому что запись принадлежит
+         * другому объекту. Очередь этой записи снимаем — она не должна ни
+         * отправляться, ни блокировать FIFO. Содержимое не теряем: снимки
+         * уходят в карантин (см. [ForeignSiteQuarantine]).
+         */
+        data object PurgeForeign : Outcome
         data class Backoff(val error: String) : Outcome
     }
 

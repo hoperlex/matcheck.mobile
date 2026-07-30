@@ -2,6 +2,7 @@ package com.example.matcheckmobile.presentation.screens.login
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -18,6 +20,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -127,6 +130,56 @@ fun LoginScreen(onLoggedIn: () -> Unit) {
             }
         }
     }
+
+    // Смена аккаунта при непустой очереди: вход не выполняется, пока инспектор
+    // не решит судьбу неотправленного. Молча стирать нельзя — это его работа.
+    state.pendingSwitch?.let { pending ->
+        AlertDialog(
+            onDismissRequest = viewModel::cancelAccountSwitch,
+            title = { Text("На планшете есть неотправленные данные") },
+            text = {
+                Column {
+                    Text(
+                        "Прошлый аккаунт не успел отправить на сервер: " +
+                            pending.describe() + ".",
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Вход под другим аккаунтом удалит эти данные с планшета. " +
+                            "Сначала попробуйте отправить их на сервер.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    state.switchError?.let {
+                        Spacer(Modifier.height(8.dp))
+                        Text(it, color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            },
+            confirmButton = {
+                // Карантин чужого объекта синхронизацией не лечится — кнопку
+                // показываем только когда отправлять действительно есть что.
+                if (pending.syncCanHelp) {
+                    TextButton(
+                        onClick = viewModel::syncBeforeSwitch,
+                        enabled = !state.isSyncingBeforeSwitch,
+                    ) {
+                        Text(if (state.isSyncingBeforeSwitch) "Отправляем…" else "Отправить на сервер")
+                    }
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = viewModel::cancelAccountSwitch) { Text("Отмена") }
+                    TextButton(
+                        onClick = { viewModel.confirmWipeAndLogin(onLoggedIn) },
+                        enabled = !state.isSyncingBeforeSwitch,
+                    ) {
+                        Text("Удалить и войти", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            },
+        )
+    }
 }
 
 private fun errorMessage(error: LoginError): String = when (error) {
@@ -137,5 +190,8 @@ private fun errorMessage(error: LoginError): String = when (error) {
     LoginError.WeakPassword -> "Пароль слишком простой"
     LoginError.Network -> "Нет соединения с сервером"
     LoginError.ServerError -> "Ошибка на сервере. Попробуйте позже."
+    is LoginError.UnsentDataOnDevice ->
+        "На планшете осталась неотправленная работа прошлого аккаунта " +
+            "(${error.summary}). Войдите под ним и дождитесь синхронизации."
     is LoginError.Unknown -> error.message?.takeIf { it.isNotBlank() } ?: "Не удалось войти"
 }

@@ -128,6 +128,10 @@ fun SettingsScreen(onBack: () -> Unit) {
                 },
             )
         }
+
+        // Второй барьер: выход при непустой очереди. Появляется сам, если
+        // requestLogout нашёл неотправленное.
+        LogoutGuardDialog(vm)
     }
 }
 

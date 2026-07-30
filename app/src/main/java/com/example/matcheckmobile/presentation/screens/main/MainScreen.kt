@@ -54,6 +54,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.matcheckmobile.BuildConfig
 import com.example.matcheckmobile.presentation.components.AppUpdateChip
 import com.example.matcheckmobile.presentation.components.SyncStatusChip
+import com.example.matcheckmobile.presentation.screens.settings.LogoutGuardDialog
 import com.example.matcheckmobile.presentation.viewmodel.MainStatusViewModel
 import com.example.matcheckmobile.presentation.viewmodel.SettingsViewModel
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
@@ -372,6 +373,10 @@ fun MainScreen(
             },
         )
     }
+
+    // Второй барьер: выход при непустой очереди — предупреждаем и предлагаем
+    // сначала отправить данные (см. LogoutGuardDialog).
+    LogoutGuardDialog(settingsVm)
 }
 
 /**

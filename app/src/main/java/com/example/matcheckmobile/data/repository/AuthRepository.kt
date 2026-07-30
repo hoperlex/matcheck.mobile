@@ -1,6 +1,8 @@
 package com.example.matcheckmobile.data.repository
 
+import com.example.matcheckmobile.data.auth.AccountSwitchBlocked
 import com.example.matcheckmobile.data.auth.LogoutAuditLog
+import com.example.matcheckmobile.data.auth.SessionGate
 import com.example.matcheckmobile.data.auth.TokenStorage
 import com.example.matcheckmobile.data.remote.auth.ApiErrorBody
 import com.example.matcheckmobile.data.remote.auth.AuthApi
@@ -32,25 +34,46 @@ class AuthRepository(
 
     fun isAuthenticated(): Boolean = tokenStorage.isAuthenticated()
 
-    suspend fun login(email: String, password: String): Result<UserDto> = runCatching {
-        val response = authApi.login(LoginRequest(email = email.trim(), password = password))
-        val refresh = response.refreshToken
-        val refreshTtl = response.refreshExpiresIn
-        if (refresh == null || refreshTtl == null) {
-            // Сервер не вернул refresh в теле — значит X-Client-Type: mobile не дошёл.
-            throw IllegalStateException("server didn't return refreshToken in body")
+    /**
+     * Вход. [onBeforeActivate] вызывается ПОСЛЕ успешного ответа сервера, но ДО
+     * сохранения токенов — там координатор смены аккаунта чистит локальную базу
+     * прошлого пользователя (см. AccountSwitchCoordinator). Если очистка упадёт,
+     * сессия не активируется и старая остаётся в силе.
+     *
+     * Весь блок закрыт [SessionGate]: фоновый sync не должен работать ни во
+     * время очистки, ни в окне между очисткой и сохранением новых токенов —
+     * иначе он либо отправит чужие записи, либо снова наполнит базу данными
+     * старого аккаунта.
+     */
+    suspend fun login(
+        email: String,
+        password: String,
+        onBeforeActivate: suspend (UserDto) -> Unit = {},
+    ): Result<UserDto> = runCatching {
+        SessionGate.begin()
+        try {
+            val response = authApi.login(LoginRequest(email = email.trim(), password = password))
+            val refresh = response.refreshToken
+            val refreshTtl = response.refreshExpiresIn
+            if (refresh == null || refreshTtl == null) {
+                // Сервер не вернул refresh в теле — значит X-Client-Type: mobile не дошёл.
+                throw IllegalStateException("server didn't return refreshToken in body")
+            }
+            onBeforeActivate(response.user)
+            tokenStorage.saveSession(
+                accessToken = response.accessToken,
+                accessExpiresInSec = response.expiresIn,
+                refreshToken = refresh,
+                refreshExpiresInSec = refreshTtl,
+                userId = response.user.id,
+                userEmail = response.user.email,
+                role = response.user.role,
+                siteId = response.user.siteId,
+            )
+            response.user
+        } finally {
+            SessionGate.end()
         }
-        tokenStorage.saveSession(
-            accessToken = response.accessToken,
-            accessExpiresInSec = response.expiresIn,
-            refreshToken = refresh,
-            refreshExpiresInSec = refreshTtl,
-            userId = response.user.id,
-            userEmail = response.user.email,
-            role = response.user.role,
-            siteId = response.user.siteId,
-        )
-        response.user
     }.recoverCatching { throwable -> throw mapLoginError(throwable) }
 
     suspend fun me(): Result<UserDto> = runCatching { authApi.me() }
@@ -166,6 +189,11 @@ class AuthRepository(
     enum class RefreshOutcome { Ok, NoRefresh, Invalid, NetworkError }
 
     private fun mapLoginError(error: Throwable): LoginException {
+        // Барьер смены аккаунта — не сетевая ошибка, а осознанный отказ:
+        // прокидываем как отдельный код, чтобы UI предложил синхронизацию.
+        if (error is AccountSwitchBlocked) {
+            return LoginException(LoginError.UnsentDataOnDevice(error.pending.describe()))
+        }
         if (error is HttpException) {
             val raw = runCatching { error.response()?.errorBody()?.string() }.getOrNull()
             val code = raw?.let { runCatching { json.decodeFromString(ApiErrorBody.serializer(), it) }.getOrNull() }
@@ -203,6 +231,12 @@ sealed class LoginError {
     data object WeakPassword : LoginError()
     data object Network : LoginError()
     data object ServerError : LoginError()
+
+    /**
+     * Вход другим аккаунтом отклонён: на планшете осталась неотправленная
+     * работа прошлого инспектора. [summary] — перечисление, что именно.
+     */
+    data class UnsentDataOnDevice(val summary: String) : LoginError()
     data class Unknown(val message: String?) : LoginError()
 }
 

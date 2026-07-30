@@ -40,6 +40,10 @@ class MatcheckApplication : Application() {
         initSentry(this)
         container = AppContainer(this)
         appScope.launch { seedDefaultsIfNeeded() }
+        // Незавершённый частичный сброс после смены объекта: процесс мог быть
+        // убит между записью нового siteId и чисткой snapshot. Долг лежит в
+        // DataStore, доделываем его на старте — не дожидаясь сети и синка.
+        appScope.launch { runCatching { container.siteChangeReset.resumeIfNeeded() } }
 
         // In-app updater: проверяем GH Releases при cold start (один раз,
         // асинхронно, не блокирует UI) + раз в 6 часов через WorkManager,

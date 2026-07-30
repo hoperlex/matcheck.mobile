@@ -24,4 +24,8 @@ interface ShipmentStage2DraftDao {
 
     @Query("DELETE FROM shipment_stage2_drafts WHERE shipmentId = :id")
     suspend fun deleteById(id: String)
+
+    /** Сколько черновиков ждёт на планшете — для предупреждения при смене аккаунта. */
+    @Query("SELECT COUNT(*) FROM shipment_stage2_drafts")
+    suspend fun count(): Int
 }

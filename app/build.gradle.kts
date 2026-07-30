@@ -21,8 +21,8 @@ android {
         applicationId = "com.example.matcheckmobile"
         minSdk = 24
         targetSdk = 35
-        versionCode = 30
-        versionName = "1.0.29"
+        versionCode = 31
+        versionName = "1.0.30"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -76,11 +76,13 @@ android {
             buildConfigField("String", "UPDATE_MANIFEST_URL", "\"\"")
         }
         release {
-            // Только arm64: весь парк планшетов 64-битный. Если в парке появится
-            // 32-битное устройство, сюда нужно вернуть armeabi-v7a, иначе APK на
-            // нём просто не установится.
+            // Оба ABI. Фильтр «только arm64» приезжал вместе с OpenCV-сканером
+            // (a0ce9bd, 20.07) и попал в 1.0.29 — из-за него APK не вставал на
+            // 32-битные планшеты, и они остались на 1.0.28. OpenCV с тех пор
+            // удалён (d772a85), нативного кода почти нет (sentry, datastore,
+            // graphics-path), поэтому второй ABI стоит около мегабайта.
             ndk {
-                abiFilters += "arm64-v8a"
+                abiFilters += listOf("armeabi-v7a", "arm64-v8a")
             }
             isMinifyEnabled = false
             proguardFiles(

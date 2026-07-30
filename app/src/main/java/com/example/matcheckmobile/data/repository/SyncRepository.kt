@@ -69,7 +69,7 @@ class SyncRepository(
      */
     private val terminalConflictResolver: TerminalConflictResolver,
     /**
-     * Side-effect: после успешного pull тихо подтягивает с /me актуальный
+     * Side-effect: сразу после успешного pull тихо подтягивает с /me актуальный
      * user.siteId инспектора и обновляет tokenStorage. Если null —
      * sync работает по-старому (без обновления siteId). Передаётся
      * через лямбду, чтобы не плодить зависимость на AuthRepository.
@@ -77,6 +77,27 @@ class SyncRepository(
      * SyncRepository вызывает её best-effort и не ждёт результата.
      */
     private val onAfterPullRefresh: (suspend () -> Unit)? = null,
+    /**
+     * Side-effect в самом начале цикла: доделать незавершённый частичный сброс
+     * snapshot после смены объекта. Долг персистентный, поэтому его надо
+     * подхватывать на каждом синке — процесс мог быть убит в прошлый раз.
+     * Реализация обязана глотать свои ошибки.
+     */
+    private val onBeforeSync: (suspend () -> Unit)? = null,
+    /**
+     * Side-effect после успешной загрузки фото: тяжёлые последствия смены
+     * объекта (сброс server-snapshot и перезапуск sync). Вынесено отдельно
+     * от [onAfterPullRefresh] намеренно — сам siteId обновляем рано, чтобы
+     * сбой заливки фото не оставлял планшет со старым объектом, а вот чистку
+     * снапшота делаем только после того, как незалитые фото ушли на сервер.
+     */
+    private val onAfterPhotoUpload: (suspend () -> Unit)? = null,
+    /**
+     * Объект текущей сессии (`TokenStorage.effectiveSiteId`). Нужен M4b
+     * push-recovery: переотправлять можно только записи СВОЕГО объекта, иначе
+     * планшет с чужими остатками перетаскивает их к себе (инцидент 2026-07).
+     */
+    private val currentSiteId: () -> String? = { null },
 ) {
 
     private val pullMutex = Mutex()
@@ -111,6 +132,16 @@ class SyncRepository(
     }
 
     /**
+     * Выполняет [block] под тем же мьютексом, что и [syncOnce] — то есть
+     * гарантированно НЕ параллельно с push/pull/загрузкой фото.
+     *
+     * Нужен при смене аккаунта: очистка локальной базы обязана дождаться
+     * текущего цикла синхронизации, иначе он допишет в уже очищенную базу
+     * данные прошлого пользователя (или отправит их под новым токеном).
+     */
+    suspend fun <T> runExclusively(block: suspend () -> T): T = syncMutex.withLock { block() }
+
+    /**
      * Полный цикл: push мутаций → pull дельты → push фото. Порядок важен:
      * фото можно грузить только после того, как parent (delivery/shipment)
      * ушла на сервер и получила version > 0. Поэтому photo upload — после
@@ -118,17 +149,26 @@ class SyncRepository(
      */
     suspend fun syncOnce(initialWindowDays: Int = DEFAULT_INITIAL_WINDOW_DAYS): Result<SyncSummary> = syncMutex.withLock {
         runCatching {
+            // Незавершённый сброс после смены объекта — до всего остального:
+            // он чистит курсор, и следующий pull должен пойти уже как initial.
+            runCatching { onBeforeSync?.invoke() }
             mutationProcessor.processAll()
             // Снять терминальные конфликты БЕЗ сети (ветка B / накопленное
             // равно-версионное состояние) — до pull, чтобы отрабатывало даже
             // когда /sync недоступен. Best-effort: сбой не ломает основной sync.
             runCatching { terminalConflictResolver.sweepLocalTerminal() }
             val summary = pullAllPages(initialWindowDays)
-            photoUploadProcessor.processAll()
-            // Best-effort обновление siteId инспектора. Делаем именно здесь
-            // (не до push/pull), чтобы возможный сбой /me никогда не блокировал
-            // основной sync. Лямбда сама обязана глотать исключения.
+            // Best-effort обновление siteId инспектора — СРАЗУ после pull.
+            // Раньше вызов стоял после загрузки фото, и её падение (S3 5xx,
+            // обрыв сети) прерывало syncOnce до обновления siteId: планшет
+            // продолжал жить со старым объектом — неверный штамп на фото и
+            // фильтры списков. Лямбда сама обязана глотать исключения.
             runCatching { onAfterPullRefresh?.invoke() }
+            photoUploadProcessor.processAll()
+            // Тяжёлые последствия смены объекта (сброс snapshot) — только
+            // после того, как незалитые фото ушли: reset удаляет приёмки и
+            // отгрузки вместе с их фото-очередью.
+            runCatching { onAfterPhotoUpload?.invoke() }
             // Фоновая сверка с сервером (throttled внутри). Best-effort: любая
             // её ошибка не должна влиять на результат основного sync.
             runCatching { reconcileOnce() }
@@ -274,7 +314,15 @@ class SyncRepository(
      * чтобы операция снова ушла на сервер. НИКОГДА не удаляет локальную запись и
      * не трогает существующие мутации. Skip (только лог), если: записи нет;
      * conflictPending; upsert-мутация уже в очереди (idempotency); payload не
-     * собрался. Ошибка одной записи не прерывает остальные.
+     * собрался; запись принадлежит ЧУЖОМУ объекту. Ошибка одной записи не
+     * прерывает остальные.
+     *
+     * Фильтр по объекту — ключевая защита: reconcile считает «пропавшим на
+     * сервере» всё, чего нет в scope текущего пользователя, поэтому остатки
+     * прошлого аккаунта попадали в переотправку и физически переезжали на
+     * объект нового (инцидент 2026-07). Сравниваем с effectiveSiteId
+     * (last-known-good), чтобы транзиентно пустой siteId не блокировал
+     * переотправку СВОИХ записей.
      */
     private suspend fun requeueMissingDeliveries(ids: List<String>): Int {
         if (ids.isEmpty()) return 0
@@ -283,10 +331,15 @@ class SyncRepository(
         var skipConflict = 0
         var skipExisting = 0
         var skipInvalid = 0
+        var skipForeign = 0
+        val ownSiteId = currentSiteId()
         for (id in ids.distinct()) {
             val entity = deliveryDao.findById(id)
             if (entity == null) {
                 skipMissing++; continue // нечего отправлять, ничего не создаём
+            }
+            if (ownSiteId.isNullOrBlank() || entity.siteId.isBlank() || entity.siteId != ownSiteId) {
+                skipForeign++; continue // чужой объект (или свой неизвестен) — не переотправляем
             }
             if (entity.conflictPending) {
                 skipConflict++; continue // не трогаем запись в конфликте
@@ -318,12 +371,12 @@ class SyncRepository(
         Log.i(
             TAG,
             "requeue deliveries: requeued=$requeued missing=$skipMissing conflict=$skipConflict " +
-                "existing=$skipExisting invalid=$skipInvalid",
+                "existing=$skipExisting invalid=$skipInvalid foreign=$skipForeign",
         )
         return requeued
     }
 
-    /** Симметрично requeueMissingDeliveries для отгрузок. */
+    /** Симметрично requeueMissingDeliveries для отгрузок (включая фильтр по объекту). */
     private suspend fun requeueMissingShipments(ids: List<String>): Int {
         if (ids.isEmpty()) return 0
         var requeued = 0
@@ -331,10 +384,15 @@ class SyncRepository(
         var skipConflict = 0
         var skipExisting = 0
         var skipInvalid = 0
+        var skipForeign = 0
+        val ownSiteId = currentSiteId()
         for (id in ids.distinct()) {
             val entity = shipmentDao.findById(id)
             if (entity == null) {
                 skipMissing++; continue
+            }
+            if (ownSiteId.isNullOrBlank() || entity.siteId.isBlank() || entity.siteId != ownSiteId) {
+                skipForeign++; continue
             }
             if (entity.conflictPending) {
                 skipConflict++; continue
@@ -366,7 +424,7 @@ class SyncRepository(
         Log.i(
             TAG,
             "requeue shipments: requeued=$requeued missing=$skipMissing conflict=$skipConflict " +
-                "existing=$skipExisting invalid=$skipInvalid",
+                "existing=$skipExisting invalid=$skipInvalid foreign=$skipForeign",
         )
         return requeued
     }
@@ -375,43 +433,6 @@ class SyncRepository(
     suspend fun pushPendingPhotos(): Result<PhotoUploadProcessor.PhotoUploadResult> = runCatching {
         photoUploadProcessor.processAll()
     }
-
-    /**
-     * Smart-reset серверного snapshot после смены user.siteId в админке.
-     *
-     * Почему нужно: pull-only sync только апсертит то, что пришло; УПД и
-     * приёмки старого объекта остаются в Room и попадают в счётчики/списки,
-     * хотя инспектор больше не работает на том объекте. Сервер их не вернёт
-     * в deletedIds (они не удалены, просто фильтр siteId сменился).
-     *
-     * Что чистим (server-snapshot, идемпотентно перетянется ре-синком):
-     *   - remote_source_documents (+ items/attachments каскадом по FK);
-     *   - remote_deliveries (+ items/photos каскадом);
-     *   - remote_shipments (+ items/photos каскадом);
-     *   - syncCursor — чтобы pull прошёл с windowDays=90 и подтянул всё под новый siteId.
-     *
-     * Что НЕ трогаем (локальные несинхронизированные данные инспектора):
-     *   - mutations (pending push в сервер);
-     *   - stage1_drafts / stage2_drafts / shipment_*_drafts;
-     *   - photos (локальные ещё не подтверждённые);
-     *   - delivery_local_meta / shipment_local_meta (vehicleTypeCode);
-     *   - токены / сессия;
-     *   - statuses / counterparties / materials / sites (общие справочники);
-     *   - sites — критично оставить, нужно для штампа объекта.
-     *
-     * НЕ под syncMutex: метод вызывается изнутри `onAfterPullRefresh` →
-     * `syncOnce` уже держит замок, повторный `withLock` дал бы deadlock.
-     * Room сам потокобезопасен, а параллельный pull тут невозможен
-     * (мы уже под текущим syncMutex). После сброса вызывающий код
-     * дёргает requestImmediateSync — WorkManager поставит новый job в
-     * очередь и он отработает после завершения текущего syncOnce.
-     */
-    suspend fun resetServerSnapshotOnSiteChange(): Result<Unit> = runCatching {
-        sourceDocumentDao.deleteAll()
-        deliveryDao.deleteAll()
-        shipmentDao.deleteAll()
-        deviceSettings.clearSyncCursor()
-    }.onFailure { error -> _state.value = _state.value.copy(lastError = error.message ?: "reset failed") }
 
     private suspend fun pullAllPages(initialWindowDays: Int): SyncSummary {
         _state.value = _state.value.copy(isRunning = true)

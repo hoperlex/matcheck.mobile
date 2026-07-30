@@ -24,4 +24,8 @@ interface Stage1DraftDao {
 
     @Query("DELETE FROM stage1_drafts WHERE localDraftId = :id")
     suspend fun deleteById(id: String)
+
+    /** Сколько черновиков ждёт на планшете — для предупреждения при смене аккаунта. */
+    @Query("SELECT COUNT(*) FROM stage1_drafts")
+    suspend fun count(): Int
 }

@@ -22,8 +22,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -62,9 +65,20 @@ fun ArchiveIntakeListScreen(
     val context = LocalContext.current
     LaunchedEffect(Unit) { MatcheckSyncScheduler.requestImmediateSync(context) }
     val groups by vm.groups.collectAsStateWithLifecycle()
+    val refreshState by vm.refreshState.collectAsStateWithLifecycle()
     val expandedMap = remember { mutableStateMapOf<Long, Boolean>() }
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // Ошибку синхронизации показываем явно: молча оставленный старый архив —
+    // это ровно тот случай, когда на двух планшетах разные списки.
+    LaunchedEffect(refreshState.error) {
+        val message = refreshState.error ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
+        vm.consumeRefreshError()
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("Архив приёмок") },
@@ -80,81 +94,87 @@ fun ArchiveIntakeListScreen(
             )
         },
     ) { padding ->
-        BoxWithConstraints(
+        PullToRefreshBox(
+            isRefreshing = refreshState.isRefreshing,
+            onRefresh = vm::refresh,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            val outerPadding = if (maxWidth >= 600.dp) 32.dp else 16.dp
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(outerPadding),
-                contentAlignment = Alignment.TopCenter,
+            BoxWithConstraints(
+                modifier = Modifier.fillMaxSize(),
             ) {
-                Column(
+                val outerPadding = if (maxWidth >= 600.dp) 32.dp else 16.dp
+                Box(
                     modifier = Modifier
-                        .widthIn(max = ContentMaxWidth)
-                        .fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                        .fillMaxSize()
+                        .padding(outerPadding),
+                    contentAlignment = Alignment.TopCenter,
                 ) {
-                    if (groups.isEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 24.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                text = "За последнюю неделю приёмок нет",
-                                style = MaterialTheme.typography.titleMedium,
-                                textAlign = TextAlign.Center,
-                            )
-                        }
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            groups.forEach { group ->
-                                // По умолчанию сегодняшний день раскрыт, остальные
-                                // свёрнуты — экономит вертикальное место в архиве.
-                                val isToday = isTodayLocal(group.dayStartMs)
-                                val expanded = expandedMap[group.dayStartMs] ?: isToday
-                                item(key = "day:${group.dayStartMs}") {
-                                    Column(modifier = Modifier.fillMaxWidth()) {
-                                        ContractorHeaderCard(
-                                            name = group.dateLabel,
-                                            count = group.rows.size,
-                                            expanded = expanded,
-                                            onToggle = {
-                                                expandedMap[group.dayStartMs] = !expanded
-                                            },
-                                        )
-                                        AnimatedVisibility(
-                                            visible = expanded,
-                                            enter = expandVertically() + fadeIn(),
-                                            exit = shrinkVertically() + fadeOut(),
-                                        ) {
-                                            Column(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(start = 8.dp, top = 8.dp),
-                                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                    Column(
+                        modifier = Modifier
+                            .widthIn(max = ContentMaxWidth)
+                            .fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        if (groups.isEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 24.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = "За последнюю неделю приёмок нет",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    textAlign = TextAlign.Center,
+                                )
+                            }
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                groups.forEach { group ->
+                                    // По умолчанию сегодняшний день раскрыт, остальные
+                                    // свёрнуты — экономит вертикальное место в архиве.
+                                    val isToday = isTodayLocal(group.dayStartMs)
+                                    val expanded = expandedMap[group.dayStartMs] ?: isToday
+                                    item(key = "day:${group.dayStartMs}") {
+                                        Column(modifier = Modifier.fillMaxWidth()) {
+                                            ContractorHeaderCard(
+                                                name = group.dateLabel,
+                                                count = group.rows.size,
+                                                expanded = expanded,
+                                                onToggle = {
+                                                    expandedMap[group.dayStartMs] = !expanded
+                                                },
+                                            )
+                                            AnimatedVisibility(
+                                                visible = expanded,
+                                                enter = expandVertically() + fadeIn(),
+                                                exit = shrinkVertically() + fadeOut(),
                                             ) {
-                                                group.rows.forEach { row ->
-                                                    val arrivedTxt = formatLocalTime(row.arrivedAtMs)
-                                                    val confirmedTxt = formatLocalTime(row.confirmedAtMs)
-                                                    val timeLine = buildString {
-                                                        append("Госномер: ").append(row.vehiclePlate)
-                                                        if (arrivedTxt != null) append("  ·  заезд ").append(arrivedTxt)
-                                                        if (confirmedTxt != null) append("  ·  выезд ").append(confirmedTxt)
+                                                Column(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(start = 8.dp, top = 8.dp),
+                                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                                ) {
+                                                    group.rows.forEach { row ->
+                                                        val arrivedTxt = formatLocalTime(row.arrivedAtMs)
+                                                        val confirmedTxt = formatLocalTime(row.confirmedAtMs)
+                                                        val timeLine = buildString {
+                                                            append("Госномер: ").append(row.vehiclePlate)
+                                                            if (arrivedTxt != null) append("  ·  заезд ").append(arrivedTxt)
+                                                            if (confirmedTxt != null) append("  ·  выезд ").append(confirmedTxt)
+                                                        }
+                                                        UpdSummaryCard(
+                                                            title = row.updNumber,
+                                                            subtitle = timeLine,
+                                                            onClick = { onOpenDetail(row.delivery.id) },
+                                                        )
                                                     }
-                                                    UpdSummaryCard(
-                                                        title = row.updNumber,
-                                                        subtitle = timeLine,
-                                                        onClick = { onOpenDetail(row.delivery.id) },
-                                                    )
                                                 }
                                             }
                                         }

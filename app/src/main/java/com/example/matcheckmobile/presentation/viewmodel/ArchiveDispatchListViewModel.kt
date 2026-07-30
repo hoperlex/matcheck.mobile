@@ -2,20 +2,25 @@ package com.example.matcheckmobile.presentation.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.WorkInfo
 import com.example.matcheckmobile.data.local.entity.RemoteShipmentEntity
 import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.di.AppContainer
 import com.example.matcheckmobile.domain.model.sourceDocTitlePrefix
+import com.example.matcheckmobile.sync.MatcheckSyncScheduler
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.time.Duration
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
@@ -46,7 +51,31 @@ data class ArchiveDispatchDayGroup(
     val rows: List<ArchiveDispatchRow>,
 )
 
-class ArchiveDispatchListViewModel(container: AppContainer) : ViewModel() {
+class ArchiveDispatchListViewModel(private val container: AppContainer) : ViewModel() {
+
+    private val _refreshState = MutableStateFlow(ArchiveRefreshState())
+
+    /** Зеркало [ArchiveIntakeListViewModel.refreshState]. */
+    val refreshState: StateFlow<ArchiveRefreshState> = _refreshState.asStateFlow()
+
+    /** Синхронизация по жесту с ожиданием завершения задачи — см. приёмки. */
+    fun refresh() {
+        if (_refreshState.value.isRefreshing) return
+        _refreshState.value = ArchiveRefreshState(isRefreshing = true)
+        viewModelScope.launch {
+            val state = runCatching {
+                MatcheckSyncScheduler.requestImmediateSyncAndAwait(container.appContext)
+            }.getOrNull()
+            _refreshState.value = ArchiveRefreshState(
+                isRefreshing = false,
+                error = if (state == WorkInfo.State.SUCCEEDED) null else SYNC_FAILED_MESSAGE,
+            )
+        }
+    }
+
+    fun consumeRefreshError() {
+        _refreshState.update { it.copy(error = null) }
+    }
 
     init {
         // Backfill docNumber по тем же sourceDocs, что и DispatchStage2ListViewModel:
@@ -77,9 +106,16 @@ class ArchiveDispatchListViewModel(container: AppContainer) : ViewModel() {
 
         val ownShipments = shipments.filter { it.siteId == currentSiteId }
         val docById = sourceDocs.associateBy { it.id }
-        val nowMs = System.currentTimeMillis()
-        val windowStartMs = nowMs - WINDOW_DURATION.toMillis()
-        val zone = ZoneId.systemDefault()
+        // Зона фиксирована (см. BUSINESS_ZONE): при ZoneId.systemDefault()
+        // два планшета с разными настройками времени разносили одну запись по
+        // разным дням, и архив «не совпадал». Окно — семь КАЛЕНДАРНЫХ дат
+        // (сегодня и шесть предыдущих), а не 168 часов.
+        val zone = BUSINESS_ZONE
+        val windowStartMs = LocalDate.now(zone)
+            .minusDays(ARCHIVE_WINDOW_DAYS - 1)
+            .atStartOfDay(zone)
+            .toInstant()
+            .toEpochMilli()
 
         val rows = ownShipments.mapNotNull { s ->
             val shippedAtMs = parseMs(s.shippedAt)
@@ -119,8 +155,13 @@ class ArchiveDispatchListViewModel(container: AppContainer) : ViewModel() {
                 Instant.ofEpochMilli(anchor).atZone(zone).toLocalDate()
             }
             .map { (date, list) ->
+                // Вторичный ключ — id: при одинаковом timestamp порядок иначе
+                // не детерминирован и на двух планшетах карточки шли по-разному.
                 val sorted = list
-                    .sortedByDescending { it.second }
+                    .sortedWith(
+                        compareByDescending<Pair<ArchiveDispatchRow, Long>> { it.second }
+                            .thenBy { it.first.shipment.id },
+                    )
                     .map { it.first }
                 ArchiveDispatchDayGroup(
                     dateLabel = date.format(DATE_LABEL_FMT),
@@ -136,9 +177,21 @@ class ArchiveDispatchListViewModel(container: AppContainer) : ViewModel() {
     )
 
     private companion object {
+        const val SYNC_FAILED_MESSAGE = "Не удалось обновить — проверьте связь"
         const val UPD_SUMMARY_MAX_INLINE = 2
         val ARCHIVE_STATUSES = listOf("confirmed_mol")
-        val WINDOW_DURATION: Duration = Duration.ofDays(7)
+        /**
+         * Единая бизнес-зона объектов. Все объекты — Москва и область, портал
+         * считает отчёты по московскому времени. Брать ZoneId.systemDefault()
+         * нельзя: настройки времени на планшетах различаются, и один и тот же
+         * заезд попадал в разные дни архива на разных устройствах. Появится
+         * объект в другой зоне — понадобится поле timezone у site (БД, /sync,
+         * Room), сейчас его нет.
+         */
+        val BUSINESS_ZONE: ZoneId = ZoneId.of("Europe/Moscow")
+
+        /** Семь календарных дат: сегодня и шесть предыдущих. */
+        const val ARCHIVE_WINDOW_DAYS = 7L
         val DATE_LABEL_FMT: DateTimeFormatter = DateTimeFormatter.ofPattern("dd.MM.yy")
         val MANUAL_UPD_REGEX = Regex("(?m)^(?:УПД|Примечание):\\s*(.+)$")
 

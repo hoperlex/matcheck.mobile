@@ -8,11 +8,13 @@ import com.example.matcheckmobile.data.local.entity.RemoteShipmentPhotoEntity
 import com.example.matcheckmobile.data.remote.api.PhotosApi
 import com.example.matcheckmobile.data.remote.api.dto.PhotoPresignRequest
 import com.example.matcheckmobile.data.remote.api.dto.PhotoPresignResponse
+import com.example.matcheckmobile.domain.model.RemotePhotoStatus
 import io.sentry.Sentry
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
+import retrofit2.HttpException
 import java.io.File
 import java.io.IOException
 
@@ -37,6 +39,12 @@ class PhotoUploadProcessor(
     private val shipmentDao: RemoteShipmentDao,
     private val mutationDao: MutationDao,
     private val photosApi: PhotosApi,
+    /**
+     * 403 `foreign_site` на presign/confirm — снимок относится к записи чужого
+     * объекта. Ретраить бесполезно (сервер будет отказывать всегда), удалять
+     * нельзя (потеря данных) → терминальный карантин.
+     */
+    private val quarantine: ForeignSiteQuarantine,
 ) {
 
     /** Plain OkHttpClient без auth-interceptor-ов — для PUT по presigned-ссылке. */
@@ -61,6 +69,7 @@ class PhotoUploadProcessor(
         var uploaded = 0
         var skipped = 0
         var failed = 0
+        var quarantined = 0
 
         // Сначала «оживляем» фото, застрявшие в UPLOADING после убийства
         // процесса mid-upload — иначе findPhotosByStatus(PENDING/ERROR) их не
@@ -71,29 +80,45 @@ class PhotoUploadProcessor(
         deliveryDao.resetStuckUploadingPhotos()
         shipmentDao.resetStuckUploadingPhotos()
 
-        val deliveryPhotos = deliveryDao.findPhotosByStatus(
-            listOf("PENDING_UPLOAD", "UPLOAD_ERROR"),
-        )
+        // Карантинные (QUARANTINED_FOREIGN_SITE) сюда НЕ попадают — иначе
+        // каждый синк крутил бы вечный цикл 403 на чужих записях.
+        val deliveryPhotos = deliveryDao.findPhotosByStatus(RemotePhotoStatus.UPLOADABLE)
         for (photo in deliveryPhotos) {
             when (uploadDeliveryPhoto(photo)) {
                 UploadOutcome.Uploaded -> uploaded++
                 UploadOutcome.Skipped -> skipped++
                 UploadOutcome.Failed -> failed++
+                UploadOutcome.Quarantined -> quarantined++
             }
         }
 
-        val shipmentPhotos = shipmentDao.findPhotosByStatus(
-            listOf("PENDING_UPLOAD", "UPLOAD_ERROR"),
-        )
+        val shipmentPhotos = shipmentDao.findPhotosByStatus(RemotePhotoStatus.UPLOADABLE)
         for (photo in shipmentPhotos) {
             when (uploadShipmentPhoto(photo)) {
                 UploadOutcome.Uploaded -> uploaded++
                 UploadOutcome.Skipped -> skipped++
                 UploadOutcome.Failed -> failed++
+                UploadOutcome.Quarantined -> quarantined++
             }
         }
 
-        return PhotoUploadResult(uploaded = uploaded, skipped = skipped, failed = failed)
+        return PhotoUploadResult(
+            uploaded = uploaded,
+            skipped = skipped,
+            failed = failed,
+            quarantined = quarantined,
+        )
+    }
+
+    /**
+     * 403 с телом `{"error":"foreign_site"}`. Именно тело, а не голый код:
+     * 403 `forbidden` (чужой автор в том же объекте) карантинить нельзя —
+     * это транзиентная ситуация, а не «остаток прошлого аккаунта».
+     */
+    private fun isForeignSite(error: Throwable): Boolean {
+        if (error !is HttpException || error.code() != 403) return false
+        val raw = runCatching { error.response()?.errorBody()?.string() }.getOrNull()
+        return classifyMutationFailure(error.code(), raw) == MutationFailure.ForeignSite
     }
 
     private suspend fun uploadDeliveryPhoto(photo: RemoteDeliveryPhotoEntity): UploadOutcome {
@@ -144,6 +169,12 @@ class PhotoUploadProcessor(
             deleteLocalBlobsQuietly(photo.localBlobPath, photo.localThumbPath)
             UploadOutcome.Uploaded
         }.getOrElse { error ->
+            if (isForeignSite(error)) {
+                // Снимок принадлежит записи чужого объекта: ретрай бесполезен.
+                // Файл и строку сохраняем, статус — терминальный карантин.
+                quarantine.quarantineDeliveryPhoto(photo)
+                return UploadOutcome.Quarantined
+            }
             // «Фото не долетело»: presign/PUT(S3)/confirm упали. PUT идёт по
             // rawS3Client (без Sentry-интерсептора), поэтому сбои Cloud.ru видны
             // только тут. Шлём исключение с тегами (без подписи URL/тела).
@@ -153,7 +184,10 @@ class PhotoUploadProcessor(
                 Sentry.captureException(error)
             }
             deliveryDao.upsertPhoto(
-                photo.copy(uploadStatus = "UPLOAD_ERROR", lastUploadError = error.message ?: "upload failed"),
+                photo.copy(
+                    uploadStatus = RemotePhotoStatus.UPLOAD_ERROR,
+                    lastUploadError = error.message ?: "upload failed",
+                ),
             )
             UploadOutcome.Failed
         }
@@ -196,13 +230,20 @@ class PhotoUploadProcessor(
             deleteLocalBlobsQuietly(photo.localBlobPath, photo.localThumbPath)
             UploadOutcome.Uploaded
         }.getOrElse { error ->
+            if (isForeignSite(error)) {
+                quarantine.quarantineShipmentPhoto(photo)
+                return UploadOutcome.Quarantined
+            }
             Sentry.withScope { scope ->
                 scope.setTag("phase", "photo_upload")
                 scope.setTag("parent", "shipment")
                 Sentry.captureException(error)
             }
             shipmentDao.upsertPhoto(
-                photo.copy(uploadStatus = "UPLOAD_ERROR", lastUploadError = error.message ?: "upload failed"),
+                photo.copy(
+                    uploadStatus = RemotePhotoStatus.UPLOAD_ERROR,
+                    lastUploadError = error.message ?: "upload failed",
+                ),
             )
             UploadOutcome.Failed
         }
@@ -307,11 +348,13 @@ class PhotoUploadProcessor(
         photosApi.confirm(photoId)
     }
 
-    private enum class UploadOutcome { Uploaded, Skipped, Failed }
+    private enum class UploadOutcome { Uploaded, Skipped, Failed, Quarantined }
 
     data class PhotoUploadResult(
         val uploaded: Int,
         val skipped: Int,
         val failed: Int,
+        /** Ушли в терминальный карантин (403 foreign_site) — ждут решения человека. */
+        val quarantined: Int = 0,
     )
 }

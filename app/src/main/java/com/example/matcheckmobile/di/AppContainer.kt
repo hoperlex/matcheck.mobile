@@ -2,6 +2,7 @@ package com.example.matcheckmobile.di
 
 import android.content.Context
 import com.example.matcheckmobile.BuildConfig
+import com.example.matcheckmobile.data.auth.AccountSwitchCoordinator
 import com.example.matcheckmobile.data.auth.TokenStorage
 import com.example.matcheckmobile.data.local.MatcheckDatabase
 import com.example.matcheckmobile.data.remote.ApiService
@@ -22,6 +23,7 @@ import com.example.matcheckmobile.data.repository.AuthRepository
 import com.example.matcheckmobile.data.repository.ConflictRepository
 import com.example.matcheckmobile.data.repository.CounterpartyRepository
 import com.example.matcheckmobile.data.repository.DeliveryRepository
+import com.example.matcheckmobile.data.repository.ForeignSiteQuarantine
 import com.example.matcheckmobile.data.repository.ManualDispatchDraftRepository
 import com.example.matcheckmobile.data.repository.ManualEntryDraftRepository
 import com.example.matcheckmobile.data.repository.ShipmentStage1DraftRepository
@@ -36,6 +38,7 @@ import com.example.matcheckmobile.data.repository.PhotoUploadProcessor
 import com.example.matcheckmobile.data.repository.SourceDocumentBackfillService
 import com.example.matcheckmobile.data.repository.ReceiptSessionRepository
 import com.example.matcheckmobile.data.repository.ShipmentRepository
+import com.example.matcheckmobile.data.repository.SiteChangeReset
 import com.example.matcheckmobile.data.repository.SourceDocumentRepository
 import com.example.matcheckmobile.data.repository.SyncRepository
 import com.example.matcheckmobile.data.repository.RoomTransactionRunner
@@ -98,12 +101,25 @@ class AppContainer(val appContext: Context) {
     val sourceDocumentsApi: SourceDocumentsApi = networkFactory.create(SourceDocumentsApi::class.java)
     val photosApi: PhotosApi = networkFactory.create(PhotosApi::class.java)
 
+    // Объявлен до mutationProcessor/terminalConflictResolver — оба его требуют,
+    // а инициализация свойств идёт по порядку объявления.
+    private val transactionRunner: TransactionRunner = RoomTransactionRunner(database)
+
+    /** Карантин записей чужого объекта (403 foreign_site). Требуется обоим процессорам. */
+    val foreignSiteQuarantine: ForeignSiteQuarantine = ForeignSiteQuarantine(
+        deliveryDao = database.remoteDeliveryDao(),
+        shipmentDao = database.remoteShipmentDao(),
+        mutationDao = database.mutationDao(),
+        tx = transactionRunner,
+    )
+
     val mutationProcessor: MutationProcessor = MutationProcessor(
         mutationDao = database.mutationDao(),
         deliveryDao = database.remoteDeliveryDao(),
         shipmentDao = database.remoteShipmentDao(),
         deliveriesApi = deliveriesApi,
         shipmentsApi = shipmentsApi,
+        quarantine = foreignSiteQuarantine,
     )
 
     val photoUploadProcessor: PhotoUploadProcessor = PhotoUploadProcessor(
@@ -111,9 +127,22 @@ class AppContainer(val appContext: Context) {
         shipmentDao = database.remoteShipmentDao(),
         mutationDao = database.mutationDao(),
         photosApi = photosApi,
+        quarantine = foreignSiteQuarantine,
     )
 
-    private val transactionRunner: TransactionRunner = RoomTransactionRunner(database)
+    /**
+     * Частичный сброс snapshot при смене объекта. Объявлен ДО syncRepository:
+     * его дёргают колбэки onAfterPullRefresh / onAfterPhotoUpload.
+     */
+    val siteChangeReset: SiteChangeReset = SiteChangeReset(
+        deviceSettings = deviceSettings,
+        deliveryDao = database.remoteDeliveryDao(),
+        shipmentDao = database.remoteShipmentDao(),
+        sourceDocumentDao = database.remoteSourceDocumentDao(),
+        mutationDao = database.mutationDao(),
+        quarantine = foreignSiteQuarantine,
+        tx = transactionRunner,
+    )
 
     val terminalConflictResolver: TerminalConflictResolver = TerminalConflictResolver(
         deliveryDao = database.remoteDeliveryDao(),
@@ -139,32 +168,52 @@ class AppContainer(val appContext: Context) {
         mutationProcessor = mutationProcessor,
         photoUploadProcessor = photoUploadProcessor,
         terminalConflictResolver = terminalConflictResolver,
-        // После успешного pull тихо подтягиваем актуальный user.siteId.
-        // Если siteId реально изменился — чистим server-snapshot (УПД/
-        // приёмки/отгрузки) и планируем новый sync под новый siteId
-        // (см. handleSiteIdRefresh). Все ошибки проглатываются внутри —
-        // sync основного цикла не пострадает.
-        onAfterPullRefresh = ::handleSiteIdRefresh,
+        // Сразу после pull подтягиваем актуальный user.siteId (штамп фото и
+        // фильтры списков зависят от него). Тяжёлый side-effect смены объекта —
+        // сброс server-snapshot — отложен до onAfterPhotoUpload, чтобы не
+        // снести незалитые фото. Все ошибки проглатываются внутри.
+        onAfterPullRefresh = ::refreshSiteIdAfterPull,
+        onAfterPhotoUpload = ::applySiteChangeAfterPhotos,
+        // Долг на сброс переживает перезапуск процесса — подхватываем его
+        // в начале каждого цикла, а не только сразу после смены объекта.
+        onBeforeSync = { runCatching { siteChangeReset.resumeIfNeeded() } },
+        currentSiteId = { tokenStorage.state.value.effectiveSiteId },
     )
 
     /**
-     * Side-effect после успешного syncOnce: подтянуть актуальный
-     * user.siteId. Если значение изменилось — server-snapshot УПД/
-     * приёмок/отгрузок относится к старому объекту и должен быть
-     * перечитан под новый siteId. Чистим snapshot, дёргаем
-     * MatcheckSyncScheduler.requestImmediateSync — WorkManager поставит
-     * новый job в очередь, он отработает после завершения текущего
-     * syncOnce (REPLACE policy) и подтянет данные нового объекта.
+     * Side-effect сразу после успешного pull: подтянуть актуальный user.siteId.
+     * Дешёвая операция (/auth/me + запись в TokenStorage), от которой зависят
+     * штамп объекта на фото 1 Этапа и siteId-фильтры списков — поэтому она
+     * выполняется ДО загрузки фото и не страдает от её сбоев.
      *
-     * Локальные мутации, черновики, фото, токены и общие справочники
-     * (sites/statuses/counterparties/materials) НЕ ТРОГАЕМ —
-     * см. SyncRepository.resetServerSnapshotOnSiteChange комментарий.
+     * Обнаружив смену объекта, СРАЗУ пишем долг на сброс в DataStore (вместе с
+     * новым siteId, одной транзакцией). Раньше намерение жило в @Volatile-поле
+     * и терялось при убийстве процесса — планшет навсегда оставался со
+     * снимком прошлого объекта.
      */
-    private suspend fun handleSiteIdRefresh() {
-        val changed = authRepository.refreshSiteIdFromServer()
-        if (!changed) return
-        syncRepository.resetServerSnapshotOnSiteChange()
-        MatcheckSyncScheduler.requestImmediateSync(appContext)
+    private suspend fun refreshSiteIdAfterPull() {
+        if (!authRepository.refreshSiteIdFromServer()) return
+        val newSiteId = tokenStorage.state.value.effectiveSiteId.orEmpty()
+        runCatching { siteChangeReset.markPending(newSiteId) }
+    }
+
+    /**
+     * Тяжёлое последствие смены объекта: server-snapshot УПД/приёмок/отгрузок
+     * относится к старому объекту и должен быть перечитан под новый siteId.
+     * Чистим snapshot и дёргаем requestImmediateSync — WorkManager поставит
+     * новый job, он подтянет данные нового объекта.
+     *
+     * Делается ПОСЛЕ загрузки фото: даём незалитым снимкам шанс уйти на сервер
+     * до чистки. Те, что не ушли, сброс всё равно не тронет — записи с
+     * неотправленными фото, карантином или непустой очередью он пропускает
+     * (см. [SiteChangeReset]).
+     *
+     * Локальные мутации, черновики, токены и общие справочники
+     * (sites/statuses/counterparties/materials) НЕ ТРОГАЕМ.
+     */
+    private suspend fun applySiteChangeAfterPhotos() {
+        val done = runCatching { siteChangeReset.resumeIfNeeded() }.getOrDefault(false)
+        if (done) MatcheckSyncScheduler.requestImmediateSync(appContext)
     }
 
     val remotePhotoStorage: RemotePhotoStorage = RemotePhotoStorage(appContext)
@@ -184,6 +233,19 @@ class AppContainer(val appContext: Context) {
         shipmentDao = database.remoteShipmentDao(),
         sourceDocumentDao = database.remoteSourceDocumentDao(),
         appContext = appContext,
+    )
+
+    /**
+     * Смена аккаунта на устройстве: гасит SSE, снимает sync-задачи, дожидается
+     * текущего syncOnce и чистит Room до активации новой сессии. Создаётся
+     * после syncRepository/sseConnectionManager — зависит от обоих.
+     */
+    val accountSwitchCoordinator: AccountSwitchCoordinator = AccountSwitchCoordinator(
+        appContext = appContext,
+        database = database,
+        deviceSettings = deviceSettings,
+        syncRepository = syncRepository,
+        sseConnectionManager = sseConnectionManager,
     )
 
     val deliveryRepository: DeliveryRepository = DeliveryRepository(

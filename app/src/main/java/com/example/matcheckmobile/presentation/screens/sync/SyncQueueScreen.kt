@@ -1,5 +1,6 @@
 package com.example.matcheckmobile.presentation.screens.sync
 
+import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -17,28 +18,35 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.matcheckmobile.presentation.screens.journal.statusLabel
 import com.example.matcheckmobile.presentation.screens.journal.typeLabel
 import com.example.matcheckmobile.presentation.viewmodel.SyncQueueViewModel
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -53,8 +61,23 @@ fun SyncQueueScreen(onBack: () -> Unit, onOpenOperation: (String) -> Unit) {
     val deliveryPhotos by vm.pendingDeliveryPhotos.collectAsStateWithLifecycle()
     val shipmentPhotos by vm.pendingShipmentPhotos.collectAsStateWithLifecycle()
     val mutations by vm.mutations.collectAsStateWithLifecycle()
+    val quarantinedDelivery by vm.quarantinedDeliveryPhotos.collectAsStateWithLifecycle()
+    val quarantinedShipment by vm.quarantinedShipmentPhotos.collectAsStateWithLifecycle()
+    val quarantineMessage by vm.quarantineMessage.collectAsStateWithLifecycle()
     val df = remember { SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()) }
     var showClearDialog by remember { mutableStateOf(false) }
+    var showQuarantineDeleteDialog by remember { mutableStateOf(false) }
+    val quarantineCount = quarantinedDelivery.size + quarantinedShipment.size
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(quarantineMessage) {
+        quarantineMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            vm.consumeQuarantineMessage()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -67,6 +90,7 @@ fun SyncQueueScreen(onBack: () -> Unit, onOpenOperation: (String) -> Unit) {
                 },
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         BoxWithConstraints(
             modifier = Modifier
@@ -109,6 +133,93 @@ fun SyncQueueScreen(onBack: () -> Unit, onOpenOperation: (String) -> Unit) {
                                 "Очистить очередь",
                                 style = MaterialTheme.typography.titleMedium,
                             )
+                        }
+                    }
+
+                    // Карантин: фото записей ЧУЖОГО объекта. Автоматически они
+                    // уже не отправятся никогда (сервер отвечает 403
+                    // foreign_site), но и удалять их сами мы не имеем права —
+                    // это несохранённая работа инспектора. Секция появляется
+                    // только когда карантин непустой.
+                    if (quarantineCount > 0) {
+                        item {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                                ),
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Text(
+                                        "Фото чужого объекта ($quarantineCount)",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.onErrorContainer,
+                                    )
+                                    Text(
+                                        "Эти снимки относятся к приёмкам и отгрузкам другого " +
+                                            "объекта — сервер их не примет. Они хранятся на " +
+                                            "планшете и не отправляются. Сохраните их, а потом " +
+                                            "удалите локально.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onErrorContainer,
+                                    )
+                                    Button(
+                                        onClick = {
+                                            scope.launch {
+                                                val intent = vm.buildQuarantineExportIntent() ?: return@launch
+                                                runCatching {
+                                                    context.startActivity(
+                                                        Intent.createChooser(intent, "Сохранить фото"),
+                                                    )
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                                    ) {
+                                        Text("Сохранить фото ($quarantineCount)")
+                                    }
+                                    OutlinedButton(
+                                        onClick = { showQuarantineDeleteDialog = true },
+                                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                                        colors = ButtonDefaults.outlinedButtonColors(
+                                            contentColor = MaterialTheme.colorScheme.error,
+                                        ),
+                                    ) {
+                                        Text("Удалить локально")
+                                    }
+                                }
+                            }
+                        }
+                        items(quarantinedDelivery, key = { "q-d-" + it.id }) { p ->
+                            Card(modifier = Modifier.fillMaxWidth()) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Text(
+                                        "${p.kind} · приёмка ${p.deliveryId.take(8)}",
+                                        style = MaterialTheme.typography.titleSmall,
+                                    )
+                                    Text(
+                                        "чужой объект · ${p.takenAt.take(16).replace('T', ' ')}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                            }
+                        }
+                        items(quarantinedShipment, key = { "q-s-" + it.id }) { p ->
+                            Card(modifier = Modifier.fillMaxWidth()) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Text(
+                                        "${p.kind} · выезд ${p.shipmentId.take(8)}",
+                                        style = MaterialTheme.typography.titleSmall,
+                                    )
+                                    Text(
+                                        "чужой объект · ${p.takenAt.take(16).replace('T', ' ')}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                            }
                         }
                     }
 
@@ -320,6 +431,34 @@ fun SyncQueueScreen(onBack: () -> Unit, onOpenOperation: (String) -> Unit) {
                 },
                 dismissButton = {
                     TextButton(onClick = { showClearDialog = false }) {
+                        Text("Отмена")
+                    }
+                },
+            )
+        }
+
+        if (showQuarantineDeleteDialog) {
+            AlertDialog(
+                onDismissRequest = { showQuarantineDeleteDialog = false },
+                title = { Text("Удалить фото чужого объекта?") },
+                text = {
+                    Text(
+                        "С планшета будет удалено файлов: $quarantineCount. " +
+                            "Восстановить их будет нельзя — на сервер они не " +
+                            "загружены и не загрузятся. Если снимки ещё нужны, " +
+                            "сначала нажмите «Сохранить фото».",
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        vm.deleteQuarantine()
+                        showQuarantineDeleteDialog = false
+                    }) {
+                        Text("Удалить", color = MaterialTheme.colorScheme.error)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showQuarantineDeleteDialog = false }) {
                         Text("Отмена")
                     }
                 },

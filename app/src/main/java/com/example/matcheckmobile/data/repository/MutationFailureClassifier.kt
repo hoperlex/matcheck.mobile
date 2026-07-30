@@ -42,6 +42,14 @@ sealed interface MutationFailure {
      */
     data object CannotMarkStatus : MutationFailure
 
+    /**
+     * 403 `foreign_site`: запись принадлежит ДРУГОМУ объекту, сервер отказал в
+     * изменении. Такое бывает только с остатками прошлого аккаунта в локальной
+     * базе — их нужно удалить целиком (запись + все её мутации + файлы фото),
+     * а не держать в очереди как конфликт. См. MutationProcessor.Outcome.PurgeForeign.
+     */
+    data object ForeignSite : MutationFailure
+
     /** Нераспознанная ошибка: 5xx → backoff, 4xx → drop. */
     data class Other(val httpCode: Int, val errorCode: String?) : MutationFailure
 }
@@ -74,6 +82,7 @@ fun classifyMutationFailure(httpCode: Int, rawBody: String?): MutationFailure {
         "not_pending" -> MutationFailure.NotPending
         "must_mark_first" -> MutationFailure.MustMarkFirst
         "cannot_mark_status" -> MutationFailure.CannotMarkStatus
+        "foreign_site" -> MutationFailure.ForeignSite
         else -> MutationFailure.Other(httpCode, errorCode)
     }
 }
@@ -87,6 +96,7 @@ val MutationFailure.tag: String
         MutationFailure.NotPending -> "not_pending"
         MutationFailure.MustMarkFirst -> "must_mark_first"
         MutationFailure.CannotMarkStatus -> "cannot_mark_status"
+        MutationFailure.ForeignSite -> "foreign_site"
         is MutationFailure.Other -> "http $httpCode${errorCode?.let { " ($it)" } ?: ""}"
     }
 

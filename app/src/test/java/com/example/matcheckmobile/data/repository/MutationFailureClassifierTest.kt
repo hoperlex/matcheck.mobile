@@ -26,6 +26,23 @@ class MutationFailureClassifierTest {
     }
 
     @Test
+    fun `foreign_site распознаётся отдельно от прочих 403`() {
+        val body = """{"error":"foreign_site","message":"Запись другого объекта"}"""
+
+        val result = classifyMutationFailure(httpCode = 403, rawBody = body)
+
+        assertEquals(MutationFailure.ForeignSite, result)
+        assertEquals("foreign_site", result.tag)
+    }
+
+    @Test
+    fun `прочий 403 остаётся Other — purge только по явному коду`() {
+        val result = classifyMutationFailure(403, """{"error":"forbidden"}""")
+
+        assertEquals(MutationFailure.Other(httpCode = 403, errorCode = "forbidden"), result)
+    }
+
+    @Test
     fun `pending_deletion код распознаётся`() {
         val body = """{"error":"pending_deletion","message":"document is marked"}"""
 

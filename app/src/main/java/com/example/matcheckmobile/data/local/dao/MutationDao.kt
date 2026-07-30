@@ -37,6 +37,17 @@ interface MutationDao {
     @Query("DELETE FROM mutations WHERE entityType = :type AND entityId = :entityId")
     suspend fun deleteFor(type: String, entityId: String)
 
+    /**
+     * Сущности с непустой очередью — их нельзя сносить при partial-reset
+     * смены объекта: мутация осталась бы без локальной записи.
+     */
+    @Query("SELECT DISTINCT entityId FROM mutations WHERE entityType = :type")
+    suspend fun listEntityIdsWithQueue(type: String): List<String>
+
+    /** Мутации, чей lastError указывает на 403 foreign_site (наследие 1.0.29). */
+    @Query("SELECT * FROM mutations WHERE lastError LIKE '%foreign_site%'")
+    suspend fun listForeignSiteFailures(): List<MutationEntity>
+
     @Query("SELECT COUNT(*) FROM mutations WHERE conflictPending = 0")
     suspend fun countPending(): Int
 

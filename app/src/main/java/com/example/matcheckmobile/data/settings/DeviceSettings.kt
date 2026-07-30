@@ -77,6 +77,27 @@ class DeviceSettings(private val context: Context) {
         context.dataStore.edit { it[KEY_SITE_ID] = siteId }
     }
 
+    /**
+     * Смена объекта у аккаунта замечена: новый siteId и «долг» на частичный
+     * сброс snapshot пишутся ОДНОЙ транзакцией DataStore. Раньше намерение
+     * жило только в памяти процесса — если приложение убивали между записью
+     * siteId и сбросом, планшет навсегда оставался со снимком чужого объекта.
+     */
+    suspend fun beginSiteChange(newSiteId: String) {
+        context.dataStore.edit {
+            it[KEY_SITE_ID] = newSiteId
+            it[KEY_PENDING_SITE_RESET] = newSiteId
+        }
+    }
+
+    /** Незавершённый сброс: целевой siteId или null, если долга нет. */
+    suspend fun readPendingSiteReset(): String? =
+        context.dataStore.data.first()[KEY_PENDING_SITE_RESET]?.takeIf { it.isNotEmpty() }
+
+    suspend fun clearPendingSiteReset() {
+        context.dataStore.edit { it.remove(KEY_PENDING_SITE_RESET) }
+    }
+
     suspend fun setServerBaseUrl(url: String) {
         context.dataStore.edit { it[KEY_SERVER_URL] = url }
     }
@@ -91,6 +112,7 @@ class DeviceSettings(private val context: Context) {
         private val KEY_SITE_ID = stringPreferencesKey("current_site_id")
         private val KEY_SERVER_URL = stringPreferencesKey("server_url")
         private val KEY_SYNC_CURSOR = stringPreferencesKey("sync_cursor")
+        private val KEY_PENDING_SITE_RESET = stringPreferencesKey("pending_site_reset")
         private val KEY_PREFERS_LANDSCAPE = booleanPreferencesKey("prefers_landscape")
     }
 }

@@ -100,10 +100,18 @@ interface RemoteShipmentDao {
     /**
      * Полная очистка серверного snapshot — для smart-reset при смене
      * user.siteId в админке. items/photos удалятся каскадом по FK с
-     * onDelete=CASCADE. См. SyncRepository.resetServerSnapshotOnSiteChange.
+     * onDelete=CASCADE. См. SiteChangeReset.resumeIfNeeded.
      */
     @Query("DELETE FROM remote_shipments")
     suspend fun deleteAll()
+
+    /** См. RemoteDeliveryDao.deleteAllExcept — зеркальная частичная очистка. */
+    @Query("DELETE FROM remote_shipments WHERE id NOT IN (:keepIds)")
+    suspend fun deleteAllExcept(keepIds: List<String>): Int
+
+    /** id отгрузок, у которых есть хотя бы одно фото, не доехавшее на сервер. */
+    @Query("SELECT DISTINCT shipmentId FROM remote_shipment_photos WHERE uploadStatus <> 'UPLOADED'")
+    suspend fun findParentIdsWithUnsentPhotos(): List<String>
 
     @Query("SELECT id FROM remote_shipments WHERE conflictPending = 1")
     suspend fun listConflictPendingIds(): List<String>

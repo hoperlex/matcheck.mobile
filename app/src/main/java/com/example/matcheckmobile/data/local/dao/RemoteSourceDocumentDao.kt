@@ -65,7 +65,7 @@ interface RemoteSourceDocumentDao {
 
     /**
      * Полная очистка серверного snapshot — для smart-reset при смене
-     * user.siteId в админке (см. SyncRepository.resetServerSnapshotOnSiteChange).
+     * user.siteId в админке (см. SiteChangeReset.resumeIfNeeded).
      * items/attachments удалятся каскадом по FK с onDelete=CASCADE.
      */
     @Query("DELETE FROM remote_source_documents")

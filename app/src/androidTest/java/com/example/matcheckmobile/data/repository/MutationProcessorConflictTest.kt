@@ -8,6 +8,8 @@ import com.example.matcheckmobile.data.local.dao.MutationDao
 import com.example.matcheckmobile.data.local.dao.RemoteDeliveryDao
 import com.example.matcheckmobile.data.local.dao.RemoteShipmentDao
 import com.example.matcheckmobile.data.local.entity.MutationEntity
+import com.example.matcheckmobile.data.local.entity.RemoteDeliveryPhotoEntity
+import com.example.matcheckmobile.data.local.mapper.RemoteMappers.toEntity
 import com.example.matcheckmobile.data.remote.api.DeliveriesApi
 import com.example.matcheckmobile.data.remote.api.ShipmentsApi
 import com.example.matcheckmobile.data.remote.api.dto.DeliveryDto
@@ -18,6 +20,7 @@ import com.example.matcheckmobile.data.remote.api.dto.ShipmentDto
 import com.example.matcheckmobile.data.remote.api.dto.ShipmentListResponse
 import com.example.matcheckmobile.data.remote.api.dto.ShipmentUpsertRequest
 import com.example.matcheckmobile.data.remote.api.dto.StatusDto
+import com.example.matcheckmobile.domain.model.RemotePhotoStatus
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
@@ -25,6 +28,7 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -32,6 +36,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import retrofit2.HttpException
 import retrofit2.Response
+import java.io.File
 
 /**
  * Поведение [MutationProcessor] на 409-конфликтах приёмок/отгрузок: terminal
@@ -62,7 +67,15 @@ class MutationProcessorConflictTest {
         mutationDao = db.mutationDao()
         deliveriesApi = FakeDeliveriesApi()
         shipmentsApi = FakeShipmentsApi()
-        processor = MutationProcessor(mutationDao, deliveryDao, shipmentDao, deliveriesApi, shipmentsApi, DiscardTelemetry.noop)
+        processor = MutationProcessor(
+            mutationDao,
+            deliveryDao,
+            shipmentDao,
+            deliveriesApi,
+            shipmentsApi,
+            ForeignSiteQuarantine(deliveryDao, shipmentDao, mutationDao, RoomTransactionRunner(db)),
+            DiscardTelemetry.noop,
+        )
     }
 
     @After
@@ -209,6 +222,134 @@ class MutationProcessorConflictTest {
         assertEquals("обе мутации на месте", 2, muts.size)
         assertTrue("m1 остаётся конфликтной", muts.getValue("m1").conflictPending)
         assertFalse("m2 не осиротела и не выполнена", muts.getValue("m2").conflictPending)
+    }
+
+    @Test
+    fun foreignSite403_dropsQueueButQuarantinesUnsentPhotos() = runBlocking {
+        val id = "d7"
+        val blob = File.createTempFile("blob", ".jpg").apply { writeBytes(byteArrayOf(1)) }
+        val thumb = File.createTempFile("thumb", ".jpg").apply { writeBytes(byteArrayOf(1)) }
+        seedDelivery(id, blob = blob, thumb = thumb)
+        // Две мутации той же приёмки: обе должны исчезнуть, вторая — не уйти на сервер.
+        mutationDao.upsert(mut("m7a", id, baseVersion = 1, payload = deliveryUpsertPayload(id, 1), createdAt = 1L))
+        mutationDao.upsert(mut("m7b", id, baseVersion = 1, payload = deliveryUpsertPayload(id, 1), createdAt = 2L))
+        deliveriesApi.onUpsert = { throw foreignSite403() }
+
+        processor.processAll()
+
+        assertTrue("вся очередь сущности вычищена", mutationDao.findFor("delivery", id).isEmpty())
+        assertEquals("вторая мутация не отправлялась (entity заблокирована)", 1, deliveriesApi.upsertCalls.size)
+        // Требование «без потерь»: снимок не отправится никогда, но и не пропадёт —
+        // терминальный карантин, файлы на месте, решение за человеком.
+        assertNotNull("запись оставлена контейнером для снимка", deliveryDao.findById(id))
+        assertEquals(
+            RemotePhotoStatus.QUARANTINED_FOREIGN_SITE,
+            deliveryDao.findPhotoById("p-$id")!!.uploadStatus,
+        )
+        assertTrue("blob-файл сохранён", blob.exists())
+        assertTrue("thumb-файл сохранён", thumb.exists())
+        assertTrue(
+            "карантин не попадает в upload-цикл",
+            deliveryDao.findPhotosByStatus(RemotePhotoStatus.UPLOADABLE).isEmpty(),
+        )
+    }
+
+    @Test
+    fun foreignSite403_deletesEntity_whenNothingToSalvage() = runBlocking {
+        val id = "d8"
+        val dto = DeliveryDto(
+            id = id,
+            status = StatusDto("st", "delivery", "confirmed_mol", "confirmed_mol", sortOrder = 40),
+            siteId = "site-foreign",
+            version = 1,
+            createdAt = ts,
+            updatedAt = ts,
+        )
+        deliveryDao.saveAggregate(delivery = dto.toEntity(), items = emptyList(), photos = emptyList())
+        mutationDao.upsert(mut("m8", id, baseVersion = 1, payload = deliveryUpsertPayload(id, 1)))
+        deliveriesApi.onUpsert = { throw foreignSite403() }
+
+        processor.processAll()
+
+        assertNull("фото нет — держать запись незачем", deliveryDao.findById(id))
+        assertTrue(mutationDao.findFor("delivery", id).isEmpty())
+    }
+
+    @Test
+    fun legacyForeignSiteFailure_isSweptOnFirstRun() = runBlocking {
+        // Состояние, которое мог записать клиент 1.0.29: он не знал кода
+        // foreign_site и заморозил мутацию как конфликтную с сырым телом.
+        val id = "d9"
+        val dto = DeliveryDto(
+            id = id,
+            status = StatusDto("st", "delivery", "filled", "filled", sortOrder = 20),
+            siteId = "site-foreign",
+            version = 1,
+            createdAt = ts,
+            updatedAt = ts,
+        )
+        deliveryDao.saveAggregate(delivery = dto.toEntity(), items = emptyList(), photos = emptyList())
+        mutationDao.upsert(
+            mut("m9", id, baseVersion = 1, payload = deliveryUpsertPayload(id, 1)).copy(
+                conflictPending = true,
+                lastError = """http 403 · {"error":"foreign_site","message":"Запись другого объекта"}""",
+            ),
+        )
+
+        processor.processAll()
+
+        assertTrue("наследие 1.0.29 разобрано", mutationDao.findFor("delivery", id).isEmpty())
+        assertTrue("на сервер такую мутацию не шлём", deliveriesApi.upsertCalls.isEmpty())
+        assertNull(deliveryDao.findById(id))
+    }
+
+    @Test
+    fun foreignSite403_shipment_purged() = runBlocking {
+        val id = "s2"
+        val dto = ShipmentDto(id = id, status = StatusDto("st", "shipment", "confirmed_mol", "confirmed_mol", sortOrder = 40), kind = "contractor", siteId = "site-foreign", version = 1, createdAt = ts, updatedAt = ts)
+        shipmentDao.saveAggregate(shipment = dto.toEntity(), items = emptyList(), photos = emptyList())
+        mutationDao.upsert(mut("ms2", id, entityType = "shipment", baseVersion = 1, payload = shipmentUpsertPayload(id, 1)))
+        shipmentsApi.onUpsert = { throw foreignSite403() }
+
+        processor.processAll()
+
+        assertNull(shipmentDao.findById(id))
+        assertTrue(mutationDao.findFor("shipment", id).isEmpty())
+    }
+
+    private suspend fun seedDelivery(id: String, blob: File, thumb: File) {
+        val dto = DeliveryDto(
+            id = id,
+            status = StatusDto("st", "delivery", "confirmed_mol", "confirmed_mol", sortOrder = 40),
+            siteId = "site-foreign",
+            version = 1,
+            createdAt = ts,
+            updatedAt = ts,
+        )
+        deliveryDao.saveAggregate(delivery = dto.toEntity(), items = emptyList(), photos = emptyList())
+        deliveryDao.upsertPhoto(
+            RemoteDeliveryPhotoEntity(
+                id = "p-$id",
+                deliveryId = id,
+                kind = "cargo",
+                s3Key = null,
+                thumbS3Key = null,
+                contentHash = null,
+                takenAt = ts,
+                uploadedAt = null,
+                idempotencyKey = "idem-$id",
+                contentType = "image/jpeg",
+                localBlobPath = blob.absolutePath,
+                localThumbPath = thumb.absolutePath,
+                uploadStatus = "PENDING_UPLOAD",
+                lastUploadError = null,
+            ),
+        )
+    }
+
+    private fun foreignSite403(): HttpException {
+        val body = """{"error":"foreign_site","message":"Запись другого объекта"}"""
+        return HttpException(Response.error<Any>(403, body.toResponseBody("application/json".toMediaType())))
     }
 
     // --- fakes ---

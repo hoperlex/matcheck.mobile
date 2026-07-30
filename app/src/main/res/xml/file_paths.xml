@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
     <files-path name="operation_photos" path="operation_photos/" />
+    <!-- Снимки нового pipeline (RemotePhotoStorage: filesDir/remote_photos).
+         Раздаются наружу только при ручном экспорте карантина чужого объекта
+         из «Очереди синхронизации» — ACTION_SEND_MULTIPLE с временным
+         read-grant, без копирования файлов. -->
+    <files-path name="remote_photos" path="remote_photos/" />
     <!-- Каталог скачанного APK обновления. Лежит в app-private external
          storage (Context.getExternalFilesDir("updates")), не требует
          WRITE_EXTERNAL_STORAGE и автоматически чистится при удалении

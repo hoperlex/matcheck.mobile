@@ -111,10 +111,25 @@ interface RemoteDeliveryDao {
     /**
      * Полная очистка серверного snapshot — для smart-reset при смене
      * user.siteId в админке. items/photos удалятся каскадом по FK с
-     * onDelete=CASCADE. См. SyncRepository.resetServerSnapshotOnSiteChange.
+     * onDelete=CASCADE. См. SiteChangeReset.resumeIfNeeded.
      */
     @Query("DELETE FROM remote_deliveries")
     suspend fun deleteAll()
+
+    /**
+     * Частичная очистка snapshot при смене объекта: сносим всё, кроме
+     * защищённых записей (карантин чужого объекта, неотправленные фото,
+     * непустая очередь мутаций). Каскад по FK удалит items и photos.
+     *
+     * Пустой [keepIds] даёт `NOT IN ()` — SQLite это разрешает, условие
+     * истинно для всех строк, поведение совпадает с [deleteAll].
+     */
+    @Query("DELETE FROM remote_deliveries WHERE id NOT IN (:keepIds)")
+    suspend fun deleteAllExcept(keepIds: List<String>): Int
+
+    /** id приёмок, у которых есть хотя бы одно фото, не доехавшее на сервер. */
+    @Query("SELECT DISTINCT deliveryId FROM remote_delivery_photos WHERE uploadStatus <> 'UPLOADED'")
+    suspend fun findParentIdsWithUnsentPhotos(): List<String>
 
     @Query("SELECT id FROM remote_deliveries WHERE conflictPending = 1")
     suspend fun listConflictPendingIds(): List<String>
