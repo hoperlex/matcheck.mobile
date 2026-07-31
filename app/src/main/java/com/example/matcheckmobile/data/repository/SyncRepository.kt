@@ -159,8 +159,22 @@ class SyncRepository(
      * ушла на сервер и получила version > 0. Поэтому photo upload — после
      * push mutations и pull (на pull прилетит обновлённый version).
      */
-    suspend fun syncOnce(initialWindowDays: Int = DEFAULT_INITIAL_WINDOW_DAYS): Result<SyncSummary> = syncMutex.withLock {
-        runCatching {
+    suspend fun syncOnce(initialWindowDays: Int = DEFAULT_INITIAL_WINDOW_DAYS): Result<SyncSummary> =
+        withCycleTimeout(
+            timeoutMs = CYCLE_TIMEOUT_MS,
+            mutex = syncMutex,
+            onTimeout = { elapsed -> Log.w(TAG, "sync cycle прерван по таймауту через ${elapsed}мс") },
+            block = { runCycle(initialWindowDays) },
+        )
+            .onSuccess { summary -> _state.value = _state.value.copy(lastError = null, lastSuccessSummary = summary) }
+            .onFailure { error -> _state.value = _state.value.copy(lastError = error.message ?: "sync failed") }
+
+    /**
+     * Тело цикла. Мьютекс, потолок по времени и семантику отмены держит
+     * [withCycleTimeout] — здесь только сама работа.
+     */
+    private suspend fun runCycle(initialWindowDays: Int): Result<SyncSummary> {
+        return runCatching {
             // Незавершённый сброс после смены объекта — до всего остального:
             // он чистит курсор, и следующий pull должен пойти уже как initial.
             runCatching { onBeforeSync?.invoke() }
@@ -185,8 +199,7 @@ class SyncRepository(
             // её ошибка не должна влиять на результат основного sync.
             runCatching { reconcileOnce() }
             summary
-        }.onSuccess { summary -> _state.value = _state.value.copy(lastError = null, lastSuccessSummary = summary) }
-            .onFailure { error -> _state.value = _state.value.copy(lastError = error.message ?: "sync failed") }
+        }
     }
 
     /**
@@ -613,6 +626,18 @@ class SyncRepository(
 
     private companion object {
         const val DEFAULT_INITIAL_WINDOW_DAYS = 90
+
+        /**
+         * Потолок на один цикл синхронизации.
+         *
+         * Восемь минут — заведомо меньше системного лимита WorkManager в 10
+         * минут: ресурсы надо освобождать кооперативно, до принудительной
+         * остановки воркера. Смысл потолка в том, что `syncOnce` держит
+         * sync-мьютекс целиком, и зависший внутри вызов (исторически — PUT фото
+         * в S3 без `callTimeout`) блокировал ВСЕ последующие синхронизации до
+         * перезапуска процесса.
+         */
+        const val CYCLE_TIMEOUT_MS = 8 * 60 * 1000L
         // Должны совпадать с лимитами сервера (matcheck apps/api/src/routes/sync.ts):
         // deliveries/shipments — 500, sourceDocuments — 1000. Иначе hasMorePages
         // неверно детектит «полную страницу». MUST MATCH SERVER.
@@ -628,3 +653,13 @@ class SyncRepository(
 
 /** Локальный sanity-wrapper для исключений сети vs HTTP (не используется внутри, но удобен снаружи). */
 fun Throwable.isTransient(): Boolean = this is IOException || (this is HttpException && code() in 500..599)
+
+/**
+ * Цикл синхронизации не уложился в отведённое время и был прерван.
+ *
+ * Намеренно НЕ наследует IOException: это не транзиентный оффлайн, а аномалия —
+ * `MatcheckSyncWorker` репортит такие сбои, а не считает нормой. Воркер в любом
+ * случае вернёт `Result.retry()`, поэтому цикл повторится с backoff.
+ */
+class SyncCycleTimeoutException(timeoutMs: Long) :
+    Exception("sync cycle не уложился в ${timeoutMs}мс и был прерван")

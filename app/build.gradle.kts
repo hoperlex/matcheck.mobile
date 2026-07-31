@@ -125,6 +125,14 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+    testOptions {
+        unitTests {
+            // JVM-тесты не видят реализацию android.util.Log — без этого любой
+            // вызов Log.i падает с «not mocked». Тестируемый код логирует
+            // (S3Uploader), а тащить ради этого Robolectric избыточно.
+            isReturnDefaultValues = true
+        }
+    }
 }
 
 dependencies {

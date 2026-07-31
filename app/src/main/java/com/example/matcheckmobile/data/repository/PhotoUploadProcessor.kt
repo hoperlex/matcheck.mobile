@@ -10,13 +10,9 @@ import com.example.matcheckmobile.data.remote.api.dto.PhotoPresignRequest
 import com.example.matcheckmobile.data.remote.api.dto.PhotoPresignResponse
 import com.example.matcheckmobile.domain.model.RemotePhotoStatus
 import io.sentry.Sentry
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.asRequestBody
+import kotlinx.coroutines.CancellationException
 import retrofit2.HttpException
 import java.io.File
-import java.io.IOException
 
 /**
  * Двухэтапная загрузка фото на сервер. Алгоритм по MOBILE_API.md «Photo
@@ -45,14 +41,13 @@ class PhotoUploadProcessor(
      * нельзя (потеря данных) → терминальный карантин.
      */
     private val quarantine: ForeignSiteQuarantine,
+    /**
+     * Транспорт PUT в S3. Вынесен в параметр ради тестов: они подставляют
+     * клиент с короткими таймаутами, иначе проверка `callTimeout` заняла бы три
+     * минуты реального времени.
+     */
+    private val s3Uploader: S3Uploader = S3Uploader(),
 ) {
-
-    /** Plain OkHttpClient без auth-interceptor-ов — для PUT по presigned-ссылке. */
-    private val rawS3Client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-        .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
-        .writeTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
-        .build()
 
     /**
      * Чистит фото с локально потерянными blob'ами (status=UPLOAD_ERROR +
@@ -169,6 +164,11 @@ class PhotoUploadProcessor(
             deleteLocalBlobsQuietly(photo.localBlobPath, photo.localThumbPath)
             UploadOutcome.Uploaded
         }.getOrElse { error ->
+            // Отмена — не ошибка загрузки. Если пометить её как UPLOAD_ERROR,
+            // снятие воркера выглядело бы как сбой S3, а распространение отмены
+            // сломалось бы. Фото остаётся в UPLOADING и оживёт на следующем
+            // цикле через resetStuckUploadingPhotos().
+            if (error is CancellationException) throw error
             if (isForeignSite(error)) {
                 // Снимок принадлежит записи чужого объекта: ретрай бесполезен.
                 // Файл и строку сохраняем, статус — терминальный карантин.
@@ -230,6 +230,8 @@ class PhotoUploadProcessor(
             deleteLocalBlobsQuietly(photo.localBlobPath, photo.localThumbPath)
             UploadOutcome.Uploaded
         }.getOrElse { error ->
+            // См. uploadDeliveryPhoto: отмену не глотаем и не помечаем как сбой.
+            if (error is CancellationException) throw error
             if (isForeignSite(error)) {
                 quarantine.quarantineShipmentPhoto(photo)
                 return UploadOutcome.Quarantined
@@ -298,7 +300,7 @@ class PhotoUploadProcessor(
         stage = photo.stage,
     )
 
-    private fun doUpload(blob: File, thumb: File?, presign: PhotoPresignResponse, contentType: String) {
+    private suspend fun doUpload(blob: File, thumb: File?, presign: PhotoPresignResponse, contentType: String) {
         // alreadyExists=true сервер возвращает по совпадению contentHash, но запись
         // может быть orphan (uploadedAt=null — предыдущий PUT упал и не дошёл до S3).
         // Если сервер всё-таки прислал uploadUrl — делаем PUT (overwrite безопасен),
@@ -308,35 +310,20 @@ class PhotoUploadProcessor(
             if (!presign.alreadyExists) error("uploadUrl=null при alreadyExists=false")
             return
         }
-        putToS3(uploadUrl, blob, contentType)
+        putToS3(uploadUrl, blob, contentType, presign.photoId)
 
         val thumbUploadUrl = presign.thumbUploadUrl
         if (thumb != null && thumb.exists() && !thumbUploadUrl.isNullOrBlank()) {
-            runCatching { putToS3(thumbUploadUrl, thumb, contentType) }
-            // thumb не критичен — ошибка не валит основной upload.
+            runCatching { putToS3(thumbUploadUrl, thumb, contentType, "${presign.photoId}/thumb") }
+                // thumb не критичен — ошибка не валит основной upload. Но отмену
+                // глотать нельзя: иначе снятие воркера превратится в «thumb не
+                // залился» и цикл поедет дальше уже отменённым.
+                .onFailure { if (it is CancellationException) throw it }
         }
     }
 
-    private fun putToS3(url: String, file: File, contentType: String) {
-        val request = Request.Builder()
-            .url(url)
-            .put(file.asRequestBody(contentType.toMediaTypeOrNull()))
-            .build()
-        rawS3Client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                // Захватываем тело ответа S3: оно содержит XML с <Code>/<Message>
-                // (SignatureDoesNotMatch, AccessDenied, NoSuchBucket и т.п.).
-                // Без этого диагностировать неудачный PUT по одному HTTP-коду
-                // невозможно — особенно через прокси s3.cloud.ru, который
-                // может возвращать 403/400 по разным причинам.
-                val body = runCatching { response.body?.string()?.take(400) }.getOrNull()
-                val host = response.request.url.host
-                val msg = "S3 PUT $host failed: HTTP ${response.code}${body?.let { " · $it" } ?: ""}"
-                android.util.Log.e("PhotoUpload", msg)
-                throw IOException(msg)
-            }
-        }
-    }
+    private suspend fun putToS3(url: String, file: File, contentType: String, photoId: String) =
+        s3Uploader.put(url, file, contentType, photoId)
 
     private suspend fun confirmIfNeeded(photoId: String, presign: PhotoPresignResponse) {
         // Confirm делаем всегда: сервер сам коротит на uploadedAt!=null и не лезет
