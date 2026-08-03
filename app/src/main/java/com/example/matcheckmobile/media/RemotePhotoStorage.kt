@@ -10,6 +10,35 @@ import java.io.FileOutputStream
 import java.security.MessageDigest
 
 /**
+ * Выбирает `inSampleSize` (степень двойки) так, чтобы декодированная длинная
+ * сторона осталась **не меньше** [maxSide]; точный размер потом даёт
+ * билинейный `scaleToMaxSide`.
+ *
+ * Раньше условие было обратным — удваивали, пока сторона не станет ≤ [maxSide],
+ * и `scaleToMaxSide` после этого был no-op. Кадр уходил на портал вдвое-вчетверо
+ * мельче собственного лимита: 4160 px → 1040, 4608 → 1152. Останавливаемся на шаг
+ * раньше: удваиваем, только пока следующий шаг оставляет длинную сторону не
+ * меньше [maxSide]. Итог декода всегда в `[maxSide, 2 * maxSide)`.
+ *
+ * Арифметика в Long: габариты приходят из заголовка файла, на битом заголовке
+ * умножение в Int могло бы переполниться. Некорректные габариты и `maxSide <= 0`
+ * → 1, а не исключение: подготовка фото не должна падать из-за битого заголовка,
+ * дальше decode либо справится сам, либо честно вернёт null.
+ *
+ * Вынесено верхнеуровневой функцией (как [createUniquePhotoFile]), чтобы
+ * покрывалось обычным JVM-тестом: самому классу нужен Context.
+ */
+internal fun chooseSampleSize(width: Int, height: Int, maxSide: Int): Int {
+    if (width <= 0 || height <= 0 || maxSide <= 0) return 1
+    val longest = maxOf(width, height).toLong()
+    var sampleSize = 1
+    while (longest / (sampleSize.toLong() * 2) >= maxSide) {
+        sampleSize *= 2
+    }
+    return sampleSize
+}
+
+/**
  * Готовит фото к загрузке в matcheck API. Сжимает main (max 2048 px,
  * ~1.5 МБ цель) и thumb (max 320 px, ~100 КБ) — компромисс между качеством
  * и трафиком на полевом 4G. Считает SHA-256 для дедупликации на сервере.
@@ -67,10 +96,7 @@ class RemotePhotoStorage(private val context: Context) {
         context.contentResolver.openInputStream(uri).use {
             BitmapFactory.decodeStream(it, null, boundsOpts)
         }
-        var sampleSize = 1
-        while (boundsOpts.outWidth / sampleSize > maxSide || boundsOpts.outHeight / sampleSize > maxSide) {
-            sampleSize *= 2
-        }
+        val sampleSize = chooseSampleSize(boundsOpts.outWidth, boundsOpts.outHeight, maxSide)
         val opts = BitmapFactory.Options().apply { inSampleSize = sampleSize }
         return context.contentResolver.openInputStream(uri).use {
             BitmapFactory.decodeStream(it, null, opts)

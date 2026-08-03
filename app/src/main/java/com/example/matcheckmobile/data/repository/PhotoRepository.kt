@@ -8,6 +8,8 @@ import com.example.matcheckmobile.data.local.entity.RemoteShipmentPhotoEntity
 import com.example.matcheckmobile.media.RemotePhotoStorage
 import java.time.Instant
 import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Local-first capture: пишет фото в Room + локальный blob, ставит
@@ -20,6 +22,16 @@ class PhotoRepository(
     private val shipmentDao: RemoteShipmentDao,
     private val photoStorage: RemotePhotoStorage,
 ) {
+
+    /**
+     * Подготовка кадра (decode + resize + два JPEG-энкода) — на IO, а не на
+     * вызывающем потоке. Формы зовут capture* из `viewModelScope.launch`, то
+     * есть с Main: раньше на UI-потоке молотился декод ≤2048 px, теперь — до
+     * 4095 px (после снятия лишнего деления вдвое), и на пачке фото при
+     * «Завершить Этап» это уже кандидат в ANR на слабом планшете.
+     */
+    private suspend fun prepare(sourceUri: Uri, photoId: String) =
+        withContext(Dispatchers.IO) { photoStorage.prepareFromUri(sourceUri, photoId) }
 
     /**
      * @param kind 'cargo' | 'vehicle' | 'document' | 'other'.
@@ -36,7 +48,7 @@ class PhotoRepository(
         stage: String = "before",
     ): String {
         val photoId = UUID.randomUUID().toString()
-        val prepared = photoStorage.prepareFromUri(sourceUri, photoId)
+        val prepared = prepare(sourceUri, photoId)
         deliveryDao.upsertPhoto(
             RemoteDeliveryPhotoEntity(
                 id = photoId,
@@ -66,7 +78,7 @@ class PhotoRepository(
         stage: String = "before",
     ): String {
         val photoId = UUID.randomUUID().toString()
-        val prepared = photoStorage.prepareFromUri(sourceUri, photoId)
+        val prepared = prepare(sourceUri, photoId)
         shipmentDao.upsertPhoto(
             RemoteShipmentPhotoEntity(
                 id = photoId,
