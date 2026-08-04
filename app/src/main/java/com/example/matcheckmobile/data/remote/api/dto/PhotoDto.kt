@@ -21,6 +21,12 @@ data class PhotoPresignRequest(
      * Сервер игнорирует на shipment. Если поле не передано — сервер пишет 'before'.
      */
     val stage: String? = null,
+    /**
+     * Момент съёмки по часам планшета. Сервер сохраняет его в photos.taken_at,
+     * откуда портал берёт «Время» этапа. Без поля (сборки до 1.0.33, веб-фронт)
+     * сервер ставит своё время — контракт совместим.
+     */
+    val takenAt: String? = null,
     val deliveryId: String? = null,
 )
 

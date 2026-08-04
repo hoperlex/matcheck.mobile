@@ -46,6 +46,14 @@ class PhotoRepository(
         kind: String,
         sourceUri: Uri,
         stage: String = "before",
+        /**
+         * Момент съёмки по часам планшета (ISO-8601). Считается ОДИН раз —
+         * во вьюмодели, где ещё есть путь к файлу ([photoTakenAtIso]) — и
+         * дальше живёт только в Room: при отправке presign берёт сохранённое
+         * значение и файл не перечитывает. Иначе при долгом офлайне,
+         * перезапуске или перезаписи исходника время «поплыло» бы.
+         */
+        takenAt: String,
     ): String {
         val photoId = UUID.randomUUID().toString()
         val prepared = prepare(sourceUri, photoId)
@@ -58,7 +66,7 @@ class PhotoRepository(
                 s3Key = null,
                 thumbS3Key = null,
                 contentHash = prepared.mainSha256Hex,
-                takenAt = Instant.now().toString(),
+                takenAt = takenAt,
                 uploadedAt = null,
                 idempotencyKey = UUID.randomUUID().toString(),
                 contentType = prepared.contentType,
@@ -76,6 +84,8 @@ class PhotoRepository(
         kind: String,
         sourceUri: Uri,
         stage: String = "before",
+        /** См. [captureForDelivery.takenAt]. */
+        takenAt: String,
     ): String {
         val photoId = UUID.randomUUID().toString()
         val prepared = prepare(sourceUri, photoId)
@@ -88,7 +98,7 @@ class PhotoRepository(
                 s3Key = null,
                 thumbS3Key = null,
                 contentHash = prepared.mainSha256Hex,
-                takenAt = Instant.now().toString(),
+                takenAt = takenAt,
                 uploadedAt = null,
                 idempotencyKey = UUID.randomUUID().toString(),
                 contentType = prepared.contentType,

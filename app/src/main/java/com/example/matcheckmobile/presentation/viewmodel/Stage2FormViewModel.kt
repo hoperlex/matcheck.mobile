@@ -7,6 +7,7 @@ import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.data.repository.DeliveryRepository
 import com.example.matcheckmobile.data.repository.Stage2DraftState
 import com.example.matcheckmobile.di.AppContainer
+import com.example.matcheckmobile.media.photoTakenAtIso
 import com.example.matcheckmobile.presentation.components.MaterialDraft
 import com.example.matcheckmobile.presentation.components.Stage1PhotoItem
 import com.example.matcheckmobile.presentation.navigation.Routes
@@ -454,6 +455,7 @@ class Stage2FormViewModel(
                             kind = "document",
                             sourceUri = uri,
                             stage = "after",
+                            takenAt = photoTakenAtIso(File(path)),
                         )
                     } catch (t: Throwable) {
                         android.util.Log.e("Stage2", "document photo capture failed: $path", t)
@@ -468,6 +470,7 @@ class Stage2FormViewModel(
                             kind = "vehicle",
                             sourceUri = uri,
                             stage = "after",
+                            takenAt = photoTakenAtIso(File(path)),
                         )
                     } catch (t: Throwable) {
                         android.util.Log.e("Stage2", "vehicle photo capture failed: $path", t)

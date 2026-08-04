@@ -21,7 +21,11 @@ android {
         applicationId = "com.example.matcheckmobile"
         minSdk = 24
         targetSdk = 35
-        versionCode = 34
+        // versionCode 34 израсходован: под ним собран и протестирован APK без
+        // правки времени фото (takenAt). Переиспользовать номер нельзя —
+        // in-app updater сравнивает именно versionCode, и планшет с уже
+        // установленным 34 обновление бы не увидел.
+        versionCode = 35
         versionName = "1.0.33"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

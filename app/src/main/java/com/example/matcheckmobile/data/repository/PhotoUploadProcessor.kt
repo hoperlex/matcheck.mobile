@@ -282,6 +282,9 @@ class PhotoUploadProcessor(
         contentType = photo.contentType,
         thumbContentHash = null, // thumb-hash не считаем — для дедупликации хватает main
         stage = photo.stage,
+        // Время съёмки — из Room-строки, файл не перечитываем: он мог быть
+        // перезаписан или удалён, а нам нужен момент съёмки, а не отправки.
+        takenAt = photo.takenAt,
     )
 
     private fun buildPresignRequest(
@@ -298,6 +301,7 @@ class PhotoUploadProcessor(
         contentType = photo.contentType,
         thumbContentHash = null,
         stage = photo.stage,
+        takenAt = photo.takenAt,
     )
 
     private suspend fun doUpload(blob: File, thumb: File?, presign: PhotoPresignResponse, contentType: String) {

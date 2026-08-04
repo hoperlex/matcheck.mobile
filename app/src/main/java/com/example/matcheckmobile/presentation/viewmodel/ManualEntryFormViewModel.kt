@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.matcheckmobile.data.repository.DeliveryRepository
 import com.example.matcheckmobile.data.repository.ManualEntryDraftState
 import com.example.matcheckmobile.di.AppContainer
+import com.example.matcheckmobile.media.photoTakenAtIso
 import com.example.matcheckmobile.presentation.components.MaterialDraft
 import com.example.matcheckmobile.presentation.navigation.Routes
 import com.example.matcheckmobile.sync.MatcheckSyncScheduler
@@ -301,6 +302,7 @@ class ManualEntryFormViewModel(
                             kind = "document",
                             sourceUri = uri,
                             stage = "before",
+                            takenAt = photoTakenAtIso(File(path)),
                         )
                     } catch (t: Throwable) {
                         android.util.Log.e("ManualEntry", "document photo failed: $path", t)
@@ -315,6 +317,7 @@ class ManualEntryFormViewModel(
                             kind = "cargo",
                             sourceUri = uri,
                             stage = "before",
+                            takenAt = photoTakenAtIso(File(path)),
                         )
                     } catch (t: Throwable) {
                         android.util.Log.e("ManualEntry", "cargo photo failed: $path", t)

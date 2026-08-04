@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.matcheckmobile.data.repository.ShipmentRepository
 import com.example.matcheckmobile.data.repository.ShipmentStage1DraftState
 import com.example.matcheckmobile.di.AppContainer
+import com.example.matcheckmobile.media.photoTakenAtIso
 import com.example.matcheckmobile.presentation.components.MaterialDraft
 import com.example.matcheckmobile.presentation.components.VehicleLoadInfo
 import com.example.matcheckmobile.presentation.navigation.Routes
@@ -353,6 +354,7 @@ class DispatchStage1FormViewModel(
                             kind = "document",
                             sourceUri = uri,
                             stage = "before",
+                            takenAt = photoTakenAtIso(File(path)),
                         )
                     } catch (t: Throwable) {
                         android.util.Log.e("DispatchStage1", "doc photo failed: $path", t)
@@ -367,6 +369,7 @@ class DispatchStage1FormViewModel(
                             kind = "cargo",
                             sourceUri = uri,
                             stage = "before",
+                            takenAt = photoTakenAtIso(File(path)),
                         )
                     } catch (t: Throwable) {
                         android.util.Log.e("DispatchStage1", "cargo photo failed: $path", t)
