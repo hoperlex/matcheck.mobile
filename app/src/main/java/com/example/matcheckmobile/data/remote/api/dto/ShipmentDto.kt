@@ -103,6 +103,11 @@ data class ShipmentUpsertRequest(
     val vehiclePlate: String? = null,
     val driverName: String? = null,
     val shippedAt: String? = null,
+    /**
+     * Момент фактического подтверждения на планшете — «Завершить 2 Этап» или
+     * ручной вынос. Симметрия с DeliveryUpsertRequest.confirmedByMolAt.
+     */
+    val confirmedByMolAt: String? = null,
     val comment: String? = null,
     /** «Тип отгрузки» — см. ShipmentDto.purpose. */
     val purpose: String? = null,

@@ -98,6 +98,14 @@ data class DeliveryUpsertRequest(
     val vehiclePlate: String? = null,
     val driverName: String? = null,
     val arrivedAt: String? = null,
+    /**
+     * Момент, когда инспектор фактически подтвердил приёмку на планшете —
+     * «Завершить 2 Этап» или ручной внос. Раньше это время ставил сервер в
+     * секунду приёма мутации: при офлайне все накопленные подтверждения
+     * получали одно и то же время (04.08, ЖК АЛИЯ — четыре приёмки с 05:23).
+     * Сервер сверяет присланное значение с arrivedAt и своими часами.
+     */
+    val confirmedByMolAt: String? = null,
     val comment: String? = null,
     /** Транзит — см. DeliveryDto.inTransit. Default false. */
     val inTransit: Boolean = false,

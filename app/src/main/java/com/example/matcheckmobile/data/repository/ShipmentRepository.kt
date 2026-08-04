@@ -20,6 +20,7 @@ class ShipmentRepository(
     private val shipmentDao: RemoteShipmentDao,
     private val mutationDao: MutationDao,
     private val localMetaDao: ShipmentLocalMetaDao,
+    private val tx: TransactionRunner,
 ) {
 
     private val json: Json = Json { encodeDefaults = true; ignoreUnknownKeys = true }
@@ -61,7 +62,7 @@ class ShipmentRepository(
      * retry после ошибки фото / process-kill / double-tap на 1 Этапе
      * Выезда. Симметрично [DeliveryRepository.upsert].
      */
-    suspend fun upsert(input: UpsertInput): String {
+    suspend fun upsert(input: UpsertInput): String = tx.run {
         val sourceDocIdsJson = canonicalSourceDocumentIdsJson(input.sourceDocumentIds)
         val existingId: String? = if (input.id == null && input.sourceDocumentIds.isNotEmpty()) {
             shipmentDao.findByNaturalKey(
@@ -72,7 +73,19 @@ class ShipmentRepository(
         } else null
         val id = input.id ?: existingId ?: UUID.randomUUID().toString()
         val now = currentIsoTimestamp()
-        val baseVersion = shipmentDao.findById(id)?.version ?: 0
+        val existing = shipmentDao.findById(id)
+        val baseVersion = existing?.version ?: 0
+
+        // Липкие времена операции — см. DeliveryRepository.upsert: однажды
+        // записанные, они не сдвигаются ни повтором после ошибки фото, ни
+        // перезапуском процесса.
+        val effectiveShippedAt = existing?.shippedAt ?: input.shippedAt
+        val effectiveConfirmedAt = existing?.confirmedByMolAt
+            ?: if (input.statusCode == CONFIRMED_MOL) {
+                input.confirmedByMolAt ?: effectiveShippedAt
+            } else {
+                null
+            }
 
         val items = input.items.mapIndexed { idx, it ->
             RemoteShipmentItemEntity(
@@ -110,12 +123,14 @@ class ShipmentRepository(
             destSiteId = input.destSiteId,
             vehiclePlate = input.vehiclePlate,
             driverName = input.driverName,
-            shippedAt = input.shippedAt,
+            shippedAt = effectiveShippedAt,
             inspectorId = input.inspectorId,
             comment = input.comment,
-            confirmedByMolUserId = null,
-            confirmedByMolUserEmail = null,
-            confirmedByMolAt = null,
+            // Автора подтверждения знает только сервер — не затираем то, что
+            // уже пришло с него (см. DeliveryRepository.upsert).
+            confirmedByMolUserId = existing?.confirmedByMolUserId,
+            confirmedByMolUserEmail = existing?.confirmedByMolUserEmail,
+            confirmedByMolAt = effectiveConfirmedAt,
             pendingDeletionAt = null,
             pendingDeletionByUserId = null,
             pendingDeletionByUserEmail = null,
@@ -142,7 +157,10 @@ class ShipmentRepository(
             destSiteId = input.destSiteId,
             vehiclePlate = input.vehiclePlate,
             driverName = input.driverName,
-            shippedAt = input.shippedAt,
+            shippedAt = effectiveShippedAt,
+            // Момент подтверждения на планшете; сервер сверит его со своими
+            // часами и с shippedAt (см. domain/operations/confirmed-at.ts).
+            confirmedByMolAt = effectiveConfirmedAt,
             comment = input.comment,
             purpose = input.purpose,
             inTransit = input.inTransit,
@@ -186,7 +204,7 @@ class ShipmentRepository(
                 createdAt = System.currentTimeMillis(),
             ),
         )
-        return id
+        id
     }
 
     suspend fun markForDeletion(id: String, reason: String?): Result<Unit> = runCatching {
@@ -285,6 +303,12 @@ class ShipmentRepository(
         val vehiclePlate: String? = null,
         val driverName: String? = null,
         val shippedAt: String? = null,
+        /**
+         * Момент нажатия «Завершить» на планшете. Для ручного выноса — то же
+         * значение, что и [shippedAt]. Используется только при ПЕРВОМ
+         * подтверждении: дальше время липкое (см. upsert).
+         */
+        val confirmedByMolAt: String? = null,
         val inspectorId: String? = null,
         val comment: String? = null,
         /** «Тип отгрузки» — см. ShipmentDto.purpose. */
@@ -317,5 +341,6 @@ class ShipmentRepository(
 
     private companion object {
         val DELETABLE_STATUSES = setOf("draft", "not_filled")
+        const val CONFIRMED_MOL = "confirmed_mol"
     }
 }

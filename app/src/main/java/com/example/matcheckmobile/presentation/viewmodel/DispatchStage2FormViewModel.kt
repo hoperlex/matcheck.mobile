@@ -361,6 +361,9 @@ class DispatchStage2FormViewModel(
                         vehiclePlate = cur.vehiclePlate,
                         driverName = cur.driverName,
                         shippedAt = cur.shippedAt,
+                        // Момент нажатия «Завершить 2 Этап» — симметрия с
+                        // приёмкой (Stage2FormViewModel).
+                        confirmedByMolAt = java.time.Instant.now().toString(),
                         comment = buildCombinedComment(
                             stage1 = cur.stage1Comment,
                             stage2 = cur.commentText.trim().ifEmpty { null },

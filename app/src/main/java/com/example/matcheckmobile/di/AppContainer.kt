@@ -31,6 +31,7 @@ import com.example.matcheckmobile.data.repository.ShipmentStage2DraftRepository
 import com.example.matcheckmobile.data.repository.Stage1DraftRepository
 import com.example.matcheckmobile.data.repository.Stage2DraftRepository
 import com.example.matcheckmobile.data.repository.MutationProcessor
+import com.example.matcheckmobile.data.repository.PendingAwareRemoteWriter
 import com.example.matcheckmobile.data.repository.OperationRepository
 import com.example.matcheckmobile.data.repository.PhotoFetcher
 import com.example.matcheckmobile.data.repository.PhotoRepository
@@ -113,12 +114,24 @@ class AppContainer(val appContext: Context) {
         tx = transactionRunner,
     )
 
+    /**
+     * Единственный путь записи серверных агрегатов приёмок и отгрузок.
+     * Объявлен до mutationProcessor и syncRepository — оба его требуют.
+     */
+    val remoteWriter: PendingAwareRemoteWriter = PendingAwareRemoteWriter(
+        deliveryDao = database.remoteDeliveryDao(),
+        shipmentDao = database.remoteShipmentDao(),
+        mutationDao = database.mutationDao(),
+        tx = transactionRunner,
+    )
+
     val mutationProcessor: MutationProcessor = MutationProcessor(
         mutationDao = database.mutationDao(),
         deliveryDao = database.remoteDeliveryDao(),
         shipmentDao = database.remoteShipmentDao(),
         deliveriesApi = deliveriesApi,
         shipmentsApi = shipmentsApi,
+        remoteWriter = remoteWriter,
         quarantine = foreignSiteQuarantine,
     )
 
@@ -171,6 +184,7 @@ class AppContainer(val appContext: Context) {
         unitDao = database.remoteUnitDao(),
         sourceDocumentDao = database.remoteSourceDocumentDao(),
         mutationDao = database.mutationDao(),
+        remoteWriter = remoteWriter,
         mutationProcessor = mutationProcessor,
         photoUploadProcessor = photoUploadProcessor,
         terminalConflictResolver = terminalConflictResolver,
@@ -283,6 +297,7 @@ class AppContainer(val appContext: Context) {
         deliveryDao = database.remoteDeliveryDao(),
         mutationDao = database.mutationDao(),
         localMetaDao = database.deliveryLocalMetaDao(),
+        tx = transactionRunner,
     )
 
     val stage1DraftRepository: Stage1DraftRepository = Stage1DraftRepository(
@@ -314,6 +329,7 @@ class AppContainer(val appContext: Context) {
         shipmentDao = database.remoteShipmentDao(),
         mutationDao = database.mutationDao(),
         localMetaDao = database.shipmentLocalMetaDao(),
+        tx = transactionRunner,
     )
 
     val conflictRepository: ConflictRepository = ConflictRepository(

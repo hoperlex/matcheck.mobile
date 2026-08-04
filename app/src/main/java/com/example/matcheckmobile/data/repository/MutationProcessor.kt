@@ -45,6 +45,8 @@ class MutationProcessor(
     private val shipmentDao: RemoteShipmentDao,
     private val deliveriesApi: DeliveriesApi,
     private val shipmentsApi: ShipmentsApi,
+    /** См. SyncRepository.remoteWriter — тот же инвариант для ответов сервера. */
+    private val remoteWriter: PendingAwareRemoteWriter,
     /**
      * Обработка 403 `foreign_site`: снимки уходят в терминальный карантин,
      * очередь записи удаляется, сама запись — только если спасать нечего.
@@ -307,7 +309,7 @@ class MutationProcessor(
         }
 
     private suspend fun saveDeliveryFromServer(dto: DeliveryDto) {
-        deliveryDao.saveAggregate(
+        remoteWriter.saveDelivery(
             delivery = dto.toEntity(),
             items = dto.items.map { it.toEntity(dto.id) },
             photos = dto.photos.map { it.toEntity(dto.id) },
@@ -315,7 +317,7 @@ class MutationProcessor(
     }
 
     private suspend fun saveShipmentFromServer(dto: ShipmentDto) {
-        shipmentDao.saveAggregate(
+        remoteWriter.saveShipment(
             shipment = dto.toEntity(),
             items = dto.items.map { it.toEntity(dto.id) },
             photos = dto.photos.map { it.toEntity(dto.id) },
@@ -389,7 +391,7 @@ class MutationProcessor(
                     serverSnapshotJson = if (markConflict) raw else null,
                     lastSyncError = if (markConflict) "conflict serverVersion=${parsed.serverVersion}" else null,
                 )
-                deliveryDao.saveAggregate(
+                remoteWriter.saveDelivery(
                     delivery = entity,
                     items = parsed.server.items.map { it.toEntity(parsed.server.id) },
                     photos = parsed.server.photos.map { it.toEntity(parsed.server.id) },
@@ -414,7 +416,7 @@ class MutationProcessor(
                     serverSnapshotJson = if (markConflict) raw else null,
                     lastSyncError = if (markConflict) "conflict serverVersion=${parsed.serverVersion}" else null,
                 )
-                shipmentDao.saveAggregate(
+                remoteWriter.saveShipment(
                     shipment = entity,
                     items = parsed.server.items.map { it.toEntity(parsed.server.id) },
                     photos = parsed.server.photos.map { it.toEntity(parsed.server.id) },

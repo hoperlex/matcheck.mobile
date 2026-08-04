@@ -243,12 +243,18 @@ class ManualDispatchFormViewModel(
                 }
                 val commentForServer = commentParts.joinToString("\n")
 
+                // Одно время на оба поля — симметрия с ручным вносом:
+                // «отгрузка» и «подтверждение» здесь один и тот же момент.
+                val operationAt = java.time.Instant.now().toString()
                 val shipmentId = container.shipmentRepository.upsert(
                     ShipmentRepository.UpsertInput(
+                        // Стабильный id: empty-draft'ы natural-key dedup не
+                        // ловит, и повтор после ошибки фото заводил вторую
+                        // отгрузку (см. ManualEntryFormViewModel).
+                        id = draftLocalId,
                         // Сразу confirmed_mol: сервер в createShipment видит
-                        // status='confirmed_mol' и автоматически заполняет
-                        // confirmedByMolUserId/At из inspectorId (см. серверный
-                        // isDirectConfirm в createShipment).
+                        // status='confirmed_mol' и заполняет confirmedByMol*
+                        // из inspectorId, а время берёт присланное.
                         statusCode = "confirmed_mol",
                         // kind='contractor' — наиболее универсальный; для
                         // empty-draft (sourceDocumentIds=[]) validateKindLinks
@@ -263,7 +269,8 @@ class ManualDispatchFormViewModel(
                         // в UI и в state симметрично DispatchStage1FormViewModel.
                         vehiclePlate = null,
                         driverName = null,
-                        shippedAt = java.time.Instant.now().toString(),
+                        shippedAt = operationAt,
+                        confirmedByMolAt = operationAt,
                         comment = commentForServer,
                         // Тип отгрузки — отдельным полем shipments.purpose
                         // (миграция 0049). В comment не дублируем.

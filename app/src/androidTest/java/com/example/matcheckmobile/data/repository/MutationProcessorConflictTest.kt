@@ -73,6 +73,7 @@ class MutationProcessorConflictTest {
             shipmentDao,
             deliveriesApi,
             shipmentsApi,
+            PendingAwareRemoteWriter(deliveryDao, shipmentDao, mutationDao, RoomTransactionRunner(db)),
             ForeignSiteQuarantine(deliveryDao, shipmentDao, mutationDao, RoomTransactionRunner(db)),
             DiscardTelemetry.noop,
         )

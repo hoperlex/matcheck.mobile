@@ -1,6 +1,7 @@
 package com.example.matcheckmobile.sync
 
 import android.content.Context
+import android.util.Log
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -51,16 +52,49 @@ class MatcheckSyncWorker(
         val outcome = container.syncRepository.syncOnce()
         return outcome.fold(
             onSuccess = { Result.success() },
-            // Любая ошибка (сеть / 5xx) → retry с экспоненциальным backoff WorkManager-а.
             onFailure = { e ->
                 // Транзиентный оффлайн (IOException) — норма, не шлём (шум + квота).
                 // Репортим только неожиданные (не сетевые) сбои синка.
                 if (e !is IOException) Sentry.captureException(e)
-                Result.retry()
+                // Retry ограничен по числу попыток. Инцидент 04.08 (ЖК АЛИЯ):
+                // цикл падал начиная с 23:08, WorkManager удваивал паузу
+                // (50 → 94 → 168 минут, потолок — 5 часов), а ExistingWorkPolicy.KEEP
+                // всё это время отбрасывал команды «синхронизировать сейчас».
+                // Очередь простояла 5 ч 15 мин при живой сети. После лимита
+                // отдаём success: очередь при этом НЕ теряется (мутации лежат в
+                // Room до фактического ответа сервера), а дальше работает
+                // обычная 15-минутная периодика вместо многочасового backoff.
+                if (shouldGiveUpRetrying(runAttemptCount)) {
+                    Log.w(TAG, "sync: попытка $runAttemptCount неуспешна, выходим на периодику: ${e.message}")
+                    Result.success()
+                } else {
+                    Result.retry()
+                }
             },
         )
     }
+
+    private companion object {
+        const val TAG = "MatcheckSyncWorker"
+    }
 }
+
+/**
+ * Попытки 0, 1, 2 — retry; начиная с третьей воркер отдаёт success и уступает
+ * место обычной 15-минутной периодике. При LINEAR-backoff это примерно
+ * 30 + 60 + 90 секунд ожидания вместо удвоения до пятичасового потолка.
+ *
+ * Очередь при этом не теряется: мутации живут в Room до фактического ответа
+ * сервера, их чистит только [MutationProcessor] по успеху или терминальному
+ * конфликту.
+ *
+ * Вынесено верхнеуровневой функцией, чтобы политика покрывалась JVM-тестом:
+ * сам воркер требует WorkManager-харнесса.
+ */
+internal const val MAX_SYNC_RETRY_ATTEMPTS = 3
+
+internal fun shouldGiveUpRetrying(runAttemptCount: Int): Boolean =
+    runAttemptCount >= MAX_SYNC_RETRY_ATTEMPTS
 
 object MatcheckSyncScheduler {
     // Уникальные имена WorkManager-задач. Public, чтобы UI мог подписаться на
@@ -80,9 +114,12 @@ object MatcheckSyncScheduler {
         .setRequiredNetworkType(NetworkType.CONNECTED)
         .build()
 
+    // LINEAR, а не EXPONENTIAL: пауза растёт по 30 секунд, а не удваивается.
+    // Экспонента в паре с потолком WorkManager-а (5 часов) и была тем, что
+    // оставило очередь ЖК АЛИЯ стоять полночи (см. doWork).
     private fun buildSyncRequest() = OneTimeWorkRequestBuilder<MatcheckSyncWorker>()
         .setConstraints(constraints)
-        .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+        .setBackoffCriteria(BackoffPolicy.LINEAR, 30, TimeUnit.SECONDS)
         .build()
 
     /** Push-then-pull сразу. Дёргается после mutation-ов и SSE-событий. */
@@ -114,7 +151,9 @@ object MatcheckSyncScheduler {
     fun schedulePeriodicSync(context: Context) {
         val request = PeriodicWorkRequestBuilder<MatcheckSyncWorker>(15, TimeUnit.MINUTES)
             .setConstraints(constraints)
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES)
+            // LINEAR и здесь: неудачная периодика не должна отодвигать
+            // следующую попытку на часы — интервал сам по себе 15 минут.
+            .setBackoffCriteria(BackoffPolicy.LINEAR, 1, TimeUnit.MINUTES)
             .build()
         WorkManager.getInstance(context)
             .enqueueUniquePeriodicWork(PERIODIC, ExistingPeriodicWorkPolicy.KEEP, request)

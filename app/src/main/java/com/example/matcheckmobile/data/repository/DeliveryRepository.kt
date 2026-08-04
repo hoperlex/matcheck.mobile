@@ -27,6 +27,7 @@ class DeliveryRepository(
     private val deliveryDao: RemoteDeliveryDao,
     private val mutationDao: MutationDao,
     private val localMetaDao: DeliveryLocalMetaDao,
+    private val tx: TransactionRunner,
 ) {
 
     private val json: Json = Json { encodeDefaults = true; ignoreUnknownKeys = true }
@@ -83,8 +84,16 @@ class DeliveryRepository(
      * вызов finalizeStage1 не создаёт новую запись, а обновляет уже
      * созданную. Empty-draft'ы (пустой sourceDocumentIds) не дедупим —
      * у них нет уникального natural key, создание двух подряд легитимно.
+     * Ручные внос/вынос попадают именно в эту ветку, поэтому они обязаны
+     * передавать стабильный id (localDraftId) — иначе повтор после ошибки
+     * фото заводит вторую запись.
+     *
+     * **Всё тело — одна транзакция.** Сущность, позиции и мутация должны
+     * появляться и исчезать вместе: раньше агрегат сохранялся отдельно от
+     * мутации, и смерть процесса между ними оставляла завершённую приёмку,
+     * которой нет в очереди отправки.
      */
-    suspend fun upsert(input: UpsertInput): String {
+    suspend fun upsert(input: UpsertInput): String = tx.run {
         val sourceDocIdsJson = canonicalSourceDocumentIdsJson(input.sourceDocumentIds)
         val existingId: String? = if (input.id == null && input.sourceDocumentIds.isNotEmpty()) {
             deliveryDao.findByNaturalKey(
@@ -95,7 +104,24 @@ class DeliveryRepository(
         } else null
         val id = input.id ?: existingId ?: UUID.randomUUID().toString()
         val now = currentIsoTimestamp()
-        val baseVersion = deliveryDao.findById(id)?.version ?: 0
+        val existing = deliveryDao.findById(id)
+        val baseVersion = existing?.version ?: 0
+
+        // Времена операции — липкие: однажды записанные, они больше не
+        // сдвигаются. Иначе повтор после ошибки фото, double-tap или
+        // перезапуск процесса переставили бы «заезд» и «выезд» на момент
+        // повтора. Решение принимается здесь, а не в UI: репозиторий —
+        // единственное место, через которое проходят все вызовы.
+        val effectiveArrivedAt = existing?.arrivedAt ?: input.arrivedAt
+        val effectiveConfirmedAt = existing?.confirmedByMolAt
+            ?: if (input.statusCode == CONFIRMED_MOL) {
+                // Ручной внос шлёт одно и то же время в оба поля; для 2 Этапа
+                // приходит момент нажатия «Завершить». Откат на время операции
+                // страхует от вызывающего кода, который поле не передал.
+                input.confirmedByMolAt ?: effectiveArrivedAt
+            } else {
+                null
+            }
 
         val items = input.items.mapIndexed { idx, it ->
             RemoteDeliveryItemEntity(
@@ -129,14 +155,17 @@ class DeliveryRepository(
             recipientMolId = input.recipientMolId,
             vehiclePlate = input.vehiclePlate,
             driverName = input.driverName,
-            arrivedAt = input.arrivedAt,
+            arrivedAt = effectiveArrivedAt,
             inspectorId = input.inspectorId,
             comment = input.comment,
             inTransit = input.inTransit,
             isAssets = input.isAssets,
-            confirmedByMolUserId = null,
-            confirmedByMolUserEmail = null,
-            confirmedByMolAt = null,
+            // Автора подтверждения знает только сервер — сохраняем то, что уже
+            // пришло с него, вместо жёсткого null: иначе локальный upsert
+            // затирал бы «Подтверждено МОЛ (кто)» до следующего pull.
+            confirmedByMolUserId = existing?.confirmedByMolUserId,
+            confirmedByMolUserEmail = existing?.confirmedByMolUserEmail,
+            confirmedByMolAt = effectiveConfirmedAt,
             pendingDeletionAt = null,
             pendingDeletionByUserId = null,
             pendingDeletionByUserEmail = null,
@@ -163,7 +192,11 @@ class DeliveryRepository(
             recipientMolId = input.recipientMolId,
             vehiclePlate = input.vehiclePlate,
             driverName = input.driverName,
-            arrivedAt = input.arrivedAt,
+            arrivedAt = effectiveArrivedAt,
+            // Сервер примет это время как момент подтверждения (с проверкой по
+            // своим часам и по arrivedAt). Сборки сервера без поля его
+            // проигнорируют и поставят своё — контракт совместим.
+            confirmedByMolAt = effectiveConfirmedAt,
             comment = input.comment,
             inTransit = input.inTransit,
             isAssets = input.isAssets,
@@ -207,7 +240,7 @@ class DeliveryRepository(
                 createdAt = System.currentTimeMillis(),
             ),
         )
-        return id
+        id
     }
 
     /**
@@ -316,6 +349,12 @@ class DeliveryRepository(
         val vehiclePlate: String? = null,
         val driverName: String? = null,
         val arrivedAt: String? = null,
+        /**
+         * Момент нажатия «Завершить» на планшете. Для ручного вноса — то же
+         * значение, что и [arrivedAt]. Репозиторий использует его только при
+         * ПЕРВОМ подтверждении: дальше время липкое (см. upsert).
+         */
+        val confirmedByMolAt: String? = null,
         val inspectorId: String? = null,
         val comment: String? = null,
         /** Транзит — см. DeliveryDto.inTransit. */
@@ -346,5 +385,6 @@ class DeliveryRepository(
 
     private companion object {
         val DELETABLE_STATUSES = setOf("draft", "not_filled")
+        const val CONFIRMED_MOL = "confirmed_mol"
     }
 }

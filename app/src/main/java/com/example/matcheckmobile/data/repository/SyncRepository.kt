@@ -61,6 +61,12 @@ class SyncRepository(
     private val unitDao: RemoteUnitDao,
     private val sourceDocumentDao: RemoteSourceDocumentDao,
     private val mutationDao: MutationDao,
+    /**
+     * Запись серверных агрегатов идёт только через него: он не даёт затереть
+     * локальное время подтверждения, пока оно ещё не доехало до сервера
+     * (см. PendingAwareRemoteWriter).
+     */
+    private val remoteWriter: PendingAwareRemoteWriter,
     private val mutationProcessor: MutationProcessor,
     private val photoUploadProcessor: PhotoUploadProcessor,
     /**
@@ -281,7 +287,7 @@ class SyncRepository(
                     id = id,
                     isServerTerminal = StatusPolicy.isTerminal(dto.status.code),
                 ) {
-                    deliveryDao.saveAggregate(
+                    remoteWriter.saveDelivery(
                         delivery = dto.toEntity(),
                         items = dto.items.map { it.toEntity(dto.id) },
                         photos = dto.photos.map { it.toEntity(dto.id) },
@@ -313,7 +319,7 @@ class SyncRepository(
                     isServerTerminal = StatusPolicy.isTerminal(dto.status.code),
                     entityType = TerminalConflictResolver.ENTITY_SHIPMENT,
                 ) {
-                    shipmentDao.saveAggregate(
+                    remoteWriter.saveShipment(
                         shipment = dto.toEntity(),
                         items = dto.items.map { it.toEntity(dto.id) },
                         photos = dto.photos.map { it.toEntity(dto.id) },
@@ -532,7 +538,7 @@ class SyncRepository(
         val skipDeliveries = deliveryDao.listConflictPendingIds().toSet()
         for (d in r.deliveries) {
             if (d.id in skipDeliveries) continue
-            deliveryDao.saveAggregate(
+            remoteWriter.saveDelivery(
                 delivery = d.toEntity(),
                 items = d.items.map { it.toEntity(d.id) },
                 photos = d.photos.map { it.toEntity(d.id) },
@@ -541,7 +547,7 @@ class SyncRepository(
         val skipShipments = shipmentDao.listConflictPendingIds().toSet()
         for (sh in r.shipments) {
             if (sh.id in skipShipments) continue
-            shipmentDao.saveAggregate(
+            remoteWriter.saveShipment(
                 shipment = sh.toEntity(),
                 items = sh.items.map { it.toEntity(sh.id) },
                 photos = sh.photos.map { it.toEntity(sh.id) },

@@ -253,11 +253,22 @@ class ManualEntryFormViewModel(
                 }
                 val commentForServer = commentParts.joinToString("\n")
 
+                // Одно время на оба поля: для ручного вноса «прибытие» и
+                // «подтверждение» — это один и тот же момент нажатия
+                // «Завершить». Репозиторий сделает его липким, поэтому повтор
+                // после ошибки фото время не сдвинет.
+                val operationAt = java.time.Instant.now().toString()
                 val deliveryId = container.deliveryRepository.upsert(
                     DeliveryRepository.UpsertInput(
+                        // Стабильный id вместо генерации нового на каждый вызов:
+                        // natural-key dedup для empty-draft'ов сознательно не
+                        // работает (см. DeliveryRepository.upsert), поэтому
+                        // повтор после ошибки фото заводил вторую приёмку.
+                        // draftLocalId — уже UUID и переживает перезапуск.
+                        id = draftLocalId,
                         // Сразу confirmed_mol: сервер в createDelivery видит
-                        // status='confirmed_mol' и автоматически заполняет
-                        // confirmedByMolUserId/At из inspectorId.
+                        // status='confirmed_mol' и заполняет confirmedByMol*
+                        // из inspectorId, а время берёт присланное.
                         statusCode = "confirmed_mol",
                         siteId = siteId,
                         // Все «автотранспортные» поля null — это ручной внос.
@@ -265,7 +276,8 @@ class ManualEntryFormViewModel(
                         contractorId = null,
                         recipientMolId = null,
                         vehiclePlate = null,
-                        arrivedAt = java.time.Instant.now().toString(),
+                        arrivedAt = operationAt,
+                        confirmedByMolAt = operationAt,
                         comment = commentForServer,
                         inTransit = false,
                         // ОС — флаг «основные средства», берём прямо из state.

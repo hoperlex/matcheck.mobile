@@ -423,6 +423,12 @@ class Stage2FormViewModel(
                         vehiclePlate = cur.vehiclePlate,
                         driverName = cur.driverName,
                         arrivedAt = cur.arrivedAt,
+                        // Момент нажатия «Завершить 2 Этап». Раньше время
+                        // подтверждения ставил сервер, когда до него доезжала
+                        // мутация: при офлайне все накопленные приёмки получали
+                        // одно и то же время. Репозиторий использует это
+                        // значение только при первом подтверждении.
+                        confirmedByMolAt = java.time.Instant.now().toString(),
                         comment = buildCombinedComment(
                             stage1 = cur.stage1Comment,
                             stage2 = cur.commentText.trim().ifEmpty { null },
