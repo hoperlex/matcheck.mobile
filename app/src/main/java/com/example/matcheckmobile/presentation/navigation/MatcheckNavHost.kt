@@ -62,6 +62,24 @@ fun MatcheckNavHost() {
         }
     }
 
+    // Единая точка завершения любой формы: показать галочку и уйти с экрана.
+    // Держим обе операции здесь, а не в шести экранах, чтобы их нельзя было
+    // случайно разнести. Показ и навигация больше не связаны таймером — форма
+    // закрывается сразу, галочка живёт своей жизнью поверх Activity.
+    val finishForm: (String, String) -> Unit = { target, stage ->
+        val eventId = container.finalizeFeedback.show(stage)
+        container.incidentJournal.record(
+            "finalize_started", "eventId" to eventId, "stage" to stage, "target" to target,
+        )
+        navController.finishFinalizedForm(
+            target = target,
+            stage = stage,
+            eventId = eventId,
+            isAuthenticated = container.authRepository::isAuthenticated,
+            recorder = container.incidentJournal,
+        )
+    }
+
     NavHost(navController = navController, startDestination = startDestination) {
         composable(Routes.SPLASH) {
             SplashScreen(
@@ -132,7 +150,7 @@ fun MatcheckNavHost() {
                 onFinalized = {
                     // На завершении 2 этапа возвращаемся на список Stage2 —
                     // приёмка из списка уйдёт (сменит статус на confirmed_mol).
-                    navController.popBackStack(Routes.INTAKE_STAGE2, inclusive = false)
+                    finishForm(Routes.INTAKE_STAGE2, "intake_stage2")
                 },
             )
         }
@@ -170,7 +188,7 @@ fun MatcheckNavHost() {
                 onFinalized = {
                     // Возвращаемся сразу на экран этапов — список УПД и сама форма уйдут
                     // из бэк-стека, чтобы кнопка «Назад» не открывала уже сохранённую приёмку.
-                    navController.popBackStack(Routes.INTAKE_STAGES, inclusive = false)
+                    finishForm(Routes.INTAKE_STAGES, "intake_stage1")
                 },
             )
         }
@@ -190,7 +208,7 @@ fun MatcheckNavHost() {
                 onFinalized = {
                     // На завершении возвращаемся на список ручных вносов —
                     // завершённый черновик из него уйдёт (приёмка в фоне → веб).
-                    navController.popBackStack(Routes.MANUAL_ENTRY_LIST, inclusive = false)
+                    finishForm(Routes.MANUAL_ENTRY_LIST, "manual_entry")
                 },
             )
         }
@@ -261,7 +279,7 @@ fun MatcheckNavHost() {
                 onFinalized = {
                     // На завершении возвращаемся на список ручных выносов —
                     // завершённый черновик из него уйдёт (отгрузка в фоне → веб).
-                    navController.popBackStack(Routes.MANUAL_DISPATCH_LIST, inclusive = false)
+                    finishForm(Routes.MANUAL_DISPATCH_LIST, "manual_dispatch")
                 },
             )
         }
@@ -297,7 +315,7 @@ fun MatcheckNavHost() {
             DispatchStage1FormScreen(
                 onBack = { navController.popBackStack() },
                 onFinalized = {
-                    navController.popBackStack(Routes.DISPATCH_STAGES, inclusive = false)
+                    finishForm(Routes.DISPATCH_STAGES, "dispatch_stage1")
                 },
             )
         }
@@ -314,7 +332,7 @@ fun MatcheckNavHost() {
             DispatchStage2FormScreen(
                 onBack = { navController.popBackStack() },
                 onFinalized = {
-                    navController.popBackStack(Routes.DISPATCH_STAGE2, inclusive = false)
+                    finishForm(Routes.DISPATCH_STAGE2, "dispatch_stage2")
                 },
             )
         }

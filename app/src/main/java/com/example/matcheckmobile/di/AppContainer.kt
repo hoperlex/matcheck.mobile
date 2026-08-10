@@ -46,6 +46,8 @@ import com.example.matcheckmobile.data.repository.RoomTransactionRunner
 import com.example.matcheckmobile.data.repository.TerminalConflictResolver
 import com.example.matcheckmobile.data.repository.TransactionRunner
 import com.example.matcheckmobile.data.settings.DeviceSettings
+import com.example.matcheckmobile.monitoring.IncidentJournal
+import com.example.matcheckmobile.presentation.components.FinalizeFeedbackController
 import com.example.matcheckmobile.sync.MatcheckSyncScheduler
 import com.example.matcheckmobile.media.LocationProvider
 import com.example.matcheckmobile.media.MetadataWatermark
@@ -381,4 +383,17 @@ class AppContainer(val appContext: Context) {
         downloader = AppUpdateDownloader(appContext = appContext),
         installer = AppUpdateInstaller(),
     )
+
+    /** Диагностический журнал на диске: заполняется финализацией и стартом. */
+    val incidentJournal: IncidentJournal = IncidentJournal(appContext, appScope)
+
+    /**
+     * Отдельный scope под таймер success-оверлея: Default, а не IO, потому что
+     * работа там — один delay, и путать её с файловым/сетевым пулом незачем.
+     * Главное — он не Main: отсчёт не должен зависеть от занятости UI-потока.
+     */
+    private val feedbackScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    val finalizeFeedback: FinalizeFeedbackController =
+        FinalizeFeedbackController(feedbackScope, incidentJournal)
 }

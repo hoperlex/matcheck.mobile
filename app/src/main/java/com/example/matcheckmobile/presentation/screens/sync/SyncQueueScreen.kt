@@ -135,6 +135,29 @@ fun SyncQueueScreen(onBack: () -> Unit, onOpenOperation: (String) -> Unit) {
                             )
                         }
                     }
+                    // Журнал диагностики. Нужен, когда инспектор жалуется на
+                    // зависание или на то, что приложение пришлось закрыть:
+                    // logcat с планшета не снять, поэтому забираем файл руками.
+                    item {
+                        OutlinedButton(
+                            onClick = {
+                                scope.launch {
+                                    val intent = vm.buildJournalExportIntent() ?: return@launch
+                                    runCatching {
+                                        context.startActivity(
+                                            Intent.createChooser(intent, "Отправить журнал"),
+                                        )
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().height(56.dp),
+                        ) {
+                            Text(
+                                "Поделиться журналом",
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                        }
+                    }
 
                     // Карантин: фото записей ЧУЖОГО объекта. Автоматически они
                     // уже не отправятся никогда (сервер отвечает 403

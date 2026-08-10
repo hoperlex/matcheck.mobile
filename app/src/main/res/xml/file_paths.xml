@@ -12,4 +12,8 @@
          приложения. FileProvider раздаёт content://-URI системному
          installer'у, чтобы ACTION_VIEW открыл диалог установки. -->
     <external-files-path name="app_updates" path="updates/" />
+    <!-- Журнал инцидентов (IncidentJournal: filesDir/diag). Отдаётся наружу
+         только по кнопке «Поделиться журналом» в «Очереди синхронизации».
+         ПДн внутри нет — маршруты, этапы, флаги и таймстемпы. -->
+    <files-path name="diag" path="diag/" />
 </paths>

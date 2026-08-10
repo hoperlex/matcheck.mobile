@@ -52,7 +52,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.matcheckmobile.MatcheckApplication
 import com.example.matcheckmobile.presentation.components.EditableMaterialsInlineList
 import com.example.matcheckmobile.presentation.components.FinalizeConfirmDialog
-import com.example.matcheckmobile.presentation.components.FinalizeSuccessOverlay
 import com.example.matcheckmobile.presentation.components.MaterialDraft
 import com.example.matcheckmobile.presentation.components.MaterialEditDialog
 import com.example.matcheckmobile.presentation.components.MaterialsTableHeader
@@ -64,7 +63,6 @@ import com.example.matcheckmobile.presentation.components.Stage1PhotoItem
 import com.example.matcheckmobile.presentation.components.Stage1PhotosSection
 import com.example.matcheckmobile.presentation.components.rememberPhotoCapture
 import com.example.matcheckmobile.presentation.util.formatLocalTime
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.example.matcheckmobile.presentation.viewmodel.Stage2FormViewModel
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
@@ -96,7 +94,6 @@ fun Stage2FormScreen(
     var previewDelete by remember { mutableStateOf<(() -> Unit)?>(null) }
     var addMaterialOpen by remember { mutableStateOf(false) }
     var confirmFinalizeVisible by remember { mutableStateOf(false) }
-    var successVisible by remember { mutableStateOf(false) }
     // Preview фото 1-го Этапа (S3 + локальный fallback). Состояние отдельно
     // от previewPath/previewDelete, которые обслуживают локальный capture-flow
     // 2-го Этапа — пути не пересекаются, чтобы не сломать удаление новых фото.
@@ -108,14 +105,11 @@ fun Stage2FormScreen(
     // инпутов сворачивает клавиатуру через clearFocus, как на Stage1.
     val tapOutsideSource = remember { MutableInteractionSource() }
 
-    // На finalize показываем success-оверлей и через 900мс выходим — те же
-    // тайминги и поведение, что и на 1 Этапе (см. Stage1FormScreen).
+    // Финализация прошла — уходим с формы немедленно. Зелёную галочку рисует
+    // FinalizeSuccessHost поверх Activity: раньше выход ждал её анимацию, и
+    // сбой этого ожидания запирал инспектора на уже сохранённой форме.
     LaunchedEffect(state.finalized) {
-        if (state.finalized) {
-            successVisible = true
-            delay(900L)
-            onFinalized()
-        }
+        if (state.finalized) onFinalized()
     }
 
     LaunchedEffect(state.error) {
@@ -459,10 +453,6 @@ fun Stage2FormScreen(
                 },
                 onDismiss = { confirmFinalizeVisible = false },
             )
-        }
-
-        if (successVisible) {
-            FinalizeSuccessOverlay()
         }
 
         if (stage1PreviewVisible && stage1PreviewPhotos.isNotEmpty()) {

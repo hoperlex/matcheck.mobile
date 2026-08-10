@@ -16,6 +16,7 @@ import com.example.matcheckmobile.di.AppContainer
 import com.example.matcheckmobile.domain.model.SourceKind
 import com.example.matcheckmobile.domain.model.SourceOrigin
 import com.example.matcheckmobile.domain.model.SourceStatus
+import com.example.matcheckmobile.monitoring.ExitReasonReporter
 import com.example.matcheckmobile.monitoring.initSentry
 import com.example.matcheckmobile.sync.AppUpdateWorker
 import com.example.matcheckmobile.sync.MatcheckSyncScheduler
@@ -50,6 +51,18 @@ class MatcheckApplication : Application() {
         // (заняты, ошибка ФС) или процесс умер посреди wipe. Room к этому
         // моменту уже пуст — доудаляем остатки jpeg'ов прошлого инспектора.
         appScope.launch { runCatching { container.accountSwitchCoordinator.resumePendingWipe() } }
+        // Как завершился прошлый запуск. Читается с IO, а не с Main: обращение
+        // к ActivityManager и чтение ANR-трейса — дисковые операции. Нужно для
+        // разбора жалоб «приложение пришлось закрыть» (см. ExitReasonReporter).
+        appScope.launch {
+            runCatching {
+                ExitReasonReporter.reportLastExit(
+                    context = this@MatcheckApplication,
+                    settings = container.deviceSettings,
+                    journal = container.incidentJournal,
+                )
+            }
+        }
 
         // In-app updater: проверяем GH Releases при cold start (один раз,
         // асинхронно, не блокирует UI) + раз в 6 часов через WorkManager,

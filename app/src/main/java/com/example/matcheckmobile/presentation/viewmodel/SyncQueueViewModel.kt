@@ -137,6 +137,37 @@ class SyncQueueViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
+    /**
+     * Экспорт журнала инцидентов. Единственный способ достать его с планшета:
+     * logcat инспектору недоступен, Sentry в проде выключен, эндпоинта для
+     * клиентских логов на бэкенде нет. Отдаём content://-ссылки на файлы через
+     * тот же FileProvider, что и карантин, без копирования.
+     *
+     * @return Intent для startActivity или null, если журнал пуст.
+     */
+    suspend fun buildJournalExportIntent(): Intent? {
+        val files = runCatching { container.incidentJournal.exportableFiles() }
+            .getOrDefault(emptyList())
+        if (files.isEmpty()) {
+            _quarantineMessage.value = "Журнал пуст — записывать было нечего"
+            return null
+        }
+        val authority = container.appContext.packageName + ".fileprovider"
+        val uris = files.mapNotNull { file ->
+            runCatching { FileProvider.getUriForFile(container.appContext, authority, file) }.getOrNull()
+        }
+        if (uris.isEmpty()) {
+            _quarantineMessage.value = "Не удалось подготовить журнал к отправке"
+            return null
+        }
+        return Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+            type = "text/plain"
+            putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
+            putExtra(Intent.EXTRA_SUBJECT, "Журнал диагностики MatCheck")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    }
+
     fun deleteQuarantine() {
         viewModelScope.launch {
             val removed = runCatching { container.foreignSiteQuarantine.deleteAll() }.getOrDefault(0)

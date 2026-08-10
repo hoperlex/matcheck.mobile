@@ -3,6 +3,7 @@ package com.example.matcheckmobile.data.settings
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -124,6 +125,19 @@ class DeviceSettings(private val context: Context) {
         context.dataStore.edit { it[KEY_PREFERS_LANDSCAPE] = value }
     }
 
+    /**
+     * Таймстемп последней записи ApplicationExitInfo, уже попавшей в журнал
+     * инцидентов. Хранится долговечно, а не в памяти процесса: система отдаёт
+     * историю выходов при каждом старте, и без этого маркера одни и те же
+     * записи дублировались бы после каждого запуска приложения.
+     */
+    suspend fun readLastExitReportedAt(): Long =
+        context.dataStore.data.first()[KEY_LAST_EXIT_REPORTED_AT] ?: 0L
+
+    suspend fun setLastExitReportedAt(timestampMs: Long) {
+        context.dataStore.edit { it[KEY_LAST_EXIT_REPORTED_AT] = timestampMs }
+    }
+
     companion object {
         private val KEY_DEVICE_ID = stringPreferencesKey("device_id")
         private val KEY_USER_ID = stringPreferencesKey("current_user_id")
@@ -133,5 +147,6 @@ class DeviceSettings(private val context: Context) {
         private val KEY_PENDING_SITE_RESET = stringPreferencesKey("pending_site_reset")
         private val KEY_WIPE_PENDING = booleanPreferencesKey("wipe_pending")
         private val KEY_PREFERS_LANDSCAPE = booleanPreferencesKey("prefers_landscape")
+        private val KEY_LAST_EXIT_REPORTED_AT = longPreferencesKey("last_exit_reported_at")
     }
 }

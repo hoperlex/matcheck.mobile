@@ -15,6 +15,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.example.matcheckmobile.presentation.components.AppUpdateDialogHost
+import com.example.matcheckmobile.presentation.components.FinalizeSuccessHost
 import com.example.matcheckmobile.presentation.navigation.MatcheckNavHost
 import com.example.matcheckmobile.sync.MatcheckSyncScheduler
 import com.example.matcheckmobile.ui.theme.MatcheckmobileTheme
@@ -72,6 +73,10 @@ class MainActivity : ComponentActivity() {
                     // не рисует, пока AppUpdateRepository.state не Available —
                     // тогда поверх любой страницы навигации всплывает AlertDialog.
                     AppUpdateDialogHost()
+                    // Зелёная галочка «Этап завершён». Живёт здесь, а не в форме:
+                    // композиция Activity навигацией не диспозится, поэтому
+                    // оверлей нельзя осиротить и запереть им инспектора.
+                    FinalizeSuccessHost()
                 }
             }
         }

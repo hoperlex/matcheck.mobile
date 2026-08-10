@@ -55,7 +55,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.matcheckmobile.MatcheckApplication
 import com.example.matcheckmobile.presentation.components.EditableMaterialsInlineList
 import com.example.matcheckmobile.presentation.components.FinalizeConfirmDialog
-import com.example.matcheckmobile.presentation.components.FinalizeSuccessOverlay
 import com.example.matcheckmobile.presentation.components.MaterialDraft
 import com.example.matcheckmobile.presentation.components.MaterialEditDialog
 import com.example.matcheckmobile.presentation.components.MaterialsTableHeader
@@ -68,7 +67,6 @@ import com.example.matcheckmobile.presentation.components.rememberPhotoCapture
 import com.example.matcheckmobile.presentation.util.formatLocalTime
 import com.example.matcheckmobile.presentation.viewmodel.DispatchStage2FormViewModel
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val TabletBreakpoint = 600.dp
@@ -94,7 +92,6 @@ fun DispatchStage2FormScreen(
     var previewDelete by remember { mutableStateOf<(() -> Unit)?>(null) }
     var addMaterialOpen by remember { mutableStateOf(false) }
     var confirmFinalizeVisible by remember { mutableStateOf(false) }
-    var successVisible by remember { mutableStateOf(false) }
     // См. Stage2FormScreen: preview Stage 1 живёт отдельно от capture-flow
     // 2-го Этапа, чтобы не пересекаться с локальным previewPath/previewDelete.
     var stage1PreviewPhotos by remember { mutableStateOf<List<RemotePhotoRef>>(emptyList()) }
@@ -103,12 +100,11 @@ fun DispatchStage2FormScreen(
     val focusManager = LocalFocusManager.current
     val tapOutsideSource = remember { MutableInteractionSource() }
 
+    // Финализация прошла — уходим с формы немедленно. Зелёную галочку рисует
+    // FinalizeSuccessHost поверх Activity: раньше выход ждал её анимацию, и
+    // сбой этого ожидания запирал инспектора на уже сохранённой форме.
     LaunchedEffect(state.finalized) {
-        if (state.finalized) {
-            successVisible = true
-            delay(900L)
-            onFinalized()
-        }
+        if (state.finalized) onFinalized()
     }
     LaunchedEffect(state.error) {
         state.error?.let {
@@ -399,10 +395,6 @@ fun DispatchStage2FormScreen(
                 },
                 onDismiss = { confirmFinalizeVisible = false },
             )
-        }
-
-        if (successVisible) {
-            FinalizeSuccessOverlay()
         }
 
         if (stage1PreviewVisible && stage1PreviewPhotos.isNotEmpty()) {

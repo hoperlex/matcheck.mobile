@@ -52,13 +52,11 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.example.matcheckmobile.MatcheckApplication
 import com.example.matcheckmobile.presentation.components.AssetsCheckbox
 import com.example.matcheckmobile.presentation.components.EditableMaterialsInlineList
 import com.example.matcheckmobile.presentation.components.FinalizeConfirmDialog
-import com.example.matcheckmobile.presentation.components.FinalizeSuccessOverlay
 import com.example.matcheckmobile.presentation.components.MaterialDraft
 import com.example.matcheckmobile.presentation.components.MaterialEditDialog
 import com.example.matcheckmobile.presentation.components.MaterialsTableHeader
@@ -104,18 +102,16 @@ fun ManualDispatchFormScreen(
     var previewDelete by remember { mutableStateOf<(() -> Unit)?>(null) }
     var addMaterialOpen by remember { mutableStateOf(false) }
     var confirmFinalizeVisible by remember { mutableStateOf(false) }
-    var successVisible by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
     val tapOutsideSource = remember { MutableInteractionSource() }
 
     BackHandler { vm.onLeave(onBack) }
 
+    // Финализация прошла — уходим с формы немедленно. Зелёную галочку рисует
+    // FinalizeSuccessHost поверх Activity: раньше выход ждал её анимацию, и
+    // сбой этого ожидания запирал инспектора на уже сохранённой форме.
     LaunchedEffect(state.finalized) {
-        if (state.finalized) {
-            successVisible = true
-            delay(900L)
-            onFinalized()
-        }
+        if (state.finalized) onFinalized()
     }
 
     LaunchedEffect(state.error) {
@@ -410,10 +406,6 @@ fun ManualDispatchFormScreen(
                 },
                 onDismiss = { confirmFinalizeVisible = false },
             )
-        }
-
-        if (successVisible) {
-            FinalizeSuccessOverlay()
         }
     }
 }

@@ -48,12 +48,10 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.example.matcheckmobile.MatcheckApplication
 import com.example.matcheckmobile.presentation.components.AssetsCheckbox
 import com.example.matcheckmobile.presentation.components.FinalizeConfirmDialog
-import com.example.matcheckmobile.presentation.components.FinalizeSuccessOverlay
 import com.example.matcheckmobile.presentation.components.MaterialsField
 import com.example.matcheckmobile.presentation.components.PhotoCaptureSection
 import com.example.matcheckmobile.presentation.components.PhotoPreviewDialog
@@ -84,20 +82,16 @@ fun Stage1FormScreen(
     // PhotoPreviewDialog дёргает его после подтверждения.
     var previewDelete by remember { mutableStateOf<(() -> Unit)?>(null) }
     var confirmFinalizeVisible by remember { mutableStateOf(false) }
-    var successVisible by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
     // Один источник для невидимого clickable на «пустые» зоны экрана — нужен
     // чтобы тап мимо инпутов сворачивал клавиатуру через clearFocus.
     val tapOutsideSource = remember { MutableInteractionSource() }
 
-    // Только при успешной финализации показываем «успешный» оверлей и
-    // навигируемся назад — ошибка не trigger'ит, она пойдёт через Snackbar.
+    // Финализация прошла — уходим с формы немедленно. Зелёную галочку рисует
+    // FinalizeSuccessHost поверх Activity: раньше выход ждал её анимацию, и
+    // сбой этого ожидания запирал инспектора на уже сохранённой форме.
     LaunchedEffect(state.finalized) {
-        if (state.finalized) {
-            successVisible = true
-            delay(900L)
-            onFinalized()
-        }
+        if (state.finalized) onFinalized()
     }
 
     LaunchedEffect(state.error) {
@@ -456,10 +450,6 @@ fun Stage1FormScreen(
                 // вызовов finalizeStage1 → дубли delivery в Room.
                 confirmEnabled = !state.isSaving,
             )
-        }
-
-        if (successVisible) {
-            FinalizeSuccessOverlay()
         }
     }
 }

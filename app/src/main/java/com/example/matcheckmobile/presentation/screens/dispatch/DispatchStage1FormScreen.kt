@@ -54,7 +54,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.matcheckmobile.MatcheckApplication
 import com.example.matcheckmobile.presentation.components.AssetsCheckbox
 import com.example.matcheckmobile.presentation.components.FinalizeConfirmDialog
-import com.example.matcheckmobile.presentation.components.FinalizeSuccessOverlay
 import com.example.matcheckmobile.presentation.components.MaterialsField
 import com.example.matcheckmobile.presentation.components.PhotoCaptureSection
 import com.example.matcheckmobile.presentation.components.PhotoPreviewDialog
@@ -65,7 +64,6 @@ import com.example.matcheckmobile.presentation.components.rememberPhotoCapture
 import com.example.matcheckmobile.presentation.viewmodel.DispatchStage1FormViewModel
 import com.example.matcheckmobile.presentation.viewmodel.SHIPMENT_PURPOSE_OPTIONS
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val TabletBreakpoint = 600.dp
@@ -86,16 +84,14 @@ fun DispatchStage1FormScreen(
     var previewPath by remember { mutableStateOf<String?>(null) }
     var previewDelete by remember { mutableStateOf<(() -> Unit)?>(null) }
     var confirmFinalizeVisible by remember { mutableStateOf(false) }
-    var successVisible by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
     val tapOutsideSource = remember { MutableInteractionSource() }
 
+    // Финализация прошла — уходим с формы немедленно. Зелёную галочку рисует
+    // FinalizeSuccessHost поверх Activity: раньше выход ждал её анимацию, и
+    // сбой этого ожидания запирал инспектора на уже сохранённой форме.
     LaunchedEffect(state.finalized) {
-        if (state.finalized) {
-            successVisible = true
-            delay(900L)
-            onFinalized()
-        }
+        if (state.finalized) onFinalized()
     }
     LaunchedEffect(state.error) {
         state.error?.let {
@@ -407,10 +403,6 @@ fun DispatchStage1FormScreen(
                 // Double-tap guard, симметрично Stage1FormScreen (Приёмка).
                 confirmEnabled = !state.isSaving,
             )
-        }
-
-        if (successVisible) {
-            FinalizeSuccessOverlay()
         }
     }
 }
