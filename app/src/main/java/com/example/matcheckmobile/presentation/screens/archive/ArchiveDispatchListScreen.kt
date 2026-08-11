@@ -39,7 +39,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalContext
 import com.example.matcheckmobile.sync.MatcheckSyncScheduler
-import com.example.matcheckmobile.presentation.components.ContractorHeaderCard
+import com.example.matcheckmobile.presentation.components.GroupHeaderCard
 import com.example.matcheckmobile.presentation.components.UpdSummaryCard
 import com.example.matcheckmobile.presentation.util.formatLocalTime
 import com.example.matcheckmobile.presentation.viewmodel.ArchiveDispatchListViewModel
@@ -139,7 +139,7 @@ fun ArchiveDispatchListScreen(
                                     val expanded = expandedMap[group.dayStartMs] ?: isToday
                                     item(key = "day:${group.dayStartMs}") {
                                         Column(modifier = Modifier.fillMaxWidth()) {
-                                            ContractorHeaderCard(
+                                            GroupHeaderCard(
                                                 name = group.dateLabel,
                                                 count = group.rows.size,
                                                 expanded = expanded,

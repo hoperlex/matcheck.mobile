@@ -40,7 +40,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalContext
 import com.example.matcheckmobile.sync.MatcheckSyncScheduler
-import com.example.matcheckmobile.presentation.components.ContractorHeaderCard
+import com.example.matcheckmobile.presentation.components.GroupHeaderCard
 import com.example.matcheckmobile.presentation.components.UpdSummaryCard
 import com.example.matcheckmobile.presentation.components.UpdTimerBadge
 import com.example.matcheckmobile.presentation.viewmodel.DispatchStage2ListViewModel
@@ -134,15 +134,15 @@ fun DispatchStage2ListScreen(
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             groups.forEach { group ->
-                                val expanded = expandedMap[group.contractorName] ?: true
-                                item(key = "group:${group.contractorName}") {
+                                val expanded = expandedMap[group.key] ?: true
+                                item(key = "group:${group.key}") {
                                     Column(modifier = Modifier.fillMaxWidth()) {
-                                        ContractorHeaderCard(
-                                            name = group.contractorName,
+                                        GroupHeaderCard(
+                                            name = group.displayName,
                                             count = group.rows.size,
                                             expanded = expanded,
                                             onToggle = {
-                                                expandedMap[group.contractorName] = !expanded
+                                                expandedMap[group.key] = !expanded
                                             },
                                         )
                                         AnimatedVisibility(

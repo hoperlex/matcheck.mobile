@@ -46,7 +46,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.matcheckmobile.domain.model.sourceDocTitle
-import com.example.matcheckmobile.presentation.components.ContractorHeaderCard
+import com.example.matcheckmobile.presentation.components.GroupHeaderCard
 import com.example.matcheckmobile.presentation.components.UpdSummaryCard
 import com.example.matcheckmobile.presentation.viewmodel.DispatchUpdGroup
 import com.example.matcheckmobile.presentation.viewmodel.DispatchUpdSelectViewModel
@@ -163,7 +163,7 @@ fun DispatchUpdSelectScreen(
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             activeGroups.forEach { group ->
-                                val key = "${selectedTab.name}:${group.contractorName}"
+                                val key = "${selectedTab.name}:${group.key}"
                                 val defaultExpanded = selectedTab == DispatchUpdTab.Today
                                 val expanded = expandedMap[key] ?: defaultExpanded
                                 item(key = "group:$key") {
@@ -250,8 +250,8 @@ private fun DispatchUpdGroupSection(
     onOpenDraft: (draftId: String) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        ContractorHeaderCard(
-            name = group.contractorName,
+        GroupHeaderCard(
+            name = group.displayName,
             count = group.rows.size,
             expanded = expanded,
             onToggle = onToggle,
@@ -276,7 +276,9 @@ private fun DispatchUpdGroupSection(
                         // позволяет грузить и УПД на отгрузку — поэтому
                         // не хардкодим, читаем kind.
                         title = sourceDocTitle(doc.kind, doc.docNumber)
-                        subtitle = "Поставщик: ${row.supplierName ?: "—"}"
+                        // См. IntakeUpdSelectScreen: поставщик теперь в шапке
+                        // группы, в строке — подрядчик.
+                        subtitle = "Подрядчик: ${row.contractorName?.takeIf(String::isNotBlank) ?: "—"}"
                         onClick = { onOpenWithUpd(doc.id) }
                     } else {
                         title = "Отгрузка без УПД"

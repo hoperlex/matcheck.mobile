@@ -34,12 +34,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 /**
- * Заголовок-карточка раздела «Подрядчик» в раскрывающемся списке.
- * Используется в [IntakeUpdSelectScreen] (1 Этап) и [Stage2ListScreen] (2 Этап)
- * — UI одинаковый, чтобы пользователь видел знакомую структуру.
+ * Заголовок-карточка группы в раскрывающемся списке: имя группы, счётчик
+ * строк и chevron. По какому признаку сгруппировано — решает вызывающий:
+ * поставщик на экранах приёмки/отгрузки, дата в архиве. UI одинаковый,
+ * чтобы пользователь везде видел знакомую структуру.
  */
 @Composable
-fun ContractorHeaderCard(
+fun GroupHeaderCard(
     name: String,
     count: Int,
     expanded: Boolean,

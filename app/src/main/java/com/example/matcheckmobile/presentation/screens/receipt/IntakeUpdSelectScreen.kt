@@ -46,7 +46,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.matcheckmobile.domain.model.sourceDocTitle
-import com.example.matcheckmobile.presentation.components.ContractorHeaderCard
+import com.example.matcheckmobile.presentation.components.GroupHeaderCard
 import com.example.matcheckmobile.presentation.components.UpdSummaryCard
 import com.example.matcheckmobile.presentation.viewmodel.IntakeUpdGroup
 import com.example.matcheckmobile.presentation.viewmodel.IntakeUpdSelectViewModel
@@ -167,7 +167,7 @@ fun IntakeUpdSelectScreen(
                                 // Per-tab ключ: переключение «Сегодня/Будущие»
                                 // не сбрасывает пользовательский тоггл. Дефолт:
                                 // в «Сегодня» — раскрыто, в «Будущие» — свёрнуто.
-                                val key = "${selectedTab.name}:${group.contractorName}"
+                                val key = "${selectedTab.name}:${group.key}"
                                 val defaultExpanded = selectedTab == IntakeUpdTab.Today
                                 val expanded = expandedMap[key] ?: defaultExpanded
                                 item(key = "group:$key") {
@@ -261,8 +261,8 @@ private fun IntakeUpdGroupSection(
     onOpenDraft: (draftId: String) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        ContractorHeaderCard(
-            name = group.contractorName,
+        GroupHeaderCard(
+            name = group.displayName,
             count = group.rows.size,
             expanded = expanded,
             onToggle = onToggle,
@@ -288,7 +288,9 @@ private fun IntakeUpdGroupSection(
                         // Сервер отдаёт inspector_kpp как УПД, так и ТН/ОС-2 —
                         // см. apps/api/.../routes/sync.ts.
                         title = sourceDocTitle(doc.kind, doc.docNumber)
-                        subtitle = "Поставщик: ${row.supplierName ?: "—"}"
+                        // Поставщик ушёл в заголовок группы, поэтому в строке
+                        // показываем второго участника поставки — подрядчика.
+                        subtitle = "Подрядчик: ${row.contractorName?.takeIf(String::isNotBlank) ?: "—"}"
                         onClick = { onOpenWithUpd(doc.id) }
                     } else {
                         // Псевдо-карточка empty-draft (создана через «Создать

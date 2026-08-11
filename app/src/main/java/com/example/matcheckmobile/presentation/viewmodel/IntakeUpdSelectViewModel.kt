@@ -45,9 +45,15 @@ data class IntakeUpdRow(
     val draftId: String? = null,
 )
 
-/** Группа УПД по подрядчику. Используется для секций в [IntakeUpdSelectScreen]. */
+/**
+ * Группа УПД по поставщику. Используется для секций в [IntakeUpdSelectScreen].
+ *
+ * [key] — стабильный ключ для Compose, [displayName] — заголовок на экране;
+ * почему они разные, см. [PartyGroup].
+ */
 data class IntakeUpdGroup(
-    val contractorName: String,
+    val key: String,
+    val displayName: String,
     val rows: List<IntakeUpdRow>,
 )
 
@@ -56,7 +62,6 @@ data class IntakeUpdGroupsState(
     val future: List<IntakeUpdGroup> = emptyList(),
 )
 
-private const val UNKNOWN_CONTRACTOR_LABEL = "Подрядчик не указан"
 private const val MANUAL_GROUP_LABEL = "Созданы вручную"
 
 class IntakeUpdSelectViewModel(container: AppContainer) : ViewModel() {
@@ -108,9 +113,11 @@ class IntakeUpdSelectViewModel(container: AppContainer) : ViewModel() {
             val draftId = draftsByUpdId[d.id]
             val row = IntakeUpdRow(
                 document = d,
-                supplierName = d.supplierName
+                // takeIf(isNotBlank): пустая, но не-null строка не должна
+                // блокировать fallback на справочник контрагентов.
+                supplierName = d.supplierName?.takeIf(String::isNotBlank)
                     ?: d.supplierId?.let { byCounterpartyId[it]?.name },
-                contractorName = d.contractorName
+                contractorName = d.contractorName?.takeIf(String::isNotBlank)
                     ?: d.contractorId?.let { byCounterpartyId[it]?.name },
                 draftId = draftId,
             )
@@ -137,8 +144,8 @@ class IntakeUpdSelectViewModel(container: AppContainer) : ViewModel() {
             )
         }
         IntakeUpdGroupsState(
-            today = groupByContractor(todayRows),
-            future = groupByContractor(futureRows),
+            today = groupBySupplier(todayRows),
+            future = groupBySupplier(futureRows),
         )
     }.stateIn(
         scope = viewModelScope,
@@ -149,23 +156,21 @@ class IntakeUpdSelectViewModel(container: AppContainer) : ViewModel() {
     /**
      * Группировка: empty-draft строки (`document == null`) идут в отдельный
      * блок «Созданы вручную» в самом конце списка. Реальные УПД из веб-портала
-     * группируются по подрядчику; те, у которых contractorName пуст —
-     * в «Подрядчик не указан» прямо перед «Созданы вручную».
+     * группируются по поставщику; те, у которых supplierName пуст —
+     * в «Поставщик не указан» прямо перед «Созданы вручную».
+     *
+     * Поставщик, а не подрядчик: подрядчик на объекте один на все документы,
+     * то есть группировка по нему вырождается в единственную группу, а
+     * к воротам приезжает конкретный поставщик — по нему инспектор и ищет
+     * свою УПД. Склейку разных написаний одного имени берёт на себя
+     * [groupByParty].
      */
-    private fun groupByContractor(rows: List<IntakeUpdRow>): List<IntakeUpdGroup> {
+    private fun groupBySupplier(rows: List<IntakeUpdRow>): List<IntakeUpdGroup> {
         val (manualRows, realRows) = rows.partition { it.document == null }
-        val realGroups = realRows
-            .groupBy { it.contractorName?.takeIf { name -> name.isNotBlank() } ?: UNKNOWN_CONTRACTOR_LABEL }
-            .toList()
-            .sortedWith(
-                compareBy(
-                    { it.first == UNKNOWN_CONTRACTOR_LABEL },
-                    { it.first.lowercase() },
-                ),
-            )
-            .map { (contractor, items) -> IntakeUpdGroup(contractor, items) }
+        val realGroups = groupByParty(realRows) { it.supplierName }
+            .map { IntakeUpdGroup(it.key, it.displayName, it.rows) }
         return if (manualRows.isEmpty()) realGroups
-            else realGroups + IntakeUpdGroup(MANUAL_GROUP_LABEL, manualRows)
+            else realGroups + IntakeUpdGroup(MANUAL_PARTY_KEY, MANUAL_GROUP_LABEL, manualRows)
     }
 
     /**

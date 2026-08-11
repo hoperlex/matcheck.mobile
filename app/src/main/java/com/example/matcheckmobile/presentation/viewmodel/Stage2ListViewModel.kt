@@ -21,7 +21,7 @@ import kotlinx.coroutines.launch
  * [titleText] — что показать крупно в карточке: «УПД №…» если номер удалось
  * резолвить (по привязанной УПД либо по строке «УПД: …» в комментарии),
  * иначе «Госномер …», иначе короткий id приёмки.
- * [subtitleText] — мелкая строка под заголовком, обычно «Поставщик: …».
+ * [subtitleText] — мелкая строка под заголовком: госномер авто с 1 Этапа.
  */
 data class Stage2DeliveryRow(
     val delivery: RemoteDeliveryEntity,
@@ -31,18 +31,17 @@ data class Stage2DeliveryRow(
     val hasDraft: Boolean = false,
 )
 
-/** Группа приёмок по подрядчику — структура зеркалит [IntakeUpdGroup] на 1 Этапе. */
+/** Группа приёмок по поставщику — структура зеркалит [IntakeUpdGroup] на 1 Этапе. */
 data class Stage2DeliveryGroup(
-    val contractorName: String,
+    val key: String,
+    val displayName: String,
     val rows: List<Stage2DeliveryRow>,
 )
-
-private const val UNKNOWN_CONTRACTOR_LABEL = "Подрядчик не указан"
 
 /**
  * Список приёмок, ожидающих 2 Этап — статус `filled` («Оформлена» на
  * веб-портале). Подтверждение МОЛ переводит их в `confirmed_mol`, после
- * чего они уходят из этого списка. UI показывает группировку по подрядчику
+ * чего они уходят из этого списка. UI показывает группировку по поставщику
  * с раскрытием — так же, как «Выбор УПД для приёмки» на 1 Этапе.
  *
  * Раньше сюда же входил статус `no_document` (приёмка без УПД), но веб
@@ -123,8 +122,15 @@ class Stage2ListViewModel(container: AppContainer) : ViewModel() {
             // «Госномер:» — экономит место и читается быстрее.
             val subtitleText = d.vehiclePlate?.takeIf { it.isNotBlank() } ?: "—"
 
-            val contractorName = d.contractorId?.let { cpById[it]?.name }
-                ?: attachedDocs.firstOrNull()?.contractorName
+            // Имя поставщика для группировки. Приоритет тот же, что на
+            // 1 Этапе (IntakeUpdSelectViewModel): сначала денормализованное
+            // имя из УПД, потом справочник — иначе заголовки Этапов разъедутся.
+            // `supplier_id` у приёмок на практике пуст, так что основной путь —
+            // привязанный документ; его докачивает backfill из init.
+            val supplierName = attachedDocs.firstNotNullOfOrNull { doc ->
+                doc.supplierName?.takeIf(String::isNotBlank)
+                    ?: doc.supplierId?.let { cpById[it]?.name }
+            } ?: d.supplierId?.let { cpById[it]?.name }
 
             val row = Stage2DeliveryRow(
                 delivery = d,
@@ -132,19 +138,13 @@ class Stage2ListViewModel(container: AppContainer) : ViewModel() {
                 subtitleText = subtitleText,
                 hasDraft = d.id in draftIdSet,
             )
-            val groupKey = contractorName?.takeIf { it.isNotBlank() } ?: UNKNOWN_CONTRACTOR_LABEL
-            row to groupKey
+            row to supplierName
         }
 
-        pairs.groupBy({ it.second }, { it.first })
-            .toList()
-            .sortedWith(
-                compareBy(
-                    { it.first == UNKNOWN_CONTRACTOR_LABEL },
-                    { it.first.lowercase() },
-                ),
-            )
-            .map { (contractor, items) -> Stage2DeliveryGroup(contractor, items) }
+        groupByParty(pairs) { it.second }
+            .map { group ->
+                Stage2DeliveryGroup(group.key, group.displayName, group.rows.map { it.first })
+            }
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),

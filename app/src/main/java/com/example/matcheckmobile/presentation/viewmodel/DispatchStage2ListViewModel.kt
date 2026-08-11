@@ -24,11 +24,10 @@ data class Stage2ShipmentRow(
 )
 
 data class Stage2ShipmentGroup(
-    val contractorName: String,
+    val key: String,
+    val displayName: String,
     val rows: List<Stage2ShipmentRow>,
 )
-
-private const val UNKNOWN_CONTRACTOR_LABEL = "Подрядчик не указан"
 
 /**
  * Зеркало [Stage2ListViewModel] для отгрузки. Статус `shipped` — отгружено,
@@ -57,19 +56,20 @@ class DispatchStage2ListViewModel(container: AppContainer) : ViewModel() {
         }
     }
 
+    // Справочник контрагентов среди источников больше не нужен: имя поставщика
+    // приходит денормализованным в самой УПД (`supplierName`), а получателя
+    // этот экран не показывает.
     val groups: StateFlow<List<Stage2ShipmentGroup>> = combine(
         container.shipmentRepository.observeByStatuses(STAGE2_STATUSES),
         container.database.remoteSourceDocumentDao().observeAll(),
-        container.database.remoteCounterpartyDao().observeAll(),
         container.shipmentStage2DraftRepository.observeIds(),
         container.tokenStorage.state,
-    ) { shipments, sourceDocs, counterparties, draftIds, tokenSnapshot ->
+    ) { shipments, sourceDocs, draftIds, tokenSnapshot ->
         // Defense-in-depth siteId-фильтр. См. Stage2ListViewModel.
         val currentSiteId = tokenSnapshot.effectiveSiteId
         if (currentSiteId.isNullOrBlank()) return@combine emptyList()
         val ownShipments = shipments.filter { it.siteId == currentSiteId }
 
-        val cpById = counterparties.associateBy { it.id }
         val docById = sourceDocs.associateBy { it.id }
         val draftIdSet = draftIds.toSet()
 
@@ -93,11 +93,14 @@ class DispatchStage2ListViewModel(container: AppContainer) : ViewModel() {
             // завершается). Без префикса «Госномер:» — короче и нагляднее.
             val subtitleText = s.vehiclePlate?.takeIf { it.isNotBlank() } ?: "—"
 
-            // Для shipment «подрядчик-группировка» — это получатель: либо
-            // recipientId/recipientMolId УПД, либо receiverCounterpartyId
-            // shipment'а. Пока берём receiverCounterpartyId как основной ключ.
-            val contractorName = s.receiverCounterpartyId?.let { cpById[it]?.name }
-                ?: attachedDocs.firstOrNull()?.contractorName
+            // У RemoteShipmentEntity нет своего supplierId (на сервере
+            // shipments.supplier_id есть, в Room-сущность не смаплен), поэтому
+            // имя поставщика берём единственным путём — из привязанной УПД.
+            // Для отгрузки «поставщик» — это мы сами, так что группа обычно
+            // одна; группируем как приёмку ради единообразия экранов.
+            val supplierName = attachedDocs.firstNotNullOfOrNull {
+                it.supplierName?.takeIf(String::isNotBlank)
+            }
 
             val row = Stage2ShipmentRow(
                 shipment = s,
@@ -105,19 +108,13 @@ class DispatchStage2ListViewModel(container: AppContainer) : ViewModel() {
                 subtitleText = subtitleText,
                 hasDraft = s.id in draftIdSet,
             )
-            val groupKey = contractorName?.takeIf { it.isNotBlank() } ?: UNKNOWN_CONTRACTOR_LABEL
-            row to groupKey
+            row to supplierName
         }
 
-        pairs.groupBy({ it.second }, { it.first })
-            .toList()
-            .sortedWith(
-                compareBy(
-                    { it.first == UNKNOWN_CONTRACTOR_LABEL },
-                    { it.first.lowercase() },
-                ),
-            )
-            .map { (contractor, items) -> Stage2ShipmentGroup(contractor, items) }
+        groupByParty(pairs) { it.second }
+            .map { group ->
+                Stage2ShipmentGroup(group.key, group.displayName, group.rows.map { it.first })
+            }
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),

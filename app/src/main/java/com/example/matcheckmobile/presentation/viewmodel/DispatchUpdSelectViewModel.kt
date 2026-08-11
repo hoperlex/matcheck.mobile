@@ -28,14 +28,18 @@ data class DispatchUpdRow(
     val draftId: String? = null,
 )
 
-data class DispatchUpdGroup(val contractorName: String, val rows: List<DispatchUpdRow>)
+/** См. [IntakeUpdGroup]: [key] — для Compose, [displayName] — на экран. */
+data class DispatchUpdGroup(
+    val key: String,
+    val displayName: String,
+    val rows: List<DispatchUpdRow>,
+)
 
 data class DispatchUpdGroupsState(
     val today: List<DispatchUpdGroup> = emptyList(),
     val future: List<DispatchUpdGroup> = emptyList(),
 )
 
-private const val UNKNOWN_CONTRACTOR_LABEL = "Подрядчик не указан"
 private const val MANUAL_GROUP_LABEL = "Созданы вручную"
 
 class DispatchUpdSelectViewModel(container: AppContainer) : ViewModel() {
@@ -84,8 +88,11 @@ class DispatchUpdSelectViewModel(container: AppContainer) : ViewModel() {
             val draftId = draftsByUpdId[d.id]
             val row = DispatchUpdRow(
                 document = d,
-                supplierName = d.supplierName ?: d.supplierId?.let { byCounterpartyId[it]?.name },
-                contractorName = d.contractorName ?: d.contractorId?.let { byCounterpartyId[it]?.name },
+                // takeIf(isNotBlank) — см. IntakeUpdSelectViewModel.
+                supplierName = d.supplierName?.takeIf(String::isNotBlank)
+                    ?: d.supplierId?.let { byCounterpartyId[it]?.name },
+                contractorName = d.contractorName?.takeIf(String::isNotBlank)
+                    ?: d.contractorId?.let { byCounterpartyId[it]?.name },
                 draftId = draftId,
             )
             val bucket = when {
@@ -106,8 +113,8 @@ class DispatchUpdSelectViewModel(container: AppContainer) : ViewModel() {
             )
         }
         DispatchUpdGroupsState(
-            today = groupByContractor(todayRows),
-            future = groupByContractor(futureRows),
+            today = groupBySupplier(todayRows),
+            future = groupBySupplier(futureRows),
         )
     }.stateIn(
         scope = viewModelScope,
@@ -115,20 +122,13 @@ class DispatchUpdSelectViewModel(container: AppContainer) : ViewModel() {
         initialValue = DispatchUpdGroupsState(),
     )
 
-    private fun groupByContractor(rows: List<DispatchUpdRow>): List<DispatchUpdGroup> {
+    /** Зеркало `IntakeUpdSelectViewModel.groupBySupplier` — логика та же. */
+    private fun groupBySupplier(rows: List<DispatchUpdRow>): List<DispatchUpdGroup> {
         val (manualRows, realRows) = rows.partition { it.document == null }
-        val realGroups = realRows
-            .groupBy { it.contractorName?.takeIf { name -> name.isNotBlank() } ?: UNKNOWN_CONTRACTOR_LABEL }
-            .toList()
-            .sortedWith(
-                compareBy(
-                    { it.first == UNKNOWN_CONTRACTOR_LABEL },
-                    { it.first.lowercase() },
-                ),
-            )
-            .map { (contractor, items) -> DispatchUpdGroup(contractor, items) }
+        val realGroups = groupByParty(realRows) { it.supplierName }
+            .map { DispatchUpdGroup(it.key, it.displayName, it.rows) }
         return if (manualRows.isEmpty()) realGroups
-            else realGroups + DispatchUpdGroup(MANUAL_GROUP_LABEL, manualRows)
+            else realGroups + DispatchUpdGroup(MANUAL_PARTY_KEY, MANUAL_GROUP_LABEL, manualRows)
     }
 
     private data class DispatchUpdSources(
