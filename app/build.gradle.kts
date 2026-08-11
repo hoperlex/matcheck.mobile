@@ -25,8 +25,8 @@ android {
         // updater сравнивает manifest.versionCode с BuildConfig.VERSION_CODE и
         // предлагает обновление только когда первый больше. Непрерывность не
         // требуется — пропуски допустимы.
-        versionCode = 35
-        versionName = "1.0.34"
+        versionCode = 36
+        versionName = "1.0.35"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
