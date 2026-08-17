@@ -18,6 +18,19 @@ interface SyncApi {
     suspend fun delta(
         @Query("since") since: String? = null,
         @Query("windowDays") windowDays: Int? = null,
+        /**
+         * Что умеет клиент, список через запятую. Ровно этим сервер решает,
+         * отдавать ли групповой контракт: без параметра он ВСЕГДА отвечает
+         * по-старому, даже если объект уже переведён в новый режим
+         * (см. серверный domain/groups/group-mode.ts).
+         */
+        @Query("capabilities") capabilities: String? = null,
+        /**
+         * Токен следующей страницы из `nextPageToken` предыдущего ответа.
+         * Только для группового режима: он гарантирует, что машина не будет
+         * разрезана границей страницы.
+         */
+        @Query("pageToken") pageToken: String? = null,
     ): SyncDeltaResponse
 
     /**

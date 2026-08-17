@@ -20,6 +20,15 @@ data class ReconcileRequestDto(
     val deliveries: List<ReconcileItemDto>,
     val shipments: List<ReconcileItemDto>,
     val sourceDocuments: List<ReconcileItemDto>,
+    /**
+     * То же, что query-параметр `capabilities` у GET /sync, — здесь в теле,
+     * потому что reconcile POST.
+     *
+     * Обязательно именно в обоих местах. Разъедься они — дельта прислала бы
+     * tombstone на скрытый документ, а сверка через минуту вернула бы его
+     * обратно, и скрытие не пережило бы одну синхронизацию.
+     */
+    val capabilities: String? = null,
 )
 
 @Serializable

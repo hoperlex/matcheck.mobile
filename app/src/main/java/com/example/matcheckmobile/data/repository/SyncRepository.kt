@@ -231,6 +231,10 @@ class SyncRepository(
                     deliveries = localDel.map { ReconcileItemDto(it.id, it.version) },
                     shipments = localShip.map { ReconcileItemDto(it.id, it.version) },
                     sourceDocuments = localSd.map { ReconcileItemDto(it.id, it.version) },
+                    // Та же capability, что и в дельте. Без неё сверка отбирала бы
+                    // документы прежним предикатом и возвращала обратно то, что
+                    // дельта только что скрыла tombstone'ом.
+                    capabilities = SOURCE_GROUPS_CAPABILITY,
                 ),
             )
         }.getOrElse { e ->
@@ -481,24 +485,38 @@ class SyncRepository(
     private suspend fun pullAllPages(initialWindowDays: Int): SyncSummary {
         _state.value = _state.value.copy(isRunning = true)
         try {
+            // Курсор, с которого начат проход. В групповом режиме он остаётся
+            // неизменным до конца обхода: позицию внутри снимка несёт pageToken,
+            // а `since` задаёт сам снимок. Меняя since между страницами, мы
+            // сдвинули бы снимок под собой.
             var cursor: String? = deviceSettings.readSyncCursor()
             val isInitial = cursor == null
             var pages = 0
+            var pageToken: String? = null
             val totals = SyncSummary.Builder()
             while (true) {
                 val response = syncApi.delta(
                     since = cursor,
-                    windowDays = if (cursor == null) initialWindowDays else null,
+                    // Окно нужно только самому первому запросу initial-sync:
+                    // страницы внутри того же прохода его не переспрашивают.
+                    windowDays = if (cursor == null && pageToken == null) initialWindowDays else null,
+                    capabilities = SOURCE_GROUPS_CAPABILITY,
+                    pageToken = pageToken,
                 )
                 applyResponse(response)
                 pages++
                 totals.addPage(response)
 
-                val nextCursor = response.cursor
-                deviceSettings.setSyncCursor(nextCursor)
-                cursor = nextCursor
-
-                if (!hasMorePages(response)) break
+                // Правило обхода вынесено в decidePageStep и покрыто тестом:
+                // сдвиг курсора в середине снимка стоит потерянного хвоста.
+                val step = decidePageStep(response.nextPageToken, hasMorePages(response))
+                pageToken = step.pageToken
+                if (step.commitCursor) {
+                    val nextCursor = response.cursor
+                    deviceSettings.setSyncCursor(nextCursor)
+                    cursor = nextCursor
+                }
+                if (step.done) break
             }
             return totals.build(pages = pages, isInitial = isInitial)
         } finally {
@@ -649,6 +667,24 @@ class SyncRepository(
         // неверно детектит «полную страницу». MUST MATCH SERVER.
         const val LIMIT_500 = 500
         const val LIMIT_SOURCE_DOCS = 1000
+
+        /**
+         * Чем клиент заявляет серверу поддержку группового протокола.
+         *
+         * Пока строка не уходит в запрос, сервер ВСЕГДА отвечает по-старому:
+         * машина из нескольких УПД приезжает отдельными документами, скрытие
+         * необработанного не применяется, keyset-пагинация не включается. Это
+         * третье и обязательное условие в серверном group-mode.ts — двух
+         * остальных (флага и списка объектов) недостаточно.
+         *
+         * Заявлять её можно ровно потому, что ниже реализован обход страниц по
+         * `nextPageToken` и курсор сдвигается только после последней страницы.
+         * Без этого capability означала бы потерю хвоста синхронизации.
+         *
+         * MUST MATCH SERVER: SOURCE_GROUPS_CAPABILITY в
+         * apps/api/src/domain/groups/group-mode.ts.
+         */
+        const val SOURCE_GROUPS_CAPABILITY = "source_groups_v1"
         const val TAG = "SyncReconcile"
         // Частый backstop к best-effort SSE/периодике. Win-условие (свежая filled
         // на другом планшете) даёт сам pull; reconcile лишь добирает пропущенное.
