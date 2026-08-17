@@ -20,6 +20,7 @@ import com.example.matcheckmobile.monitoring.ExitReasonReporter
 import com.example.matcheckmobile.monitoring.initSentry
 import com.example.matcheckmobile.sync.AppUpdateWorker
 import com.example.matcheckmobile.sync.MatcheckSyncScheduler
+import com.example.matcheckmobile.sync.PhotoPrepareScheduler
 import com.example.matcheckmobile.sync.SyncScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -70,6 +71,13 @@ class MatcheckApplication : Application() {
         // оба вызова no-op — разработка не отвлекается на проверки.
         container.appUpdateRepository.checkForUpdate()
         AppUpdateWorker.schedule(this)
+
+        // Подготовка кадров не зависит ни от сети, ни от сессии: это чисто
+        // локальная работа над уже снятыми фото. Запускаем на каждом старте —
+        // сюда же попадают кадры, чей prepare раньше упал по нехватке места,
+        // и строки, застрявшие в PREPARING после убийства процесса.
+        PhotoPrepareScheduler.requestPrepare(this)
+        PhotoPrepareScheduler.schedulePeriodicPrepare(this)
 
         if (container.tokenStorage.isAuthenticated()) {
             // Холодный старт с валидной сессией → push-then-pull через

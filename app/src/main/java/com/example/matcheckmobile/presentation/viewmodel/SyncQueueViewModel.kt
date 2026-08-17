@@ -12,7 +12,9 @@ import com.example.matcheckmobile.data.local.entity.RemoteDeliveryPhotoEntity
 import com.example.matcheckmobile.data.local.entity.RemoteShipmentPhotoEntity
 import com.example.matcheckmobile.data.repository.OperationRepository
 import com.example.matcheckmobile.di.AppContainer
+import com.example.matcheckmobile.domain.model.RemotePhotoStatus
 import com.example.matcheckmobile.sync.MatcheckSyncScheduler
+import com.example.matcheckmobile.sync.PhotoPrepareScheduler
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -188,13 +190,22 @@ class SyncQueueViewModel(private val container: AppContainer) : ViewModel() {
             // (network-glitch на первом push → 409 при повторе).
             runCatching { container.mutationProcessor.resolveStaleCreateConflicts() }
             // 2. Удаляем фото с потерянными blob'ами — восстановить нечем.
+            //    Кадры в PENDING_PREPARE сюда не попадают: у них blob'а ещё
+            //    нет по определению, а исходник на диске есть.
             runCatching { container.photoUploadProcessor.cleanupBrokenLocalBlobs() }
-            // 3. Общий push-pull для свежих приёмок/выездов и фото в очереди.
+            // 3. Подготовка отложенных кадров — локально, до и независимо от сети.
+            PhotoPrepareScheduler.requestPrepare(container.appContext)
+            // 4. Общий push-pull для свежих приёмок/выездов и фото в очереди.
             MatcheckSyncScheduler.requestImmediateSync(container.appContext)
         }
     }
 
     private companion object {
-        val PHOTO_PENDING_STATUSES = listOf("PENDING_UPLOAD", "UPLOADING", "UPLOAD_ERROR")
+        /**
+         * Всё, что ещё не доехало до сервера, включая стадию подготовки:
+         * кадр в PENDING_PREPARE физически есть на диске, и в очереди он
+         * обязан быть виден — иначе инспектор считает, что всё отправлено.
+         */
+        val PHOTO_PENDING_STATUSES = RemotePhotoStatus.UNSENT
     }
 }

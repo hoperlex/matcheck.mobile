@@ -87,6 +87,18 @@ data class MaterialDraft(
     val price: String? = null,
     val vatRate: String? = null,
     val vatSum: String? = null,
+    /**
+     * Происхождение позиции: из какого документа и какой его строки она взята.
+     * Оба null у строк, которые инспектор добавил руками.
+     *
+     * Нужно с тех пор, как одна приёмка собирается из НЕСКОЛЬКИХ документов
+     * одной машины: без происхождения веб-портал не разложит позиции по
+     * документам, а форма не сможет точечно дописать или убрать позиции при
+     * изменении состава машины. Сервер игнорирует присланный documentId, если
+     * тот не привязан к приёмке (routes/deliveries.ts), — подделать нельзя.
+     */
+    val sourceDocumentId: String? = null,
+    val sourceDocumentItemId: String? = null,
 )
 
 /**
@@ -1067,6 +1079,13 @@ private fun EditMaterialDialog(
                                     price = initial.price,
                                     vatRate = initial.vatRate,
                                     vatSum = recomputedVatSum ?: initial.vatSum,
+                                    // Правка названия или количества не делает
+                                    // позицию «ничьей»: она по-прежнему из своего
+                                    // документа. Потеря происхождения здесь стёрла
+                                    // бы разбивку приёмки по документам ровно на
+                                    // тех строках, которые инспектор поправил.
+                                    sourceDocumentId = initial.sourceDocumentId,
+                                    sourceDocumentItemId = initial.sourceDocumentItemId,
                                 )
                             )
                         },

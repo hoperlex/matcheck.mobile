@@ -8,6 +8,9 @@ import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.data.repository.OperationRepository
 import com.example.matcheckmobile.di.AppContainer
 import com.example.matcheckmobile.domain.BusinessTime
+import com.example.matcheckmobile.domain.model.draftGroupKey
+import com.example.matcheckmobile.domain.model.groupKeyOf
+import com.example.matcheckmobile.domain.model.RemotePhotoStatus
 import com.example.matcheckmobile.sync.MatcheckSyncScheduler
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
@@ -103,8 +106,19 @@ class MainStatusViewModel(container: AppContainer) : ViewModel() {
                 addAll(RemoteMappers.decodeIdList(json))
             }
         }
-        val inboundUpdWithDraft: Set<String> = inboundDrafts.mapNotNull { it.updId }.toSet()
-        val outboundUpdWithDraft: Set<String> = outboundDrafts.mapNotNull { it.updId }.toSet()
+        // Ключи черновиков — по машине, с fallback'ом на updId для записей,
+        // начатых до появления группировки (см. IntakeUpdSelectViewModel).
+        val docsById = docs.associateBy { it.id }
+        val inboundGroupsWithDraft: Set<String> = inboundDrafts
+            .mapNotNullTo(mutableSetOf()) { draftGroupKey(it.groupId, it.updId, docsById) }
+        val outboundGroupsWithDraft: Set<String> = outboundDrafts
+            .mapNotNullTo(mutableSetOf()) { draftGroupKey(it.groupId, it.updId, docsById) }
+        // Машина привязана целиком, если привязан любой её документ — то же
+        // правило, что в UpdSelectFilter.
+        val attachedGroupKeys: Set<String> = docs.asSequence()
+            .filter { it.id in attachedIds }
+            .map(::groupKeyOf)
+            .toSet()
 
         // Today — только `expectedDate == today`. Прочерк/null/любая другая
         // дата — Future. УПД-drafts принудительно Today (с ними уже работают).
@@ -113,23 +127,29 @@ class MainStatusViewModel(container: AppContainer) : ViewModel() {
         // разные, поэтому updWithDraft выбираем по direction документа.
         var todayUnattachedCount = 0
         var futureUnattachedCount = 0
-        for (d in docs) {
-            val updWithDraft = when (d.direction) {
-                "inbound" -> inboundUpdWithDraft
-                "outbound" -> outboundUpdWithDraft
+        // Считаем машины, а не документы: три УПД одной загрузки — это одна
+        // карточка у инспектора и одна приёмка, значит и одна единица счётчика.
+        for ((key, groupDocs) in docs.groupBy(::groupKeyOf)) {
+            val anchor = groupDocs.first()
+            val groupsWithDraft = when (anchor.direction) {
+                "inbound" -> inboundGroupsWithDraft
+                "outbound" -> outboundGroupsWithDraft
                 else -> continue
             }
-            if (d.id in attachedIds) continue
-            if (d.id in updWithDraft) {
+            if (key in attachedGroupKeys) continue
+            if (key in groupsWithDraft) {
                 todayUnattachedCount++
                 continue
             }
-            if (d.expectedDate == today) todayUnattachedCount++ else futureUnattachedCount++
+            if (groupDocs.any { it.expectedDate == today }) todayUnattachedCount++
+            else futureUnattachedCount++
         }
 
         // Empty-drafts (без УПД) — ручные приёмки и ручные отгрузки, всегда Сегодня.
-        val emptyDraftsCount = inboundDrafts.count { it.updId == null } +
-            outboundDrafts.count { it.updId == null }
+        // Ни документа, ни машины — см. IntakeUpdSelectViewModel: черновик
+        // машины с ещё не догруженными документами не должен попасть сюда.
+        val emptyDraftsCount = inboundDrafts.count { it.updId == null && it.groupId == null } +
+            outboundDrafts.count { it.updId == null && it.groupId == null }
 
         // 2-Этапные, прошедшие 1 Этап сегодня: filled-приёмка (arrivedAt) и
         // shipped-отгрузка (shippedAt). «Несут» УПД между 1 и 2 Этапом — после
@@ -226,9 +246,15 @@ class MainStatusViewModel(container: AppContainer) : ViewModel() {
             }
         }.distinctUntilChanged()
 
-        // Фото, ожидающие отправки на сервер: PENDING_UPLOAD — только что снято,
-        // UPLOAD_ERROR — упало при попытке (retry queue). UPLOADING — уже в
-        // процессе, считать его «висящим» бессмысленно. UPLOADED — отправлено.
-        private val PHOTO_PENDING_STATUSES = listOf("PENDING_UPLOAD", "UPLOAD_ERROR")
+        // Фото, ожидающие отправки на сервер: PENDING_PREPARE / PREPARE_ERROR —
+        // кадр снят, но ещё не собран; PENDING_UPLOAD — готов к заливке;
+        // UPLOAD_ERROR — упало при попытке (retry queue). UPLOADING и PREPARING
+        // — уже в процессе, считать их «висящими» бессмысленно.
+        private val PHOTO_PENDING_STATUSES = listOf(
+            RemotePhotoStatus.PENDING_PREPARE,
+            RemotePhotoStatus.PREPARE_ERROR,
+            RemotePhotoStatus.PENDING_UPLOAD,
+            RemotePhotoStatus.UPLOAD_ERROR,
+        )
     }
 }

@@ -48,6 +48,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.matcheckmobile.domain.model.sourceDocTitle
 import com.example.matcheckmobile.presentation.components.GroupHeaderCard
 import com.example.matcheckmobile.presentation.components.UpdSummaryCard
+import com.example.matcheckmobile.domain.model.docCountLabel
+import com.example.matcheckmobile.domain.model.partyLabel
+import com.example.matcheckmobile.domain.model.sourceDocGroupTitle
 import com.example.matcheckmobile.presentation.viewmodel.DispatchUpdGroup
 import com.example.matcheckmobile.presentation.viewmodel.DispatchUpdSelectViewModel
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
@@ -60,6 +63,7 @@ private val ContentMaxWidth = 720.dp
 fun DispatchUpdSelectScreen(
     onBack: () -> Unit,
     onOpenWithUpd: (updLocalId: String) -> Unit,
+    onOpenWithGroup: (groupId: String) -> Unit,
     onOpenDraft: (draftId: String) -> Unit,
     onCreateEmpty: () -> Unit,
 ) {
@@ -172,6 +176,7 @@ fun DispatchUpdSelectScreen(
                                         expanded = expanded,
                                         onToggle = { expandedMap[key] = !expanded },
                                         onOpenWithUpd = onOpenWithUpd,
+                                        onOpenWithGroup = onOpenWithGroup,
                                         onOpenDraft = onOpenDraft,
                                     )
                                 }
@@ -247,6 +252,7 @@ private fun DispatchUpdGroupSection(
     expanded: Boolean,
     onToggle: () -> Unit,
     onOpenWithUpd: (updLocalId: String) -> Unit,
+    onOpenWithGroup: (groupId: String) -> Unit,
     onOpenDraft: (draftId: String) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -271,15 +277,31 @@ private fun DispatchUpdGroupSection(
                     val subtitle: String
                     val onClick: () -> Unit
                     if (doc != null) {
-                        // Префикс зависит от kind документа: для исходящих
-                        // обычно это «Накладная» (ТН-2116/ОС-2), но веб
-                        // позволяет грузить и УПД на отгрузку — поэтому
-                        // не хардкодим, читаем kind.
-                        title = sourceDocTitle(doc.kind, doc.docNumber)
-                        // См. IntakeUpdSelectScreen: поставщик теперь в шапке
-                        // группы, в строке — подрядчик.
-                        subtitle = "Подрядчик: ${row.contractorName?.takeIf(String::isNotBlank) ?: "—"}"
-                        onClick = { onOpenWithUpd(doc.id) }
+                        // Заголовок машины: «УПД 1403, 1404 · Накладная 192».
+                        // Для одиночного документа вырождается в прежний
+                        // sourceDocTitle — ветвиться не нужно.
+                        title = sourceDocGroupTitle(row.documents)
+                        // См. IntakeUpdSelectScreen: поставщик в шапке группы,
+                        // в строке — грузополучатель (графа 4), прочерк если
+                        // парсер её не распознал.
+                        // Грузополучатель, иначе покупатель. Подрядчика не
+                        // показываем — см. partyLabel.
+                        val party = partyLabel(row.consigneeName, row.buyerName)
+                        subtitle = if (row.documents.size > 1) {
+                            "$party \u00b7 ${docCountLabel(row.documents.size)}"
+                        } else {
+                            party
+                        }
+                        val groupId = row.groupId
+                        val draftId = row.draftId
+                        // Начатый черновик открываем по его id — см.
+                        // IntakeUpdSelectScreen, причина та же.
+                        onClick = when {
+                            draftId != null -> ({ onOpenDraft(draftId) })
+                            groupId != null && row.documents.size > 1 ->
+                                ({ onOpenWithGroup(groupId) })
+                            else -> ({ onOpenWithUpd(doc.id) })
+                        }
                     } else {
                         title = "Отгрузка без УПД"
                         subtitle = "Черновик ожидает завершения"

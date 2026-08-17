@@ -7,11 +7,13 @@ import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.data.repository.ShipmentRepository
 import com.example.matcheckmobile.data.repository.ShipmentStage2DraftState
 import com.example.matcheckmobile.di.AppContainer
+import com.example.matcheckmobile.media.PhotoSourceInvalidException
 import com.example.matcheckmobile.media.photoTakenAtIso
 import com.example.matcheckmobile.presentation.components.MaterialDraft
 import com.example.matcheckmobile.presentation.components.Stage1PhotoItem
 import com.example.matcheckmobile.presentation.navigation.Routes
 import com.example.matcheckmobile.sync.MatcheckSyncScheduler
+import com.example.matcheckmobile.sync.PhotoPrepareScheduler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -102,6 +104,9 @@ class DispatchStage2FormViewModel(
                 price = item.price,
                 vatRate = item.vatRate,
                 vatSum = item.vatSum,
+                // Зеркало Stage2FormViewModel — см. комментарий там.
+                sourceDocumentId = item.sourceDocumentId,
+                sourceDocumentItemId = item.sourceDocumentItemId,
             )
         }
         val sourceDocIds = RemoteMappers.decodeIdList(shipment.sourceDocumentIdsJson)
@@ -335,6 +340,28 @@ class DispatchStage2FormViewModel(
 
         _state.update { it.copy(isSaving = true, error = null) }
         viewModelScope.launch {
+            // Кадры проверяем ДО финализации — см. Stage2FormViewModel.
+            val photoIntents = try {
+                withContext(Dispatchers.IO) {
+                    container.photoStorage.intentsFrom(
+                        cur.documentPhotoPaths,
+                        kind = "document",
+                        stage = "after",
+                    ) + container.photoStorage.intentsFrom(
+                        cur.vehiclePhotoPaths,
+                        kind = "vehicle",
+                        stage = "after",
+                    )
+                }
+            } catch (e: PhotoSourceInvalidException) {
+                _state.update {
+                    it.copy(
+                        isSaving = false,
+                        error = "Не сохранились фото: ${e.problems.joinToString("; ")}",
+                    )
+                }
+                return@launch
+            }
             try {
                 val items = cur.materials
                     .filter { it.name.isNotBlank() || it.qty.isNotBlank() }
@@ -347,6 +374,9 @@ class DispatchStage2FormViewModel(
                             price = m.price,
                             vatRate = m.vatRate,
                             vatSum = m.vatSum,
+                            // Зеркало Stage2FormViewModel — см. комментарий там.
+                            sourceDocumentId = m.sourceDocumentId,
+                            sourceDocumentItemId = m.sourceDocumentItemId,
                         )
                     }
 
@@ -378,6 +408,9 @@ class DispatchStage2FormViewModel(
                         isAssets = cur.isAssets,
                         sourceDocumentIds = cur.sourceDocumentIds,
                         items = items,
+                        // Фото 2-го этапа отгрузки помечаем stage='after' —
+                        // веб-портал разделит «1 Этап / 2 Этап» в шапке.
+                        photos = photoIntents,
                     ),
                 )
 
@@ -387,49 +420,7 @@ class DispatchStage2FormViewModel(
                     container.shipmentRepository.setVehicleType(cur.shipmentId, cur.vehicleTypeCode)
                 }
 
-                // Фото 2-го этапа отгрузки помечаем stage='after' — веб-портал
-                // разделит «1 Этап / 2 Этап» в шапке отгрузки.
-                val photoErrors = mutableListOf<String>()
-                cur.documentPhotoPaths.forEach { path ->
-                    try {
-                        val uri = container.photoStorage.toContentUri(File(path))
-                        container.photoRepository.captureForShipment(
-                            shipmentId = cur.shipmentId,
-                            kind = "document",
-                            sourceUri = uri,
-                            stage = "after",
-                            takenAt = photoTakenAtIso(File(path)),
-                        )
-                    } catch (t: Throwable) {
-                        android.util.Log.e("DispatchStage2", "document photo failed: $path", t)
-                        photoErrors += "док ${File(path).name}: ${t.message ?: t::class.simpleName}"
-                    }
-                }
-                cur.vehiclePhotoPaths.forEach { path ->
-                    try {
-                        val uri = container.photoStorage.toContentUri(File(path))
-                        container.photoRepository.captureForShipment(
-                            shipmentId = cur.shipmentId,
-                            kind = "vehicle",
-                            sourceUri = uri,
-                            stage = "after",
-                            takenAt = photoTakenAtIso(File(path)),
-                        )
-                    } catch (t: Throwable) {
-                        android.util.Log.e("DispatchStage2", "vehicle photo failed: $path", t)
-                        photoErrors += "машина ${File(path).name}: ${t.message ?: t::class.simpleName}"
-                    }
-                }
-
-                if (photoErrors.isNotEmpty()) {
-                    _state.update {
-                        it.copy(
-                            isSaving = false,
-                            error = "Не сохранились фото: ${photoErrors.joinToString("; ")}",
-                        )
-                    }
-                    return@launch
-                }
+                PhotoPrepareScheduler.requestPrepare(container.appContext)
                 // Триггерим немедленный sync — без этого мутация stage2 сидит
                 // в очереди до периодического Worker'а (15 мин) или network
                 // callback'а. Зеркало Stage1/Stage2/DispatchStage1 finalize'ов.

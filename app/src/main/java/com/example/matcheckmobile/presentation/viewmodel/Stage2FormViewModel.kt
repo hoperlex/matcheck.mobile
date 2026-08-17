@@ -7,11 +7,13 @@ import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.data.repository.DeliveryRepository
 import com.example.matcheckmobile.data.repository.Stage2DraftState
 import com.example.matcheckmobile.di.AppContainer
+import com.example.matcheckmobile.media.PhotoSourceInvalidException
 import com.example.matcheckmobile.media.photoTakenAtIso
 import com.example.matcheckmobile.presentation.components.MaterialDraft
 import com.example.matcheckmobile.presentation.components.Stage1PhotoItem
 import com.example.matcheckmobile.presentation.navigation.Routes
 import com.example.matcheckmobile.sync.MatcheckSyncScheduler
+import com.example.matcheckmobile.sync.PhotoPrepareScheduler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -103,6 +105,12 @@ class Stage2FormViewModel(
                 price = item.price,
                 vatRate = item.vatRate,
                 vatSum = item.vatSum,
+                // Происхождение носим и на 2 Этапе: без него позиция, доехавшая
+                // с 1 Этапа, при следующем upsert выглядела бы как внесённая
+                // руками, а строка, добавленная здесь из документа, потеряла бы
+                // привязку к нему безвозвратно.
+                sourceDocumentId = item.sourceDocumentId,
+                sourceDocumentItemId = item.sourceDocumentItemId,
             )
         }
         val vehicleTypeCode = container.deliveryRepository.getVehicleType(deliveryId)
@@ -393,6 +401,29 @@ class Stage2FormViewModel(
 
         _state.update { it.copy(isSaving = true, error = null) }
         viewModelScope.launch {
+            // Кадры проверяем ДО создания приёмки: durable-строка, из которой
+            // нечего собрать, была бы той же потерей, только незаметной.
+            val photoIntents = try {
+                withContext(Dispatchers.IO) {
+                    container.photoStorage.intentsFrom(
+                        cur.documentPhotoPaths,
+                        kind = "document",
+                        stage = "after",
+                    ) + container.photoStorage.intentsFrom(
+                        cur.vehiclePhotoPaths,
+                        kind = "vehicle",
+                        stage = "after",
+                    )
+                }
+            } catch (e: PhotoSourceInvalidException) {
+                _state.update {
+                    it.copy(
+                        isSaving = false,
+                        error = "Не сохранились фото: ${e.problems.joinToString("; ")}",
+                    )
+                }
+                return@launch
+            }
             try {
                 val items = cur.materials
                     .filter { it.name.isNotBlank() || it.qty.isNotBlank() }
@@ -405,6 +436,12 @@ class Stage2FormViewModel(
                             price = m.price,
                             vatRate = m.vatRate,
                             vatSum = m.vatSum,
+                            // У строк, существующих в приёмке, сервер берёт
+                            // происхождение из БД по id и присланное игнорирует.
+                            // Передаём ради строк, ДОБАВЛЕННЫХ на 2 Этапе: у них
+                            // id ещё нет, и origin взять больше неоткуда.
+                            sourceDocumentId = m.sourceDocumentId,
+                            sourceDocumentItemId = m.sourceDocumentItemId,
                         )
                     }
 
@@ -441,52 +478,17 @@ class Stage2FormViewModel(
                         isAssets = cur.isAssets,
                         sourceDocumentIds = cur.sourceDocumentIds,
                         items = items,
+                        // Фото уходят в Room той же транзакцией, что и мутация:
+                        // подготовку (декод + два JPEG) делает потом
+                        // PhotoPrepareWorker, локально и с ретраями.
+                        photos = photoIntents,
                     ),
                 )
 
                 container.deliveryRepository.setVehicleType(cur.deliveryId, cur.vehicleTypeCode)
 
-                val photoErrors = mutableListOf<String>()
-                cur.documentPhotoPaths.forEach { path ->
-                    try {
-                        val uri = container.photoStorage.toContentUri(File(path))
-                        container.photoRepository.captureForDelivery(
-                            deliveryId = cur.deliveryId,
-                            kind = "document",
-                            sourceUri = uri,
-                            stage = "after",
-                            takenAt = photoTakenAtIso(File(path)),
-                        )
-                    } catch (t: Throwable) {
-                        android.util.Log.e("Stage2", "document photo capture failed: $path", t)
-                        photoErrors += "док ${File(path).name}: ${t.message ?: t::class.simpleName}"
-                    }
-                }
-                cur.vehiclePhotoPaths.forEach { path ->
-                    try {
-                        val uri = container.photoStorage.toContentUri(File(path))
-                        container.photoRepository.captureForDelivery(
-                            deliveryId = cur.deliveryId,
-                            kind = "vehicle",
-                            sourceUri = uri,
-                            stage = "after",
-                            takenAt = photoTakenAtIso(File(path)),
-                        )
-                    } catch (t: Throwable) {
-                        android.util.Log.e("Stage2", "vehicle photo capture failed: $path", t)
-                        photoErrors += "машина ${File(path).name}: ${t.message ?: t::class.simpleName}"
-                    }
-                }
-
-                if (photoErrors.isNotEmpty()) {
-                    _state.update {
-                        it.copy(
-                            isSaving = false,
-                            error = "Не сохранились фото: ${photoErrors.joinToString("; ")}",
-                        )
-                    }
-                    return@launch
-                }
+                // Подготовка кадров не требует сети и не должна ждать синка.
+                PhotoPrepareScheduler.requestPrepare(container.appContext)
 
                 // Принудительный push: без него мутация и новые фото 2 Этапа
                 // ждали бы периодики WorkManager (минимум 15 минут) или SSE-триггера.

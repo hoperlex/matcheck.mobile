@@ -12,6 +12,7 @@ import com.example.matcheckmobile.data.remote.api.dto.PhotoConfirmResponse
 import com.example.matcheckmobile.data.remote.api.dto.PhotoPresignRequest
 import com.example.matcheckmobile.data.remote.api.dto.PhotoPresignResponse
 import com.example.matcheckmobile.data.remote.api.dto.PhotoUrlResponse
+import com.example.matcheckmobile.domain.model.PhotoIntent
 import com.example.matcheckmobile.media.RemotePhotoStorage
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -39,7 +40,7 @@ import java.util.UUID
 class PhotoTakenAtPersistenceTest {
 
     private lateinit var db: MatcheckDatabase
-    private lateinit var photos: PhotoRepository
+    private lateinit var prepare: PhotoPrepareProcessor
     private lateinit var uploader: PhotoUploadProcessor
     private val api = RecordingPhotosApi()
 
@@ -55,10 +56,12 @@ class PhotoTakenAtPersistenceTest {
     fun setup() = runBlocking {
         db = Room.inMemoryDatabaseBuilder(ctx, MatcheckDatabase::class.java)
             .allowMainThreadQueries().build()
-        photos = PhotoRepository(
+        prepare = PhotoPrepareProcessor(
             deliveryDao = db.remoteDeliveryDao(),
             shipmentDao = db.remoteShipmentDao(),
             photoStorage = RemotePhotoStorage(ctx),
+            toUri = { file -> Uri.fromFile(file) },
+            freeSpaceBytes = { Long.MAX_VALUE },
         )
         uploader = PhotoUploadProcessor(
             deliveryDao = db.remoteDeliveryDao(),
@@ -93,17 +96,29 @@ class PhotoTakenAtPersistenceTest {
         return dst
     }
 
+    /**
+     * Ставит фото в очередь так же, как это делает финализация формы:
+     * durable-строка PENDING_PREPARE в той же транзакции, что и приёмка.
+     */
+    private suspend fun enqueueDeliveryIntent(src: File): String {
+        val intent = PhotoIntent(kind = "cargo", stage = "before", sourcePath = src.absolutePath, takenAt = shotAt)
+        val entity = intent.toDeliveryPhotoEntity(deliveryId)
+        db.remoteDeliveryDao().insertPhotoIntents(listOf(entity))
+        return entity.id
+    }
+
+    private suspend fun enqueueShipmentIntent(src: File): String {
+        val intent = PhotoIntent(kind = "cargo", stage = "before", sourcePath = src.absolutePath, takenAt = shotAt)
+        val entity = intent.toShipmentPhotoEntity(shipmentId)
+        db.remoteShipmentDao().insertPhotoIntents(listOf(entity))
+        return entity.id
+    }
+
     @Test
     fun capturedTimeIsStoredInRoom() = runBlocking {
         val src = sourceFile()
         try {
-            val photoId = photos.captureForDelivery(
-                deliveryId = deliveryId,
-                kind = "cargo",
-                sourceUri = Uri.fromFile(src),
-                stage = "before",
-                takenAt = shotAt,
-            )
+            val photoId = enqueueDeliveryIntent(src)
 
             val row = db.remoteDeliveryDao().findPhotoById(photoId)
             assertNotNull(row)
@@ -121,15 +136,11 @@ class PhotoTakenAtPersistenceTest {
     @Test
     fun presignUsesStoredTimeAfterRestartAndSourceLoss() = runBlocking {
         val src = sourceFile()
-        val photoId = photos.captureForDelivery(
-            deliveryId = deliveryId,
-            kind = "cargo",
-            sourceUri = Uri.fromFile(src),
-            stage = "before",
-            takenAt = shotAt,
-        )
+        val photoId = enqueueDeliveryIntent(src)
+        // Подготовка кадра: main+thumb собраны, исходник больше не нужен.
+        prepare.processAll()
         // «Перезапуск»: исходник камеры удалён, загрузчик собран заново.
-        assertTrue(src.delete())
+        src.delete()
         assertFalse(src.exists())
 
         uploader.processAll()
@@ -144,13 +155,7 @@ class PhotoTakenAtPersistenceTest {
     fun shipmentPhotoKeepsTimeToo() = runBlocking {
         val src = sourceFile()
         try {
-            val photoId = photos.captureForShipment(
-                shipmentId = shipmentId,
-                kind = "cargo",
-                sourceUri = Uri.fromFile(src),
-                stage = "before",
-                takenAt = shotAt,
-            )
+            val photoId = enqueueShipmentIntent(src)
 
             assertEquals(shotAt, db.remoteShipmentDao().findPhotoById(photoId)!!.takenAt)
         } finally {

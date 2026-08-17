@@ -52,6 +52,7 @@ import kotlinx.coroutines.launch
 import com.example.matcheckmobile.MatcheckApplication
 import com.example.matcheckmobile.presentation.components.AssetsCheckbox
 import com.example.matcheckmobile.presentation.components.FinalizeConfirmDialog
+import com.example.matcheckmobile.presentation.components.GroupChangedDialog
 import com.example.matcheckmobile.presentation.components.MaterialsField
 import com.example.matcheckmobile.presentation.components.PhotoCaptureSection
 import com.example.matcheckmobile.presentation.components.PhotoPreviewDialog
@@ -92,6 +93,28 @@ fun Stage1FormScreen(
     // сбой этого ожидания запирал инспектора на уже сохранённой форме.
     LaunchedEffect(state.finalized) {
         if (state.finalized) onFinalized()
+    }
+
+    // Состав машины разошёлся с тем, по которому загружалась форма. Позиции
+    // уже подтянуты во ViewModel — здесь только объяснение, что изменилось.
+    state.groupChanged?.let { change ->
+        GroupChangedDialog(
+            added = change.added.size,
+            removed = change.removed.size,
+            onDismiss = vm::dismissGroupChange,
+        )
+    }
+
+    // Черновик, начатый до появления группировки, молча принял свою машину.
+    // Уведомление постфактум: состав определяет портал, спрашивать нечего, но
+    // инспектор должен понимать, откуда в списке взялись новые позиции.
+    LaunchedEffect(state.groupAdopted) {
+        state.groupAdopted?.let { numbers ->
+            snackbar.showSnackbar(
+                "Машина целиком: добавлены материалы ${numbers.joinToString(", ")}",
+            )
+            vm.dismissGroupAdopted()
+        }
     }
 
     LaunchedEffect(state.error) {

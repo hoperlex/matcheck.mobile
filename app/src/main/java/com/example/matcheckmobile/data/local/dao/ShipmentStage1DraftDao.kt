@@ -16,6 +16,10 @@ interface ShipmentStage1DraftDao {
     @Query("SELECT * FROM shipment_stage1_drafts WHERE updId = :updId LIMIT 1")
     suspend fun findByUpdId(updId: String): ShipmentStage1DraftEntity?
 
+    /** Черновик машины. UNIQUE по groupId гарантирует единственность. */
+    @Query("SELECT * FROM shipment_stage1_drafts WHERE groupId = :groupId LIMIT 1")
+    suspend fun findByGroupId(groupId: String): ShipmentStage1DraftEntity?
+
     @Query("SELECT * FROM shipment_stage1_drafts ORDER BY updatedAt DESC")
     fun observeAll(): Flow<List<ShipmentStage1DraftEntity>>
 

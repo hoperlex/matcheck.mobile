@@ -160,6 +160,9 @@ fun MatcheckNavHost() {
                 onOpenWithUpd = { updId ->
                     navController.navigate(Routes.stage1FormForUpd(updId))
                 },
+                onOpenWithGroup = { groupId ->
+                    navController.navigate(Routes.stage1FormForGroup(groupId))
+                },
                 onOpenDraft = { draftId ->
                     navController.navigate(Routes.stage1FormForDraft(draftId))
                 },
@@ -177,6 +180,11 @@ fun MatcheckNavHost() {
                     defaultValue = null
                 },
                 navArgument(Routes.ARG_DRAFT_ID) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument(Routes.ARG_GROUP_ID) {
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null
@@ -289,6 +297,9 @@ fun MatcheckNavHost() {
                 onOpenWithUpd = { updId ->
                     navController.navigate(Routes.dispatchStage1FormForUpd(updId))
                 },
+                onOpenWithGroup = { groupId ->
+                    navController.navigate(Routes.dispatchStage1FormForGroup(groupId))
+                },
                 onOpenDraft = { draftId ->
                     navController.navigate(Routes.dispatchStage1FormForDraft(draftId))
                 },
@@ -306,6 +317,11 @@ fun MatcheckNavHost() {
                     defaultValue = null
                 },
                 navArgument(Routes.ARG_DRAFT_ID) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument(Routes.ARG_GROUP_ID) {
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null

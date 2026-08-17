@@ -1,0 +1,3477 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 26,
+    "identityHash": "f1d6c5716127e05ee36f8f50775961b3",
+    "entities": [
+      {
+        "tableName": "users",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`localId` TEXT NOT NULL, `serverId` TEXT, `fullName` TEXT NOT NULL, `email` TEXT, `role` TEXT NOT NULL, `isActive` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`localId`))",
+        "fields": [
+          {
+            "fieldPath": "localId",
+            "columnName": "localId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverId",
+            "columnName": "serverId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "fullName",
+            "columnName": "fullName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "email",
+            "columnName": "email",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "role",
+            "columnName": "role",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isActive",
+            "columnName": "isActive",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "localId"
+          ]
+        }
+      },
+      {
+        "tableName": "sites",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`localId` TEXT NOT NULL, `serverId` TEXT, `name` TEXT NOT NULL, `address` TEXT, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`localId`))",
+        "fields": [
+          {
+            "fieldPath": "localId",
+            "columnName": "localId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverId",
+            "columnName": "serverId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "address",
+            "columnName": "address",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "localId"
+          ]
+        }
+      },
+      {
+        "tableName": "materials",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`localId` TEXT NOT NULL, `serverId` TEXT, `code` TEXT, `name` TEXT NOT NULL, `unit` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`localId`))",
+        "fields": [
+          {
+            "fieldPath": "localId",
+            "columnName": "localId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverId",
+            "columnName": "serverId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "code",
+            "columnName": "code",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "unit",
+            "columnName": "unit",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "localId"
+          ]
+        }
+      },
+      {
+        "tableName": "material_operations",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`localId` TEXT NOT NULL, `serverId` TEXT, `type` TEXT NOT NULL, `siteId` TEXT NOT NULL, `materialId` TEXT, `materialNameRaw` TEXT NOT NULL, `quantity` REAL NOT NULL, `unit` TEXT NOT NULL, `userId` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `vehicleNumber` TEXT, `driverName` TEXT, `comment` TEXT, `createdAtLocal` INTEGER NOT NULL, `receivedAtServer` INTEGER, `syncStatus` TEXT NOT NULL, `lastSyncError` TEXT, `idempotencyKey` TEXT NOT NULL, `sessionLocalId` TEXT, PRIMARY KEY(`localId`), FOREIGN KEY(`sessionLocalId`) REFERENCES `receipt_sessions`(`localId`) ON UPDATE NO ACTION ON DELETE SET NULL )",
+        "fields": [
+          {
+            "fieldPath": "localId",
+            "columnName": "localId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverId",
+            "columnName": "serverId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "type",
+            "columnName": "type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "siteId",
+            "columnName": "siteId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "materialId",
+            "columnName": "materialId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "materialNameRaw",
+            "columnName": "materialNameRaw",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "quantity",
+            "columnName": "quantity",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "unit",
+            "columnName": "unit",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deviceId",
+            "columnName": "deviceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "vehicleNumber",
+            "columnName": "vehicleNumber",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "driverName",
+            "columnName": "driverName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "comment",
+            "columnName": "comment",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAtLocal",
+            "columnName": "createdAtLocal",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "receivedAtServer",
+            "columnName": "receivedAtServer",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "syncStatus",
+            "columnName": "syncStatus",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSyncError",
+            "columnName": "lastSyncError",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "idempotencyKey",
+            "columnName": "idempotencyKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sessionLocalId",
+            "columnName": "sessionLocalId",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "localId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_material_operations_syncStatus",
+            "unique": false,
+            "columnNames": [
+              "syncStatus"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_material_operations_syncStatus` ON `${TABLE_NAME}` (`syncStatus`)"
+          },
+          {
+            "name": "index_material_operations_siteId",
+            "unique": false,
+            "columnNames": [
+              "siteId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_material_operations_siteId` ON `${TABLE_NAME}` (`siteId`)"
+          },
+          {
+            "name": "index_material_operations_createdAtLocal",
+            "unique": false,
+            "columnNames": [
+              "createdAtLocal"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_material_operations_createdAtLocal` ON `${TABLE_NAME}` (`createdAtLocal`)"
+          },
+          {
+            "name": "index_material_operations_sessionLocalId",
+            "unique": false,
+            "columnNames": [
+              "sessionLocalId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_material_operations_sessionLocalId` ON `${TABLE_NAME}` (`sessionLocalId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "receipt_sessions",
+            "onDelete": "SET NULL",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "sessionLocalId"
+            ],
+            "referencedColumns": [
+              "localId"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "operation_attachments",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`localId` TEXT NOT NULL, `operationLocalId` TEXT, `sessionLocalId` TEXT, `localFilePath` TEXT NOT NULL, `remoteUrl` TEXT, `attachmentType` TEXT NOT NULL, `uploadStatus` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `lastUploadError` TEXT, PRIMARY KEY(`localId`), FOREIGN KEY(`operationLocalId`) REFERENCES `material_operations`(`localId`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`sessionLocalId`) REFERENCES `receipt_sessions`(`localId`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "localId",
+            "columnName": "localId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "operationLocalId",
+            "columnName": "operationLocalId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sessionLocalId",
+            "columnName": "sessionLocalId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "localFilePath",
+            "columnName": "localFilePath",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "remoteUrl",
+            "columnName": "remoteUrl",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "attachmentType",
+            "columnName": "attachmentType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "uploadStatus",
+            "columnName": "uploadStatus",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastUploadError",
+            "columnName": "lastUploadError",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "localId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_operation_attachments_operationLocalId",
+            "unique": false,
+            "columnNames": [
+              "operationLocalId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_operation_attachments_operationLocalId` ON `${TABLE_NAME}` (`operationLocalId`)"
+          },
+          {
+            "name": "index_operation_attachments_sessionLocalId",
+            "unique": false,
+            "columnNames": [
+              "sessionLocalId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_operation_attachments_sessionLocalId` ON `${TABLE_NAME}` (`sessionLocalId`)"
+          },
+          {
+            "name": "index_operation_attachments_uploadStatus",
+            "unique": false,
+            "columnNames": [
+              "uploadStatus"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_operation_attachments_uploadStatus` ON `${TABLE_NAME}` (`uploadStatus`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "material_operations",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "operationLocalId"
+            ],
+            "referencedColumns": [
+              "localId"
+            ]
+          },
+          {
+            "table": "receipt_sessions",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "sessionLocalId"
+            ],
+            "referencedColumns": [
+              "localId"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "sync_queue",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`localId` TEXT NOT NULL, `targetType` TEXT NOT NULL, `targetLocalId` TEXT NOT NULL, `attempts` INTEGER NOT NULL, `lastAttemptAt` INTEGER, `nextAttemptAt` INTEGER, `lastError` TEXT, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`localId`))",
+        "fields": [
+          {
+            "fieldPath": "localId",
+            "columnName": "localId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "targetType",
+            "columnName": "targetType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "targetLocalId",
+            "columnName": "targetLocalId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "attempts",
+            "columnName": "attempts",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastAttemptAt",
+            "columnName": "lastAttemptAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "nextAttemptAt",
+            "columnName": "nextAttemptAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastError",
+            "columnName": "lastError",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "localId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_sync_queue_targetLocalId",
+            "unique": false,
+            "columnNames": [
+              "targetLocalId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sync_queue_targetLocalId` ON `${TABLE_NAME}` (`targetLocalId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "counterparties",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`localId` TEXT NOT NULL, `serverId` TEXT, `inn` TEXT NOT NULL, `kpp` TEXT, `name` TEXT NOT NULL, `address` TEXT, `isSupplier` INTEGER NOT NULL, `isCustomer` INTEGER NOT NULL, `isCarrier` INTEGER NOT NULL, `isContractor` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`localId`))",
+        "fields": [
+          {
+            "fieldPath": "localId",
+            "columnName": "localId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverId",
+            "columnName": "serverId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "inn",
+            "columnName": "inn",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kpp",
+            "columnName": "kpp",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "address",
+            "columnName": "address",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "isSupplier",
+            "columnName": "isSupplier",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isCustomer",
+            "columnName": "isCustomer",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isCarrier",
+            "columnName": "isCarrier",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isContractor",
+            "columnName": "isContractor",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "localId"
+          ]
+        }
+      },
+      {
+        "tableName": "source_documents",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`localId` TEXT NOT NULL, `serverId` TEXT, `kind` TEXT NOT NULL, `status` TEXT NOT NULL, `supplierId` TEXT, `recipientId` TEXT, `docNumber` TEXT, `docDate` INTEGER, `totalSum` REAL, `vatSum` REAL, `expectedDate` INTEGER, `origin` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`localId`))",
+        "fields": [
+          {
+            "fieldPath": "localId",
+            "columnName": "localId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverId",
+            "columnName": "serverId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "supplierId",
+            "columnName": "supplierId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "recipientId",
+            "columnName": "recipientId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "docNumber",
+            "columnName": "docNumber",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "docDate",
+            "columnName": "docDate",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "totalSum",
+            "columnName": "totalSum",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "vatSum",
+            "columnName": "vatSum",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "expectedDate",
+            "columnName": "expectedDate",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "origin",
+            "columnName": "origin",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "localId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_source_documents_supplierId",
+            "unique": false,
+            "columnNames": [
+              "supplierId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_source_documents_supplierId` ON `${TABLE_NAME}` (`supplierId`)"
+          },
+          {
+            "name": "index_source_documents_docDate",
+            "unique": false,
+            "columnNames": [
+              "docDate"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_source_documents_docDate` ON `${TABLE_NAME}` (`docDate`)"
+          }
+        ]
+      },
+      {
+        "tableName": "source_document_items",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`localId` TEXT NOT NULL, `sourceDocumentLocalId` TEXT NOT NULL, `materialId` TEXT, `nameRaw` TEXT NOT NULL, `qty` REAL NOT NULL, `unit` TEXT NOT NULL, `price` REAL, `sum` REAL, `lineNo` INTEGER NOT NULL, PRIMARY KEY(`localId`), FOREIGN KEY(`sourceDocumentLocalId`) REFERENCES `source_documents`(`localId`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "localId",
+            "columnName": "localId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceDocumentLocalId",
+            "columnName": "sourceDocumentLocalId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "materialId",
+            "columnName": "materialId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "nameRaw",
+            "columnName": "nameRaw",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "qty",
+            "columnName": "qty",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "unit",
+            "columnName": "unit",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "price",
+            "columnName": "price",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "sum",
+            "columnName": "sum",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "lineNo",
+            "columnName": "lineNo",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "localId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_source_document_items_sourceDocumentLocalId",
+            "unique": false,
+            "columnNames": [
+              "sourceDocumentLocalId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_source_document_items_sourceDocumentLocalId` ON `${TABLE_NAME}` (`sourceDocumentLocalId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "source_documents",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "sourceDocumentLocalId"
+            ],
+            "referencedColumns": [
+              "localId"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "receipt_sessions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`localId` TEXT NOT NULL, `serverId` TEXT, `kind` TEXT NOT NULL, `siteId` TEXT NOT NULL, `userId` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `supplierLocalId` TEXT, `contractorLocalId` TEXT, `vehicleNumber` TEXT NOT NULL, `vehicleTypeCode` TEXT, `volumeM3` REAL, `massKg` REAL, `sourceDocumentLocalId` TEXT, `sourceDocumentManualText` TEXT, `comment` TEXT, `startedAt` INTEGER NOT NULL, `finalizedAt` INTEGER, `completedAt` INTEGER, `confirmedByMol` INTEGER NOT NULL, `syncStatus` TEXT NOT NULL, `lastSyncError` TEXT, `idempotencyKey` TEXT NOT NULL, PRIMARY KEY(`localId`))",
+        "fields": [
+          {
+            "fieldPath": "localId",
+            "columnName": "localId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverId",
+            "columnName": "serverId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "siteId",
+            "columnName": "siteId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deviceId",
+            "columnName": "deviceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "supplierLocalId",
+            "columnName": "supplierLocalId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "contractorLocalId",
+            "columnName": "contractorLocalId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "vehicleNumber",
+            "columnName": "vehicleNumber",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "vehicleTypeCode",
+            "columnName": "vehicleTypeCode",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "volumeM3",
+            "columnName": "volumeM3",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "massKg",
+            "columnName": "massKg",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "sourceDocumentLocalId",
+            "columnName": "sourceDocumentLocalId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceDocumentManualText",
+            "columnName": "sourceDocumentManualText",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "comment",
+            "columnName": "comment",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "startedAt",
+            "columnName": "startedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "finalizedAt",
+            "columnName": "finalizedAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "completedAt",
+            "columnName": "completedAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "confirmedByMol",
+            "columnName": "confirmedByMol",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncStatus",
+            "columnName": "syncStatus",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSyncError",
+            "columnName": "lastSyncError",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "idempotencyKey",
+            "columnName": "idempotencyKey",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "localId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_receipt_sessions_syncStatus",
+            "unique": false,
+            "columnNames": [
+              "syncStatus"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_receipt_sessions_syncStatus` ON `${TABLE_NAME}` (`syncStatus`)"
+          },
+          {
+            "name": "index_receipt_sessions_startedAt",
+            "unique": false,
+            "columnNames": [
+              "startedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_receipt_sessions_startedAt` ON `${TABLE_NAME}` (`startedAt`)"
+          },
+          {
+            "name": "index_receipt_sessions_kind",
+            "unique": false,
+            "columnNames": [
+              "kind"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_receipt_sessions_kind` ON `${TABLE_NAME}` (`kind`)"
+          }
+        ]
+      },
+      {
+        "tableName": "delivery_local_meta",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`deliveryId` TEXT NOT NULL, `vehicleTypeCode` TEXT, PRIMARY KEY(`deliveryId`), FOREIGN KEY(`deliveryId`) REFERENCES `remote_deliveries`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "deliveryId",
+            "columnName": "deliveryId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "vehicleTypeCode",
+            "columnName": "vehicleTypeCode",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "deliveryId"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "table": "remote_deliveries",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "deliveryId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "shipment_local_meta",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`shipmentId` TEXT NOT NULL, `vehicleTypeCode` TEXT, PRIMARY KEY(`shipmentId`), FOREIGN KEY(`shipmentId`) REFERENCES `remote_shipments`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "shipmentId",
+            "columnName": "shipmentId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "vehicleTypeCode",
+            "columnName": "vehicleTypeCode",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "shipmentId"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "table": "remote_shipments",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "shipmentId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "remote_deliveries",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `statusCode` TEXT NOT NULL, `statusLabel` TEXT NOT NULL, `statusColor` TEXT, `siteId` TEXT NOT NULL, `supplierId` TEXT, `contractorId` TEXT, `recipientMolId` TEXT, `vehiclePlate` TEXT, `driverName` TEXT, `arrivedAt` TEXT, `inspectorId` TEXT, `comment` TEXT, `inTransit` INTEGER NOT NULL, `isAssets` INTEGER NOT NULL, `confirmedByMolUserId` TEXT, `confirmedByMolUserEmail` TEXT, `confirmedByMolAt` TEXT, `pendingDeletionAt` TEXT, `pendingDeletionByUserId` TEXT, `pendingDeletionByUserEmail` TEXT, `pendingDeletionReason` TEXT, `version` INTEGER NOT NULL, `sourceDocumentIdsJson` TEXT NOT NULL, `createdAt` TEXT NOT NULL, `updatedAt` TEXT NOT NULL, `conflictPending` INTEGER NOT NULL, `serverSnapshotJson` TEXT, `lastSyncError` TEXT, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "statusCode",
+            "columnName": "statusCode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "statusLabel",
+            "columnName": "statusLabel",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "statusColor",
+            "columnName": "statusColor",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "siteId",
+            "columnName": "siteId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "supplierId",
+            "columnName": "supplierId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "contractorId",
+            "columnName": "contractorId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "recipientMolId",
+            "columnName": "recipientMolId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "vehiclePlate",
+            "columnName": "vehiclePlate",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "driverName",
+            "columnName": "driverName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "arrivedAt",
+            "columnName": "arrivedAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "inspectorId",
+            "columnName": "inspectorId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "comment",
+            "columnName": "comment",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "inTransit",
+            "columnName": "inTransit",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isAssets",
+            "columnName": "isAssets",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "confirmedByMolUserId",
+            "columnName": "confirmedByMolUserId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "confirmedByMolUserEmail",
+            "columnName": "confirmedByMolUserEmail",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "confirmedByMolAt",
+            "columnName": "confirmedByMolAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "pendingDeletionAt",
+            "columnName": "pendingDeletionAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "pendingDeletionByUserId",
+            "columnName": "pendingDeletionByUserId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "pendingDeletionByUserEmail",
+            "columnName": "pendingDeletionByUserEmail",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "pendingDeletionReason",
+            "columnName": "pendingDeletionReason",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "version",
+            "columnName": "version",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceDocumentIdsJson",
+            "columnName": "sourceDocumentIdsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "conflictPending",
+            "columnName": "conflictPending",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverSnapshotJson",
+            "columnName": "serverSnapshotJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastSyncError",
+            "columnName": "lastSyncError",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_remote_deliveries_siteId",
+            "unique": false,
+            "columnNames": [
+              "siteId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_remote_deliveries_siteId` ON `${TABLE_NAME}` (`siteId`)"
+          },
+          {
+            "name": "index_remote_deliveries_pendingDeletionAt",
+            "unique": false,
+            "columnNames": [
+              "pendingDeletionAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_remote_deliveries_pendingDeletionAt` ON `${TABLE_NAME}` (`pendingDeletionAt`)"
+          },
+          {
+            "name": "index_remote_deliveries_updatedAt",
+            "unique": false,
+            "columnNames": [
+              "updatedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_remote_deliveries_updatedAt` ON `${TABLE_NAME}` (`updatedAt`)"
+          },
+          {
+            "name": "index_remote_deliveries_statusCode",
+            "unique": false,
+            "columnNames": [
+              "statusCode"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_remote_deliveries_statusCode` ON `${TABLE_NAME}` (`statusCode`)"
+          }
+        ]
+      },
+      {
+        "tableName": "remote_delivery_items",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `deliveryId` TEXT NOT NULL, `materialId` TEXT, `sourceDocumentId` TEXT, `sourceDocumentItemId` TEXT, `nameRaw` TEXT NOT NULL, `qtyPlanned` TEXT, `qtyActual` TEXT, `unit` TEXT NOT NULL, `comment` TEXT, `lineNo` INTEGER NOT NULL, `volumeM3` TEXT, `massKg` TEXT, `price` TEXT, `vatRate` TEXT, `vatSum` TEXT, `volumeConfidence` TEXT, `groupName` TEXT, PRIMARY KEY(`id`), FOREIGN KEY(`deliveryId`) REFERENCES `remote_deliveries`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deliveryId",
+            "columnName": "deliveryId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "materialId",
+            "columnName": "materialId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceDocumentId",
+            "columnName": "sourceDocumentId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceDocumentItemId",
+            "columnName": "sourceDocumentItemId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "nameRaw",
+            "columnName": "nameRaw",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "qtyPlanned",
+            "columnName": "qtyPlanned",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "qtyActual",
+            "columnName": "qtyActual",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "unit",
+            "columnName": "unit",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "comment",
+            "columnName": "comment",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lineNo",
+            "columnName": "lineNo",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "volumeM3",
+            "columnName": "volumeM3",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "massKg",
+            "columnName": "massKg",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "price",
+            "columnName": "price",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "vatRate",
+            "columnName": "vatRate",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "vatSum",
+            "columnName": "vatSum",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "volumeConfidence",
+            "columnName": "volumeConfidence",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "groupName",
+            "columnName": "groupName",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_remote_delivery_items_deliveryId",
+            "unique": false,
+            "columnNames": [
+              "deliveryId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_remote_delivery_items_deliveryId` ON `${TABLE_NAME}` (`deliveryId`)"
+          },
+          {
+            "name": "index_remote_delivery_items_materialId",
+            "unique": false,
+            "columnNames": [
+              "materialId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_remote_delivery_items_materialId` ON `${TABLE_NAME}` (`materialId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "remote_deliveries",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "deliveryId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "remote_delivery_photos",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `deliveryId` TEXT NOT NULL, `kind` TEXT NOT NULL, `stage` TEXT NOT NULL, `s3Key` TEXT, `thumbS3Key` TEXT, `contentHash` TEXT, `takenAt` TEXT NOT NULL, `uploadedAt` TEXT, `idempotencyKey` TEXT NOT NULL, `contentType` TEXT NOT NULL, `localBlobPath` TEXT, `localThumbPath` TEXT, `uploadStatus` TEXT NOT NULL, `lastUploadError` TEXT, `sourcePath` TEXT, `preparingSince` INTEGER, PRIMARY KEY(`id`), FOREIGN KEY(`deliveryId`) REFERENCES `remote_deliveries`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deliveryId",
+            "columnName": "deliveryId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "stage",
+            "columnName": "stage",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "s3Key",
+            "columnName": "s3Key",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "thumbS3Key",
+            "columnName": "thumbS3Key",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "contentHash",
+            "columnName": "contentHash",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "takenAt",
+            "columnName": "takenAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "uploadedAt",
+            "columnName": "uploadedAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "idempotencyKey",
+            "columnName": "idempotencyKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "contentType",
+            "columnName": "contentType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "localBlobPath",
+            "columnName": "localBlobPath",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "localThumbPath",
+            "columnName": "localThumbPath",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "uploadStatus",
+            "columnName": "uploadStatus",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastUploadError",
+            "columnName": "lastUploadError",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourcePath",
+            "columnName": "sourcePath",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "preparingSince",
+            "columnName": "preparingSince",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_remote_delivery_photos_deliveryId",
+            "unique": false,
+            "columnNames": [
+              "deliveryId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_remote_delivery_photos_deliveryId` ON `${TABLE_NAME}` (`deliveryId`)"
+          },
+          {
+            "name": "index_remote_delivery_photos_contentHash",
+            "unique": false,
+            "columnNames": [
+              "contentHash"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_remote_delivery_photos_contentHash` ON `${TABLE_NAME}` (`contentHash`)"
+          },
+          {
+            "name": "index_remote_delivery_photos_uploadStatus",
+            "unique": false,
+            "columnNames": [
+              "uploadStatus"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_remote_delivery_photos_uploadStatus` ON `${TABLE_NAME}` (`uploadStatus`)"
+          },
+          {
+            "name": "index_remote_delivery_photos_deliveryId_sourcePath",
+            "unique": true,
+            "columnNames": [
+              "deliveryId",
+              "sourcePath"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_remote_delivery_photos_deliveryId_sourcePath` ON `${TABLE_NAME}` (`deliveryId`, `sourcePath`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "remote_deliveries",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "deliveryId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "remote_shipments",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `statusCode` TEXT NOT NULL, `statusLabel` TEXT NOT NULL, `statusColor` TEXT, `kind` TEXT NOT NULL, `purpose` TEXT, `inTransit` INTEGER NOT NULL, `isAssets` INTEGER NOT NULL, `siteId` TEXT NOT NULL, `receiverCounterpartyId` TEXT, `receiverMolId` TEXT, `destSiteId` TEXT, `vehiclePlate` TEXT, `driverName` TEXT, `shippedAt` TEXT, `inspectorId` TEXT, `comment` TEXT, `confirmedByMolUserId` TEXT, `confirmedByMolUserEmail` TEXT, `confirmedByMolAt` TEXT, `pendingDeletionAt` TEXT, `pendingDeletionByUserId` TEXT, `pendingDeletionByUserEmail` TEXT, `pendingDeletionReason` TEXT, `version` INTEGER NOT NULL, `sourceDocumentIdsJson` TEXT NOT NULL, `createdAt` TEXT NOT NULL, `updatedAt` TEXT NOT NULL, `conflictPending` INTEGER NOT NULL, `serverSnapshotJson` TEXT, `lastSyncError` TEXT, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "statusCode",
+            "columnName": "statusCode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "statusLabel",
+            "columnName": "statusLabel",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "statusColor",
+            "columnName": "statusColor",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "purpose",
+            "columnName": "purpose",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "inTransit",
+            "columnName": "inTransit",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isAssets",
+            "columnName": "isAssets",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "siteId",
+            "columnName": "siteId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "receiverCounterpartyId",
+            "columnName": "receiverCounterpartyId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "receiverMolId",
+            "columnName": "receiverMolId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "destSiteId",
+            "columnName": "destSiteId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "vehiclePlate",
+            "columnName": "vehiclePlate",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "driverName",
+            "columnName": "driverName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "shippedAt",
+            "columnName": "shippedAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "inspectorId",
+            "columnName": "inspectorId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "comment",
+            "columnName": "comment",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "confirmedByMolUserId",
+            "columnName": "confirmedByMolUserId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "confirmedByMolUserEmail",
+            "columnName": "confirmedByMolUserEmail",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "confirmedByMolAt",
+            "columnName": "confirmedByMolAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "pendingDeletionAt",
+            "columnName": "pendingDeletionAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "pendingDeletionByUserId",
+            "columnName": "pendingDeletionByUserId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "pendingDeletionByUserEmail",
+            "columnName": "pendingDeletionByUserEmail",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "pendingDeletionReason",
+            "columnName": "pendingDeletionReason",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "version",
+            "columnName": "version",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceDocumentIdsJson",
+            "columnName": "sourceDocumentIdsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "conflictPending",
+            "columnName": "conflictPending",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverSnapshotJson",
+            "columnName": "serverSnapshotJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastSyncError",
+            "columnName": "lastSyncError",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_remote_shipments_siteId",
+            "unique": false,
+            "columnNames": [
+              "siteId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_remote_shipments_siteId` ON `${TABLE_NAME}` (`siteId`)"
+          },
+          {
+            "name": "index_remote_shipments_pendingDeletionAt",
+            "unique": false,
+            "columnNames": [
+              "pendingDeletionAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_remote_shipments_pendingDeletionAt` ON `${TABLE_NAME}` (`pendingDeletionAt`)"
+          },
+          {
+            "name": "index_remote_shipments_updatedAt",
+            "unique": false,
+            "columnNames": [
+              "updatedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_remote_shipments_updatedAt` ON `${TABLE_NAME}` (`updatedAt`)"
+          },
+          {
+            "name": "index_remote_shipments_statusCode",
+            "unique": false,
+            "columnNames": [
+              "statusCode"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_remote_shipments_statusCode` ON `${TABLE_NAME}` (`statusCode`)"
+          },
+          {
+            "name": "index_remote_shipments_kind",
+            "unique": false,
+            "columnNames": [
+              "kind"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_remote_shipments_kind` ON `${TABLE_NAME}` (`kind`)"
+          }
+        ]
+      },
+      {
+        "tableName": "remote_shipment_items",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `shipmentId` TEXT NOT NULL, `materialId` TEXT, `sourceDocumentId` TEXT, `sourceDocumentItemId` TEXT, `nameRaw` TEXT NOT NULL, `qtyPlanned` TEXT, `qtyActual` TEXT, `unit` TEXT NOT NULL, `comment` TEXT, `lineNo` INTEGER NOT NULL, `volumeM3` TEXT, `massKg` TEXT, `price` TEXT, `vatRate` TEXT, `vatSum` TEXT, `volumeConfidence` TEXT, `groupName` TEXT, PRIMARY KEY(`id`), FOREIGN KEY(`shipmentId`) REFERENCES `remote_shipments`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "shipmentId",
+            "columnName": "shipmentId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "materialId",
+            "columnName": "materialId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceDocumentId",
+            "columnName": "sourceDocumentId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceDocumentItemId",
+            "columnName": "sourceDocumentItemId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "nameRaw",
+            "columnName": "nameRaw",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "qtyPlanned",
+            "columnName": "qtyPlanned",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "qtyActual",
+            "columnName": "qtyActual",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "unit",
+            "columnName": "unit",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "comment",
+            "columnName": "comment",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lineNo",
+            "columnName": "lineNo",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "volumeM3",
+            "columnName": "volumeM3",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "massKg",
+            "columnName": "massKg",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "price",
+            "columnName": "price",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "vatRate",
+            "columnName": "vatRate",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "vatSum",
+            "columnName": "vatSum",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "volumeConfidence",
+            "columnName": "volumeConfidence",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "groupName",
+            "columnName": "groupName",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_remote_shipment_items_shipmentId",
+            "unique": false,
+            "columnNames": [
+              "shipmentId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_remote_shipment_items_shipmentId` ON `${TABLE_NAME}` (`shipmentId`)"
+          },
+          {
+            "name": "index_remote_shipment_items_materialId",
+            "unique": false,
+            "columnNames": [
+              "materialId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_remote_shipment_items_materialId` ON `${TABLE_NAME}` (`materialId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "remote_shipments",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "shipmentId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "remote_shipment_photos",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `shipmentId` TEXT NOT NULL, `kind` TEXT NOT NULL, `stage` TEXT NOT NULL, `s3Key` TEXT, `thumbS3Key` TEXT, `contentHash` TEXT, `takenAt` TEXT NOT NULL, `uploadedAt` TEXT, `idempotencyKey` TEXT NOT NULL, `contentType` TEXT NOT NULL, `localBlobPath` TEXT, `localThumbPath` TEXT, `uploadStatus` TEXT NOT NULL, `lastUploadError` TEXT, `sourcePath` TEXT, `preparingSince` INTEGER, PRIMARY KEY(`id`), FOREIGN KEY(`shipmentId`) REFERENCES `remote_shipments`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "shipmentId",
+            "columnName": "shipmentId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "stage",
+            "columnName": "stage",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "s3Key",
+            "columnName": "s3Key",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "thumbS3Key",
+            "columnName": "thumbS3Key",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "contentHash",
+            "columnName": "contentHash",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "takenAt",
+            "columnName": "takenAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "uploadedAt",
+            "columnName": "uploadedAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "idempotencyKey",
+            "columnName": "idempotencyKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "contentType",
+            "columnName": "contentType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "localBlobPath",
+            "columnName": "localBlobPath",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "localThumbPath",
+            "columnName": "localThumbPath",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "uploadStatus",
+            "columnName": "uploadStatus",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastUploadError",
+            "columnName": "lastUploadError",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourcePath",
+            "columnName": "sourcePath",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "preparingSince",
+            "columnName": "preparingSince",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_remote_shipment_photos_shipmentId",
+            "unique": false,
+            "columnNames": [
+              "shipmentId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_remote_shipment_photos_shipmentId` ON `${TABLE_NAME}` (`shipmentId`)"
+          },
+          {
+            "name": "index_remote_shipment_photos_contentHash",
+            "unique": false,
+            "columnNames": [
+              "contentHash"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_remote_shipment_photos_contentHash` ON `${TABLE_NAME}` (`contentHash`)"
+          },
+          {
+            "name": "index_remote_shipment_photos_uploadStatus",
+            "unique": false,
+            "columnNames": [
+              "uploadStatus"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_remote_shipment_photos_uploadStatus` ON `${TABLE_NAME}` (`uploadStatus`)"
+          },
+          {
+            "name": "index_remote_shipment_photos_shipmentId_sourcePath",
+            "unique": true,
+            "columnNames": [
+              "shipmentId",
+              "sourcePath"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_remote_shipment_photos_shipmentId_sourcePath` ON `${TABLE_NAME}` (`shipmentId`, `sourcePath`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "remote_shipments",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "shipmentId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "remote_counterparties",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `inn` TEXT NOT NULL, `kpp` TEXT, `name` TEXT NOT NULL, `address` TEXT, `isSelf` INTEGER NOT NULL, `isSupplier` INTEGER NOT NULL, `isCustomer` INTEGER NOT NULL, `isContractor` INTEGER NOT NULL, `createdAt` TEXT NOT NULL, `updatedAt` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "inn",
+            "columnName": "inn",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kpp",
+            "columnName": "kpp",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "address",
+            "columnName": "address",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "isSelf",
+            "columnName": "isSelf",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isSupplier",
+            "columnName": "isSupplier",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isCustomer",
+            "columnName": "isCustomer",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isContractor",
+            "columnName": "isContractor",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_remote_counterparties_isSupplier",
+            "unique": false,
+            "columnNames": [
+              "isSupplier"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_remote_counterparties_isSupplier` ON `${TABLE_NAME}` (`isSupplier`)"
+          },
+          {
+            "name": "index_remote_counterparties_isContractor",
+            "unique": false,
+            "columnNames": [
+              "isContractor"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_remote_counterparties_isContractor` ON `${TABLE_NAME}` (`isContractor`)"
+          }
+        ]
+      },
+      {
+        "tableName": "remote_materials",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `code` TEXT, `name` TEXT NOT NULL, `unit` TEXT NOT NULL, `createdAt` TEXT NOT NULL, `updatedAt` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "code",
+            "columnName": "code",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "unit",
+            "columnName": "unit",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "remote_sites",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `code` TEXT NOT NULL, `name` TEXT NOT NULL, `fullName` TEXT, `address` TEXT, `isActive` INTEGER NOT NULL, `createdAt` TEXT NOT NULL, `updatedAt` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "code",
+            "columnName": "code",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fullName",
+            "columnName": "fullName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "address",
+            "columnName": "address",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "isActive",
+            "columnName": "isActive",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_remote_sites_code",
+            "unique": true,
+            "columnNames": [
+              "code"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_remote_sites_code` ON `${TABLE_NAME}` (`code`)"
+          }
+        ]
+      },
+      {
+        "tableName": "remote_statuses",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `entityType` TEXT NOT NULL, `code` TEXT NOT NULL, `label` TEXT NOT NULL, `color` TEXT, `sortOrder` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityType",
+            "columnName": "entityType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "code",
+            "columnName": "code",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "label",
+            "columnName": "label",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "color",
+            "columnName": "color",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sortOrder",
+            "columnName": "sortOrder",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_remote_statuses_entityType_code",
+            "unique": true,
+            "columnNames": [
+              "entityType",
+              "code"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_remote_statuses_entityType_code` ON `${TABLE_NAME}` (`entityType`, `code`)"
+          }
+        ]
+      },
+      {
+        "tableName": "remote_units",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `code` TEXT NOT NULL, `name` TEXT NOT NULL, `okeiCode` TEXT, `isActive` INTEGER NOT NULL, `createdAt` TEXT NOT NULL, `updatedAt` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "code",
+            "columnName": "code",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "okeiCode",
+            "columnName": "okeiCode",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "isActive",
+            "columnName": "isActive",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "remote_source_documents",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `kind` TEXT NOT NULL, `direction` TEXT NOT NULL, `status` TEXT NOT NULL, `supplierId` TEXT, `recipientId` TEXT, `contractorId` TEXT, `recipientMolId` TEXT, `siteId` TEXT, `supplierName` TEXT, `contractorName` TEXT, `consigneeName` TEXT, `buyerName` TEXT, `siteName` TEXT, `createdByUserPhone` TEXT, `docNumber` TEXT, `docDate` TEXT, `totalSum` TEXT, `vatSum` TEXT, `expectedDate` TEXT, `origin` TEXT NOT NULL, `parsedAt` TEXT NOT NULL, `parseErrorCode` TEXT, `originalFilename` TEXT, `version` INTEGER NOT NULL, `createdAt` TEXT NOT NULL, `updatedAt` TEXT NOT NULL, `groupId` TEXT, `groupRevision` INTEGER, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "direction",
+            "columnName": "direction",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "supplierId",
+            "columnName": "supplierId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "recipientId",
+            "columnName": "recipientId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "contractorId",
+            "columnName": "contractorId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "recipientMolId",
+            "columnName": "recipientMolId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "siteId",
+            "columnName": "siteId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "supplierName",
+            "columnName": "supplierName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "contractorName",
+            "columnName": "contractorName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "consigneeName",
+            "columnName": "consigneeName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "buyerName",
+            "columnName": "buyerName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "siteName",
+            "columnName": "siteName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdByUserPhone",
+            "columnName": "createdByUserPhone",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "docNumber",
+            "columnName": "docNumber",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "docDate",
+            "columnName": "docDate",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "totalSum",
+            "columnName": "totalSum",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "vatSum",
+            "columnName": "vatSum",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "expectedDate",
+            "columnName": "expectedDate",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "origin",
+            "columnName": "origin",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "parsedAt",
+            "columnName": "parsedAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "parseErrorCode",
+            "columnName": "parseErrorCode",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "originalFilename",
+            "columnName": "originalFilename",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "version",
+            "columnName": "version",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "groupId",
+            "columnName": "groupId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "groupRevision",
+            "columnName": "groupRevision",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_remote_source_documents_siteId",
+            "unique": false,
+            "columnNames": [
+              "siteId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_remote_source_documents_siteId` ON `${TABLE_NAME}` (`siteId`)"
+          },
+          {
+            "name": "index_remote_source_documents_supplierId",
+            "unique": false,
+            "columnNames": [
+              "supplierId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_remote_source_documents_supplierId` ON `${TABLE_NAME}` (`supplierId`)"
+          },
+          {
+            "name": "index_remote_source_documents_status",
+            "unique": false,
+            "columnNames": [
+              "status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_remote_source_documents_status` ON `${TABLE_NAME}` (`status`)"
+          },
+          {
+            "name": "index_remote_source_documents_docDate",
+            "unique": false,
+            "columnNames": [
+              "docDate"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_remote_source_documents_docDate` ON `${TABLE_NAME}` (`docDate`)"
+          },
+          {
+            "name": "index_remote_source_documents_groupId",
+            "unique": false,
+            "columnNames": [
+              "groupId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_remote_source_documents_groupId` ON `${TABLE_NAME}` (`groupId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "remote_source_document_items",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `sourceDocumentId` TEXT NOT NULL, `materialId` TEXT, `nameRaw` TEXT NOT NULL, `qty` TEXT NOT NULL, `unit` TEXT NOT NULL, `price` TEXT, `sum` TEXT, `vatRate` TEXT, `vatSum` TEXT, `expectedDate` TEXT, `lineNo` INTEGER NOT NULL, `volumeM3` TEXT, `massKg` TEXT, `volumeConfidence` TEXT, `groupName` TEXT, PRIMARY KEY(`id`), FOREIGN KEY(`sourceDocumentId`) REFERENCES `remote_source_documents`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceDocumentId",
+            "columnName": "sourceDocumentId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "materialId",
+            "columnName": "materialId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "nameRaw",
+            "columnName": "nameRaw",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "qty",
+            "columnName": "qty",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "unit",
+            "columnName": "unit",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "price",
+            "columnName": "price",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sum",
+            "columnName": "sum",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "vatRate",
+            "columnName": "vatRate",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "vatSum",
+            "columnName": "vatSum",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "expectedDate",
+            "columnName": "expectedDate",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lineNo",
+            "columnName": "lineNo",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "volumeM3",
+            "columnName": "volumeM3",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "massKg",
+            "columnName": "massKg",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "volumeConfidence",
+            "columnName": "volumeConfidence",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "groupName",
+            "columnName": "groupName",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_remote_source_document_items_sourceDocumentId",
+            "unique": false,
+            "columnNames": [
+              "sourceDocumentId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_remote_source_document_items_sourceDocumentId` ON `${TABLE_NAME}` (`sourceDocumentId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "remote_source_documents",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "sourceDocumentId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "remote_source_document_attachments",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `sourceDocumentId` TEXT NOT NULL, `s3Key` TEXT NOT NULL, `filename` TEXT NOT NULL, `mimeType` TEXT, `sizeBytes` INTEGER, `role` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`sourceDocumentId`) REFERENCES `remote_source_documents`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceDocumentId",
+            "columnName": "sourceDocumentId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "s3Key",
+            "columnName": "s3Key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "filename",
+            "columnName": "filename",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mimeType",
+            "columnName": "mimeType",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sizeBytes",
+            "columnName": "sizeBytes",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "role",
+            "columnName": "role",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_remote_source_document_attachments_sourceDocumentId",
+            "unique": false,
+            "columnNames": [
+              "sourceDocumentId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_remote_source_document_attachments_sourceDocumentId` ON `${TABLE_NAME}` (`sourceDocumentId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "remote_source_documents",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "sourceDocumentId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "mutations",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `entityType` TEXT NOT NULL, `operation` TEXT NOT NULL, `entityId` TEXT NOT NULL, `baseVersion` INTEGER, `payloadJson` TEXT, `attempts` INTEGER NOT NULL, `nextAttemptAt` INTEGER, `lastError` TEXT, `conflictPending` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityType",
+            "columnName": "entityType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "operation",
+            "columnName": "operation",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityId",
+            "columnName": "entityId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "baseVersion",
+            "columnName": "baseVersion",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "payloadJson",
+            "columnName": "payloadJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "attempts",
+            "columnName": "attempts",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nextAttemptAt",
+            "columnName": "nextAttemptAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastError",
+            "columnName": "lastError",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "conflictPending",
+            "columnName": "conflictPending",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_mutations_entityType_entityId",
+            "unique": false,
+            "columnNames": [
+              "entityType",
+              "entityId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_mutations_entityType_entityId` ON `${TABLE_NAME}` (`entityType`, `entityId`)"
+          },
+          {
+            "name": "index_mutations_conflictPending",
+            "unique": false,
+            "columnNames": [
+              "conflictPending"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_mutations_conflictPending` ON `${TABLE_NAME}` (`conflictPending`)"
+          },
+          {
+            "name": "index_mutations_nextAttemptAt",
+            "unique": false,
+            "columnNames": [
+              "nextAttemptAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_mutations_nextAttemptAt` ON `${TABLE_NAME}` (`nextAttemptAt`)"
+          }
+        ]
+      },
+      {
+        "tableName": "stage1_drafts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`localDraftId` TEXT NOT NULL, `updId` TEXT, `documentPhotoPathsJson` TEXT NOT NULL, `cargoPhotoPathsJson` TEXT NOT NULL, `vehicleTypeCode` TEXT, `materialsJson` TEXT NOT NULL, `commentText` TEXT NOT NULL, `licensePlate` TEXT NOT NULL, `manualUpdText` TEXT NOT NULL, `inTransit` INTEGER NOT NULL, `isAssets` INTEGER NOT NULL, `groupId` TEXT, `loadedDocIdsJson` TEXT NOT NULL, `loadedGroupRevision` INTEGER, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`localDraftId`))",
+        "fields": [
+          {
+            "fieldPath": "localDraftId",
+            "columnName": "localDraftId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updId",
+            "columnName": "updId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "documentPhotoPathsJson",
+            "columnName": "documentPhotoPathsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cargoPhotoPathsJson",
+            "columnName": "cargoPhotoPathsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "vehicleTypeCode",
+            "columnName": "vehicleTypeCode",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "materialsJson",
+            "columnName": "materialsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "commentText",
+            "columnName": "commentText",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "licensePlate",
+            "columnName": "licensePlate",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "manualUpdText",
+            "columnName": "manualUpdText",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "inTransit",
+            "columnName": "inTransit",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isAssets",
+            "columnName": "isAssets",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "groupId",
+            "columnName": "groupId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "loadedDocIdsJson",
+            "columnName": "loadedDocIdsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "loadedGroupRevision",
+            "columnName": "loadedGroupRevision",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "localDraftId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_stage1_drafts_updId",
+            "unique": true,
+            "columnNames": [
+              "updId"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_stage1_drafts_updId` ON `${TABLE_NAME}` (`updId`)"
+          },
+          {
+            "name": "index_stage1_drafts_groupId",
+            "unique": true,
+            "columnNames": [
+              "groupId"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_stage1_drafts_groupId` ON `${TABLE_NAME}` (`groupId`)"
+          },
+          {
+            "name": "index_stage1_drafts_updatedAt",
+            "unique": false,
+            "columnNames": [
+              "updatedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_stage1_drafts_updatedAt` ON `${TABLE_NAME}` (`updatedAt`)"
+          }
+        ]
+      },
+      {
+        "tableName": "stage2_drafts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`deliveryId` TEXT NOT NULL, `documentPhotoPathsJson` TEXT NOT NULL, `vehiclePhotoPathsJson` TEXT NOT NULL, `vehicleTypeCode` TEXT, `materialsJson` TEXT NOT NULL, `editedIndexesJson` TEXT NOT NULL, `commentText` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`deliveryId`))",
+        "fields": [
+          {
+            "fieldPath": "deliveryId",
+            "columnName": "deliveryId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "documentPhotoPathsJson",
+            "columnName": "documentPhotoPathsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "vehiclePhotoPathsJson",
+            "columnName": "vehiclePhotoPathsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "vehicleTypeCode",
+            "columnName": "vehicleTypeCode",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "materialsJson",
+            "columnName": "materialsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "editedIndexesJson",
+            "columnName": "editedIndexesJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "commentText",
+            "columnName": "commentText",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "deliveryId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_stage2_drafts_updatedAt",
+            "unique": false,
+            "columnNames": [
+              "updatedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_stage2_drafts_updatedAt` ON `${TABLE_NAME}` (`updatedAt`)"
+          }
+        ]
+      },
+      {
+        "tableName": "shipment_stage1_drafts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`localDraftId` TEXT NOT NULL, `updId` TEXT, `documentPhotoPathsJson` TEXT NOT NULL, `cargoPhotoPathsJson` TEXT NOT NULL, `vehicleTypeCode` TEXT, `materialsJson` TEXT NOT NULL, `commentText` TEXT NOT NULL, `licensePlate` TEXT NOT NULL, `manualUpdText` TEXT NOT NULL, `shipmentPurpose` TEXT, `inTransit` INTEGER NOT NULL, `isAssets` INTEGER NOT NULL, `groupId` TEXT, `loadedDocIdsJson` TEXT NOT NULL, `loadedGroupRevision` INTEGER, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`localDraftId`))",
+        "fields": [
+          {
+            "fieldPath": "localDraftId",
+            "columnName": "localDraftId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updId",
+            "columnName": "updId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "documentPhotoPathsJson",
+            "columnName": "documentPhotoPathsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cargoPhotoPathsJson",
+            "columnName": "cargoPhotoPathsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "vehicleTypeCode",
+            "columnName": "vehicleTypeCode",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "materialsJson",
+            "columnName": "materialsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "commentText",
+            "columnName": "commentText",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "licensePlate",
+            "columnName": "licensePlate",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "manualUpdText",
+            "columnName": "manualUpdText",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "shipmentPurpose",
+            "columnName": "shipmentPurpose",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "inTransit",
+            "columnName": "inTransit",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isAssets",
+            "columnName": "isAssets",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "groupId",
+            "columnName": "groupId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "loadedDocIdsJson",
+            "columnName": "loadedDocIdsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "loadedGroupRevision",
+            "columnName": "loadedGroupRevision",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "localDraftId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_shipment_stage1_drafts_updId",
+            "unique": true,
+            "columnNames": [
+              "updId"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_shipment_stage1_drafts_updId` ON `${TABLE_NAME}` (`updId`)"
+          },
+          {
+            "name": "index_shipment_stage1_drafts_groupId",
+            "unique": true,
+            "columnNames": [
+              "groupId"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_shipment_stage1_drafts_groupId` ON `${TABLE_NAME}` (`groupId`)"
+          },
+          {
+            "name": "index_shipment_stage1_drafts_updatedAt",
+            "unique": false,
+            "columnNames": [
+              "updatedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_shipment_stage1_drafts_updatedAt` ON `${TABLE_NAME}` (`updatedAt`)"
+          }
+        ]
+      },
+      {
+        "tableName": "shipment_stage2_drafts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`shipmentId` TEXT NOT NULL, `documentPhotoPathsJson` TEXT NOT NULL, `vehiclePhotoPathsJson` TEXT NOT NULL, `vehicleTypeCode` TEXT, `materialsJson` TEXT NOT NULL, `editedIndexesJson` TEXT NOT NULL, `commentText` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`shipmentId`))",
+        "fields": [
+          {
+            "fieldPath": "shipmentId",
+            "columnName": "shipmentId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "documentPhotoPathsJson",
+            "columnName": "documentPhotoPathsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "vehiclePhotoPathsJson",
+            "columnName": "vehiclePhotoPathsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "vehicleTypeCode",
+            "columnName": "vehicleTypeCode",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "materialsJson",
+            "columnName": "materialsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "editedIndexesJson",
+            "columnName": "editedIndexesJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "commentText",
+            "columnName": "commentText",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "shipmentId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_shipment_stage2_drafts_updatedAt",
+            "unique": false,
+            "columnNames": [
+              "updatedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_shipment_stage2_drafts_updatedAt` ON `${TABLE_NAME}` (`updatedAt`)"
+          }
+        ]
+      },
+      {
+        "tableName": "manual_entry_drafts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`localDraftId` TEXT NOT NULL, `siteId` TEXT NOT NULL, `documentPhotoPathsJson` TEXT NOT NULL, `cargoPhotoPathsJson` TEXT NOT NULL, `manualUpdText` TEXT NOT NULL, `materialsJson` TEXT NOT NULL, `commentText` TEXT NOT NULL, `isAssets` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`localDraftId`))",
+        "fields": [
+          {
+            "fieldPath": "localDraftId",
+            "columnName": "localDraftId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "siteId",
+            "columnName": "siteId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "documentPhotoPathsJson",
+            "columnName": "documentPhotoPathsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cargoPhotoPathsJson",
+            "columnName": "cargoPhotoPathsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "manualUpdText",
+            "columnName": "manualUpdText",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "materialsJson",
+            "columnName": "materialsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "commentText",
+            "columnName": "commentText",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isAssets",
+            "columnName": "isAssets",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "localDraftId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_manual_entry_drafts_siteId",
+            "unique": false,
+            "columnNames": [
+              "siteId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_manual_entry_drafts_siteId` ON `${TABLE_NAME}` (`siteId`)"
+          },
+          {
+            "name": "index_manual_entry_drafts_updatedAt",
+            "unique": false,
+            "columnNames": [
+              "updatedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_manual_entry_drafts_updatedAt` ON `${TABLE_NAME}` (`updatedAt`)"
+          }
+        ]
+      },
+      {
+        "tableName": "manual_dispatch_drafts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`localDraftId` TEXT NOT NULL, `siteId` TEXT NOT NULL, `documentPhotoPathsJson` TEXT NOT NULL, `cargoPhotoPathsJson` TEXT NOT NULL, `manualUpdText` TEXT NOT NULL, `materialsJson` TEXT NOT NULL, `commentText` TEXT NOT NULL, `shipmentPurpose` TEXT, `isAssets` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`localDraftId`))",
+        "fields": [
+          {
+            "fieldPath": "localDraftId",
+            "columnName": "localDraftId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "siteId",
+            "columnName": "siteId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "documentPhotoPathsJson",
+            "columnName": "documentPhotoPathsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cargoPhotoPathsJson",
+            "columnName": "cargoPhotoPathsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "manualUpdText",
+            "columnName": "manualUpdText",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "materialsJson",
+            "columnName": "materialsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "commentText",
+            "columnName": "commentText",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "shipmentPurpose",
+            "columnName": "shipmentPurpose",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "isAssets",
+            "columnName": "isAssets",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "localDraftId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_manual_dispatch_drafts_siteId",
+            "unique": false,
+            "columnNames": [
+              "siteId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_manual_dispatch_drafts_siteId` ON `${TABLE_NAME}` (`siteId`)"
+          },
+          {
+            "name": "index_manual_dispatch_drafts_updatedAt",
+            "unique": false,
+            "columnNames": [
+              "updatedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_manual_dispatch_drafts_updatedAt` ON `${TABLE_NAME}` (`updatedAt`)"
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'f1d6c5716127e05ee36f8f50775961b3')"
+    ]
+  }
+}

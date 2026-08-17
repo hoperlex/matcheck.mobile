@@ -57,6 +57,15 @@ interface RemoteSourceDocumentDao {
     )
     suspend fun findItemsBySource(sourceDocumentId: String): List<RemoteSourceDocumentItemEntity>
 
+    /**
+     * Все документы одной «машины». Порядок задаёт не SQL, а
+     * [com.example.matcheckmobile.domain.model.sortGroupDocs]: от него зависят
+     * и заголовок карточки, и сквозная нумерация позиций, и приоритет
+     * реквизитов — держать это правило в двух местах нельзя.
+     */
+    @Query("SELECT * FROM remote_source_documents WHERE groupId = :groupId")
+    suspend fun findByGroupId(groupId: String): List<RemoteSourceDocumentEntity>
+
     @Query("SELECT * FROM remote_source_documents ORDER BY docDate DESC")
     fun observeAll(): Flow<List<RemoteSourceDocumentEntity>>
 

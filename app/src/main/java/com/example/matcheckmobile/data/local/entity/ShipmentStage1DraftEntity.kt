@@ -10,12 +10,13 @@ import androidx.room.PrimaryKey
  * хотя бы одного фото; удаляется при finalize или когда все фото стёрты.
  *
  * `updId == null` — отгрузка без выбранной УПД («Создать отгрузку»).
- * UNIQUE индекс по updId — один draft на УПД.
+ * UNIQUE индекс по updId — один draft на УПД, по groupId — один на машину.
  */
 @Entity(
     tableName = "shipment_stage1_drafts",
     indices = [
         Index(value = ["updId"], unique = true),
+        Index(value = ["groupId"], unique = true),
         Index(value = ["updatedAt"]),
     ],
 )
@@ -46,6 +47,12 @@ data class ShipmentStage1DraftEntity(
      * в server. Default false (миграция Room 21→22).
      */
     val isAssets: Boolean = false,
+    /** «Машина», см. [Stage1DraftEntity.groupId]. */
+    val groupId: String? = null,
+    /** Снимок состава машины на момент загрузки формы, см. [Stage1DraftEntity.loadedDocIdsJson]. */
+    val loadedDocIdsJson: String = "[]",
+    /** Версия состава группы на момент загрузки формы. */
+    val loadedGroupRevision: Int? = null,
     val createdAt: Long,
     val updatedAt: Long,
 )

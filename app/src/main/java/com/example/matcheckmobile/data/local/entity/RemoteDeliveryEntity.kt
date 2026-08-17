@@ -81,6 +81,14 @@ data class RemoteDeliveryItemEntity(
     @PrimaryKey val id: String,
     val deliveryId: String,
     val materialId: String?,
+    /**
+     * Происхождение позиции: документ и его строка. null у позиций, добавленных
+     * инспектором руками. Хранится локально, потому что мутация может уйти на
+     * сервер повторно (офлайн-очередь), и при повторной отправке происхождение
+     * обязано быть тем же — иначе разбивка приёмки по документам потеряется.
+     */
+    val sourceDocumentId: String?,
+    val sourceDocumentItemId: String?,
     val nameRaw: String,
     val qtyPlanned: String?,
     val qtyActual: String?,
@@ -110,6 +118,10 @@ data class RemoteDeliveryItemEntity(
         Index(value = ["deliveryId"]),
         Index(value = ["contentHash"]),
         Index(value = ["uploadStatus"]),
+        // Вторая линия защиты от дублей при повторной финализации: один
+        // исходный кадр — одна строка на приёмку. NULL в SQLite не конфликтует
+        // с NULL, поэтому старые строки без sourcePath индексу не мешают.
+        Index(value = ["deliveryId", "sourcePath"], unique = true),
     ],
 )
 data class RemoteDeliveryPhotoEntity(
@@ -136,6 +148,21 @@ data class RemoteDeliveryPhotoEntity(
     /** Абсолютный путь к main blob в filesDir. null после удаления локальной копии. */
     val localBlobPath: String?,
     val localThumbPath: String?,
-    val uploadStatus: String, // PENDING_UPLOAD | UPLOADING | UPLOADED | UPLOAD_ERROR
+    val uploadStatus: String, // PENDING_PREPARE | PREPARING | PREPARE_ERROR | PENDING_UPLOAD | UPLOADING | UPLOADED | UPLOAD_ERROR
     val lastUploadError: String?,
+    /**
+     * Исходный кадр в filesDir/operation_photos, из которого ещё предстоит
+     * собрать main+thumb. Заполнен, пока строка не прошла PENDING_PREPARE;
+     * после успешной подготовки файл удаляется, а путь остаётся ключом
+     * идемпотентности (уникальный индекс deliveryId+sourcePath).
+     *
+     * null у строк, приехавших с сервера, и у legacy-фото до миграции 24→25.
+     */
+    val sourcePath: String? = null,
+    /**
+     * Момент захвата строки воркером подготовки (epoch millis) — lease.
+     * Смерть процесса в PREPARING не должна морозить кадр навсегда:
+     * просроченный lease перехватывается следующим запуском.
+     */
+    val preparingSince: Long? = null,
 )

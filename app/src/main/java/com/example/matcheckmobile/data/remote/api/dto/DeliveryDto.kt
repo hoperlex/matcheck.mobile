@@ -51,6 +51,14 @@ data class DeliveryDto(
 data class DeliveryItemDto(
     val id: String,
     val materialId: String? = null,
+    /**
+     * Происхождение позиции: документ и его строка. Заполнено, когда приёмка
+     * собрана по УПД; null у строк, добавленных инспектором руками. Веб-портал
+     * раскладывает по этим полям позиции приёмки на секции по документам — что
+     * и делает осмысленной приёмку сразу по нескольким УПД одной машины.
+     */
+    val sourceDocumentId: String? = null,
+    val sourceDocumentItemId: String? = null,
     val nameRaw: String,
     val qtyPlanned: String? = null,
     val qtyActual: String? = null,
@@ -120,6 +128,9 @@ data class DeliveryUpsertRequest(
 data class DeliveryUpsertItem(
     val id: String? = null,
     val materialId: String? = null,
+    /** Происхождение позиции, см. [DeliveryItemDto.sourceDocumentId]. */
+    val sourceDocumentId: String? = null,
+    val sourceDocumentItemId: String? = null,
     val nameRaw: String,
     val qtyPlanned: String? = null,
     val qtyActual: String? = null,

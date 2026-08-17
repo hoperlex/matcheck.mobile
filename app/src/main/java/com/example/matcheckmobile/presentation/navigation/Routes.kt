@@ -18,6 +18,12 @@ object Routes {
     const val ARG_UPD_ID = "updId"
     const val ARG_SESSION_ID = "sessionId"
     const val ARG_DRAFT_ID = "draftId"
+    /**
+     * «Машина» — id корневого пакета загрузки. Форма 1 Этапа открывается либо по
+     * одиночному документу (ARG_UPD_ID), либо по машине целиком (этот аргумент):
+     * тогда в приёмку уходят все её документы.
+     */
+    const val ARG_GROUP_ID = "groupId"
 
     // Форма ручного вноса — по draftId (константы после ARG_DRAFT_ID:
     // const-инициализация требует, чтобы зависимость была объявлена раньше).
@@ -26,8 +32,10 @@ object Routes {
     fun manualEntryForm(draftId: String): String = "$MANUAL_ENTRY_FORM_BASE/$draftId"
 
     const val STAGE1_FORM_BASE = "stage1_form"
-    const val STAGE1_FORM = "$STAGE1_FORM_BASE?$ARG_UPD_ID={$ARG_UPD_ID}&$ARG_DRAFT_ID={$ARG_DRAFT_ID}"
+    const val STAGE1_FORM =
+        "$STAGE1_FORM_BASE?$ARG_UPD_ID={$ARG_UPD_ID}&$ARG_DRAFT_ID={$ARG_DRAFT_ID}&$ARG_GROUP_ID={$ARG_GROUP_ID}"
     fun stage1FormForUpd(updId: String): String = "$STAGE1_FORM_BASE?$ARG_UPD_ID=$updId"
+    fun stage1FormForGroup(groupId: String): String = "$STAGE1_FORM_BASE?$ARG_GROUP_ID=$groupId"
     fun stage1FormForDraft(draftId: String): String = "$STAGE1_FORM_BASE?$ARG_DRAFT_ID=$draftId"
     fun stage1FormNew(): String = STAGE1_FORM_BASE
 
@@ -61,9 +69,12 @@ object Routes {
 
     const val DISPATCH_STAGE1_FORM_BASE = "dispatch_stage1_form"
     const val DISPATCH_STAGE1_FORM =
-        "$DISPATCH_STAGE1_FORM_BASE?$ARG_UPD_ID={$ARG_UPD_ID}&$ARG_DRAFT_ID={$ARG_DRAFT_ID}"
+        "$DISPATCH_STAGE1_FORM_BASE?$ARG_UPD_ID={$ARG_UPD_ID}&$ARG_DRAFT_ID={$ARG_DRAFT_ID}" +
+            "&$ARG_GROUP_ID={$ARG_GROUP_ID}"
     fun dispatchStage1FormForUpd(updId: String): String =
         "$DISPATCH_STAGE1_FORM_BASE?$ARG_UPD_ID=$updId"
+    fun dispatchStage1FormForGroup(groupId: String): String =
+        "$DISPATCH_STAGE1_FORM_BASE?$ARG_GROUP_ID=$groupId"
     fun dispatchStage1FormForDraft(draftId: String): String =
         "$DISPATCH_STAGE1_FORM_BASE?$ARG_DRAFT_ID=$draftId"
     fun dispatchStage1FormNew(): String = DISPATCH_STAGE1_FORM_BASE

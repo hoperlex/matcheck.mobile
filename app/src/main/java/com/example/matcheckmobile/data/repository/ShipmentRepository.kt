@@ -11,6 +11,7 @@ import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.data.remote.api.dto.MarkDeletionRequest
 import com.example.matcheckmobile.data.remote.api.dto.ShipmentUpsertItem
 import com.example.matcheckmobile.data.remote.api.dto.ShipmentUpsertRequest
+import com.example.matcheckmobile.domain.model.PhotoIntent
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.Json
 import java.util.UUID
@@ -92,6 +93,8 @@ class ShipmentRepository(
                 id = it.id ?: UUID.randomUUID().toString(),
                 shipmentId = id,
                 materialId = it.materialId,
+                sourceDocumentId = it.sourceDocumentId,
+                sourceDocumentItemId = it.sourceDocumentItemId,
                 nameRaw = it.nameRaw,
                 qtyPlanned = it.qtyPlanned,
                 qtyActual = it.qtyActual,
@@ -145,7 +148,13 @@ class ShipmentRepository(
             serverSnapshotJson = null,
             lastSyncError = null,
         )
-        shipmentDao.saveAggregate(shipment = entity, items = items, photos = emptyList())
+        // См. DeliveryRepository.upsert: фото становятся durable вместе с мутацией.
+        shipmentDao.saveAggregate(
+            shipment = entity,
+            items = items,
+            photos = emptyList(),
+            photoIntents = input.photos.map { it.toShipmentPhotoEntity(id) },
+        )
 
         val request = ShipmentUpsertRequest(
             id = id,
@@ -170,6 +179,8 @@ class ShipmentRepository(
                 ShipmentUpsertItem(
                     id = it.id,
                     materialId = it.materialId,
+                    sourceDocumentId = it.sourceDocumentId,
+                    sourceDocumentItemId = it.sourceDocumentItemId,
                     nameRaw = it.nameRaw,
                     qtyPlanned = it.qtyPlanned,
                     qtyActual = it.qtyActual,
@@ -319,11 +330,16 @@ class ShipmentRepository(
         val isAssets: Boolean = false,
         val sourceDocumentIds: List<String> = emptyList(),
         val items: List<ItemInput> = emptyList(),
+        /** См. DeliveryRepository.UpsertInput.photos. */
+        val photos: List<PhotoIntent> = emptyList(),
     )
 
     data class ItemInput(
         val id: String? = null,
         val materialId: String? = null,
+        /** Происхождение позиции, см. [DeliveryRepository.ItemInput.sourceDocumentId]. */
+        val sourceDocumentId: String? = null,
+        val sourceDocumentItemId: String? = null,
         val nameRaw: String,
         val qtyPlanned: String? = null,
         val qtyActual: String? = null,

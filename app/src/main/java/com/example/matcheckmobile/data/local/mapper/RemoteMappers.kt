@@ -63,6 +63,7 @@ object RemoteMappers {
 
     fun RemoteDeliveryItemEntity.toUpsertItem(): DeliveryUpsertItem = DeliveryUpsertItem(
         id = id, materialId = materialId, nameRaw = nameRaw,
+        sourceDocumentId = sourceDocumentId, sourceDocumentItemId = sourceDocumentItemId,
         qtyPlanned = qtyPlanned, qtyActual = qtyActual, unit = unit, comment = comment,
         lineNo = lineNo, volumeM3 = volumeM3, massKg = massKg, price = price,
         vatRate = vatRate, vatSum = vatSum, volumeConfidence = volumeConfidence, groupName = groupName,
@@ -90,6 +91,7 @@ object RemoteMappers {
 
     fun RemoteShipmentItemEntity.toUpsertItem(): ShipmentUpsertItem = ShipmentUpsertItem(
         id = id, materialId = materialId, nameRaw = nameRaw,
+        sourceDocumentId = sourceDocumentId, sourceDocumentItemId = sourceDocumentItemId,
         qtyPlanned = qtyPlanned, qtyActual = qtyActual, unit = unit, comment = comment,
         lineNo = lineNo, volumeM3 = volumeM3, massKg = massKg, price = price,
         vatRate = vatRate, vatSum = vatSum, volumeConfidence = volumeConfidence, groupName = groupName,
@@ -174,6 +176,7 @@ object RemoteMappers {
 
     fun DeliveryItemDto.toEntity(deliveryId: String): RemoteDeliveryItemEntity = RemoteDeliveryItemEntity(
         id = id, deliveryId = deliveryId, materialId = materialId, nameRaw = nameRaw,
+        sourceDocumentId = sourceDocumentId, sourceDocumentItemId = sourceDocumentItemId,
         qtyPlanned = qtyPlanned, qtyActual = qtyActual, unit = unit, comment = comment,
         lineNo = lineNo, volumeM3 = volumeM3, massKg = massKg,
         price = price, vatRate = vatRate, vatSum = vatSum,
@@ -233,6 +236,7 @@ object RemoteMappers {
 
     fun ShipmentItemDto.toEntity(shipmentId: String): RemoteShipmentItemEntity = RemoteShipmentItemEntity(
         id = id, shipmentId = shipmentId, materialId = materialId, nameRaw = nameRaw,
+        sourceDocumentId = sourceDocumentId, sourceDocumentItemId = sourceDocumentItemId,
         qtyPlanned = qtyPlanned, qtyActual = qtyActual, unit = unit, comment = comment,
         lineNo = lineNo, volumeM3 = volumeM3, massKg = massKg,
         price = price, vatRate = vatRate, vatSum = vatSum,
@@ -256,11 +260,14 @@ object RemoteMappers {
         supplierId = supplierId, recipientId = recipientId, contractorId = contractorId,
         recipientMolId = recipientMolId,
         siteId = siteId, supplierName = supplierName, contractorName = contractorName,
+        consigneeName = consigneeName,
+        buyerName = buyerName,
         siteName = siteName, createdByUserPhone = createdByUserPhone,
         docNumber = docNumber, docDate = docDate,
         totalSum = totalSum, vatSum = vatSum, expectedDate = expectedDate, origin = origin,
         parsedAt = parsedAt, parseErrorCode = parseErrorCode, originalFilename = originalFilename,
         version = version, createdAt = createdAt, updatedAt = updatedAt,
+        groupId = groupId, groupRevision = groupRevision,
     )
 
     fun SourceItemDto.toEntity(docId: String): RemoteSourceDocumentItemEntity = RemoteSourceDocumentItemEntity(

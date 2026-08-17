@@ -75,6 +75,9 @@ data class RemoteShipmentItemEntity(
     @PrimaryKey val id: String,
     val shipmentId: String,
     val materialId: String?,
+    /** Происхождение позиции, см. [RemoteDeliveryItemEntity.sourceDocumentId]. */
+    val sourceDocumentId: String?,
+    val sourceDocumentItemId: String?,
     val nameRaw: String,
     val qtyPlanned: String?,
     val qtyActual: String?,
@@ -104,6 +107,8 @@ data class RemoteShipmentItemEntity(
         Index(value = ["shipmentId"]),
         Index(value = ["contentHash"]),
         Index(value = ["uploadStatus"]),
+        // См. RemoteDeliveryPhotoEntity: защита от дублей при повторной финализации.
+        Index(value = ["shipmentId", "sourcePath"], unique = true),
     ],
 )
 data class RemoteShipmentPhotoEntity(
@@ -124,4 +129,8 @@ data class RemoteShipmentPhotoEntity(
     val localThumbPath: String?,
     val uploadStatus: String,
     val lastUploadError: String?,
+    /** См. [RemoteDeliveryPhotoEntity.sourcePath]. */
+    val sourcePath: String? = null,
+    /** См. [RemoteDeliveryPhotoEntity.preparingSince]. */
+    val preparingSince: Long? = null,
 )

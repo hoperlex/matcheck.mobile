@@ -48,6 +48,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.matcheckmobile.domain.model.sourceDocTitle
 import com.example.matcheckmobile.presentation.components.GroupHeaderCard
 import com.example.matcheckmobile.presentation.components.UpdSummaryCard
+import com.example.matcheckmobile.domain.model.docCountLabel
+import com.example.matcheckmobile.domain.model.partyLabel
+import com.example.matcheckmobile.domain.model.sourceDocGroupTitle
 import com.example.matcheckmobile.presentation.viewmodel.IntakeUpdGroup
 import com.example.matcheckmobile.presentation.viewmodel.IntakeUpdSelectViewModel
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
@@ -59,6 +62,7 @@ private val ContentMaxWidth = 720.dp
 fun IntakeUpdSelectScreen(
     onBack: () -> Unit,
     onOpenWithUpd: (updLocalId: String) -> Unit,
+    onOpenWithGroup: (groupId: String) -> Unit,
     onOpenDraft: (draftId: String) -> Unit,
     onCreateEmpty: () -> Unit,
 ) {
@@ -178,6 +182,7 @@ fun IntakeUpdSelectScreen(
                                             expandedMap[key] = !expanded
                                         },
                                         onOpenWithUpd = onOpenWithUpd,
+                                        onOpenWithGroup = onOpenWithGroup,
                                         onOpenDraft = onOpenDraft,
                                     )
                                 }
@@ -258,6 +263,7 @@ private fun IntakeUpdGroupSection(
     expanded: Boolean,
     onToggle: () -> Unit,
     onOpenWithUpd: (updLocalId: String) -> Unit,
+    onOpenWithGroup: (groupId: String) -> Unit,
     onOpenDraft: (draftId: String) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -284,14 +290,45 @@ private fun IntakeUpdGroupSection(
                     val subtitle: String
                     val onClick: () -> Unit
                     if (doc != null) {
-                        // Префикс зависит от kind документа: УПД vs Накладная.
-                        // Сервер отдаёт inspector_kpp как УПД, так и ТН/ОС-2 —
-                        // см. apps/api/.../routes/sync.ts.
-                        title = sourceDocTitle(doc.kind, doc.docNumber)
-                        // Поставщик ушёл в заголовок группы, поэтому в строке
-                        // показываем второго участника поставки — подрядчика.
-                        subtitle = "Подрядчик: ${row.contractorName?.takeIf(String::isNotBlank) ?: "—"}"
-                        onClick = { onOpenWithUpd(doc.id) }
+                        // Заголовок машины: «УПД 1403, 1404 · Накладная 192».
+                        // Для одиночного документа вырождается в прежний
+                        // sourceDocTitle — ветвиться не нужно.
+                        title = sourceDocGroupTitle(row.documents)
+                        // Поставщик ушёл в заголовок группы, а подрядчик на
+                        // объекте один на все документы — строка по нему не
+                        // различала карточки. Показываем грузополучателя
+                        // (графа 4 УПД), как колонка «Грузополучатель» в вебе.
+                        //
+                        // Если графа 4 не распозналась — покупателя (графа 6), с
+                        // его собственной подписью. Подрядчика не показываем
+                        // никогда: на портале он скрыт из таблиц документов, и
+                        // строка расходилась бы с тем, что видит менеджер.
+                        // В проде графа 4 заполнена у меньшинства документов,
+                        // так что без этой ступени большинство строк осталось бы
+                        // с прочерком.
+                        val party = partyLabel(row.consigneeName, row.buyerName)
+                        // У машины дописываем счётчик документов: инспектор
+                        // должен видеть, что за одной карточкой их несколько,
+                        // и что оформлять её нужно один раз.
+                        subtitle = if (row.documents.size > 1) {
+                            "$party · ${docCountLabel(row.documents.size)}"
+                        } else {
+                            party
+                        }
+                        val groupId = row.groupId
+                        val draftId = row.draftId
+                        onClick = when {
+                            // Начатый черновик открываем ИМЕННО по его id, а не
+                            // по машине: черновик, начатый до появления
+                            // группировки, лежит с groupId = null, и поиск по
+                            // группе его бы не нашёл — форма завела бы второй, а
+                            // уже снятые фото остались бы в осиротевшей записи.
+                            // Группу такой черновик примет сам при открытии.
+                            draftId != null -> ({ onOpenDraft(draftId) })
+                            groupId != null && row.documents.size > 1 ->
+                                ({ onOpenWithGroup(groupId) })
+                            else -> ({ onOpenWithUpd(doc.id) })
+                        }
                     } else {
                         // Псевдо-карточка empty-draft (создана через «Создать
                         // приёмку» без выбора УПД). Открываем по draftId.

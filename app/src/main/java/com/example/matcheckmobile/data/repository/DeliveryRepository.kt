@@ -11,6 +11,7 @@ import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.data.remote.api.dto.DeliveryUpsertItem
 import com.example.matcheckmobile.data.remote.api.dto.DeliveryUpsertRequest
 import com.example.matcheckmobile.data.remote.api.dto.MarkDeletionRequest
+import com.example.matcheckmobile.domain.model.PhotoIntent
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.Json
 import java.util.UUID
@@ -128,6 +129,8 @@ class DeliveryRepository(
                 id = it.id ?: UUID.randomUUID().toString(),
                 deliveryId = id,
                 materialId = it.materialId,
+                sourceDocumentId = it.sourceDocumentId,
+                sourceDocumentItemId = it.sourceDocumentItemId,
                 nameRaw = it.nameRaw,
                 qtyPlanned = it.qtyPlanned,
                 qtyActual = it.qtyActual,
@@ -181,7 +184,15 @@ class DeliveryRepository(
             serverSnapshotJson = null,
             lastSyncError = null,
         )
-        deliveryDao.saveAggregate(delivery = entity, items = items, photos = emptyList())
+        // Фото кладём ТОЙ ЖЕ транзакцией, что сущность и мутацию ниже: раньше
+        // подготовка кадров шла после upsert отдельным циклом, и её падение
+        // (нет места, OOM) оставляло приёмку в очереди совсем без фото.
+        deliveryDao.saveAggregate(
+            delivery = entity,
+            items = items,
+            photos = emptyList(),
+            photoIntents = input.photos.map { it.toDeliveryPhotoEntity(id) },
+        )
 
         val request = DeliveryUpsertRequest(
             id = id,
@@ -205,6 +216,8 @@ class DeliveryRepository(
                 DeliveryUpsertItem(
                     id = it.id,
                     materialId = it.materialId,
+                    sourceDocumentId = it.sourceDocumentId,
+                    sourceDocumentItemId = it.sourceDocumentItemId,
                     nameRaw = it.nameRaw,
                     qtyPlanned = it.qtyPlanned,
                     qtyActual = it.qtyActual,
@@ -363,11 +376,25 @@ class DeliveryRepository(
         val isAssets: Boolean = false,
         val sourceDocumentIds: List<String> = emptyList(),
         val items: List<ItemInput> = emptyList(),
+        /**
+         * Кадры, снятые в форме. Ложатся в Room ТОЙ ЖЕ транзакцией, что и
+         * мутация: приёмка не может уехать на сервер без своих фото.
+         * Подготовку (декод + два JPEG) делает потом PhotoPrepareWorker.
+         */
+        val photos: List<PhotoIntent> = emptyList(),
     )
 
     data class ItemInput(
         val id: String? = null,
         val materialId: String? = null,
+        /**
+         * Происхождение позиции: документ и его строка. null у строк, которые
+         * инспектор добавил руками. Обязательно для приёмки по нескольким УПД
+         * одной машины — иначе на веб-портале позиции не раскладываются по
+         * документам. Сервер отбрасывает документ, не привязанный к приёмке.
+         */
+        val sourceDocumentId: String? = null,
+        val sourceDocumentItemId: String? = null,
         val nameRaw: String,
         val qtyPlanned: String? = null,
         val qtyActual: String? = null,

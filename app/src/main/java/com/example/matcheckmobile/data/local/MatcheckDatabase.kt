@@ -105,8 +105,8 @@ import com.example.matcheckmobile.data.local.entity.UserEntity
         ManualEntryDraftEntity::class,
         ManualDispatchDraftEntity::class,
     ],
-    version = 23,
-    exportSchema = false,
+    version = 26,
+    exportSchema = true,
 )
 @TypeConverters(Converters::class)
 abstract class MatcheckDatabase : RoomDatabase() {
@@ -151,7 +151,7 @@ abstract class MatcheckDatabase : RoomDatabase() {
                     MatcheckDatabase::class.java,
                     DB_NAME,
                 )
-                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23)
+                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26)
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
                     .also { INSTANCE = it }
@@ -231,6 +231,132 @@ abstract class MatcheckDatabase : RoomDatabase() {
                 )
                 db.execSQL(
                     "CREATE INDEX IF NOT EXISTS `index_manual_dispatch_drafts_updatedAt` ON `manual_dispatch_drafts` (`updatedAt`)",
+                )
+            }
+        }
+
+        // remote_source_documents.consigneeName — грузополучатель (графа 4 УПД).
+        // Показывается в строке карточки на экранах выбора УПД вместо подрядчика
+        // (тот один на объект и не различал документы). Сервер: проекция
+        // sourceDocuments в routes/sync.ts.
+        internal val MIGRATION_23_24 = object : Migration(23, 24) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `remote_source_documents` ADD COLUMN `consigneeName` TEXT")
+                // Форсируем reconcile для уже закэшированных УПД. Обычной дельтой
+                // они не приедут: /sync отдаёт документы по изменившемуся
+                // updated_at, добавление поля его не меняет, а sync-курсор живёт
+                // в DeviceSettings и переживает обновление приложения — то есть
+                // без этого UPDATE колонка навсегда осталась бы NULL, и инспектор
+                // видел бы прочерк по всем старым документам.
+                //
+                // version = 0 меньше любой серверной (те начинаются с 1) →
+                // документ попадает в staleOnClient → SyncRepository.reconcileSourceDocs
+                // дотягивает detail-DTO через GET /source-documents/{id}, где
+                // consigneeName есть. Для sourceDocuments version участвует ТОЛЬКО
+                // в этой сверке: УПД с мобилы не пушатся, мутаций для них нет,
+                // missingOnServer для них игнорируется — потерять нечего.
+                //
+                // Окно 90 дней = окно staleOnClient на сервере. Без него сброс
+                // был бы бессмысленно дорогим и грязным: reconcileSourceDocs
+                // ходит по одному HTTP-запросу на документ последовательно, а
+                // документы старше серверного окна назад не вернулись бы вообще
+                // и остались бы с version = 0 навсегда.
+                db.execSQL(
+                    "UPDATE `remote_source_documents` SET `version` = 0 " +
+                        "WHERE `updatedAt` >= strftime('%Y-%m-%dT%H:%M:%SZ','now','-90 days')",
+                )
+            }
+        }
+
+        // Фото становятся durable вместе с приёмкой: строка создаётся в той же
+        // транзакции, что и мутация, ещё до декода/энкода. Для этого нужны два
+        // поля — sourcePath (исходный кадр в operation_photos, из которого
+        // предстоит собрать main+thumb) и preparingSince (lease воркера
+        // подготовки, чтобы смерть процесса в PREPARING не морозила кадр).
+        //
+        // Уникальный индекс (parentId, sourcePath) — защита от дублей при
+        // повторной финализации: NULL в SQLite не конфликтует с NULL, поэтому
+        // существующие строки (в т.ч. приехавшие с сервера) индексу не мешают.
+        //
+        // Существующие PENDING_UPLOAD не трогаем: у них есть localBlobPath,
+        // и они продолжают идти прежним путём upload-цикла.
+        internal val MIGRATION_24_25 = object : Migration(24, 25) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `remote_delivery_photos` ADD COLUMN `sourcePath` TEXT")
+                db.execSQL("ALTER TABLE `remote_delivery_photos` ADD COLUMN `preparingSince` INTEGER")
+                db.execSQL("ALTER TABLE `remote_shipment_photos` ADD COLUMN `sourcePath` TEXT")
+                db.execSQL("ALTER TABLE `remote_shipment_photos` ADD COLUMN `preparingSince` INTEGER")
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS " +
+                        "`index_remote_delivery_photos_deliveryId_sourcePath` " +
+                        "ON `remote_delivery_photos` (`deliveryId`, `sourcePath`)",
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS " +
+                        "`index_remote_shipment_photos_shipmentId_sourcePath` " +
+                        "ON `remote_shipment_photos` (`shipmentId`, `sourcePath`)",
+                )
+            }
+        }
+
+        // «Машина» с веб-портала: документы одной загрузки склеиваются в одну
+        // карточку списка и одну приёмку. Раскладка по трём местам:
+        //   * remote_source_documents.groupId/groupRevision — то, что приезжает
+        //     с сервера (COALESCE(parent_bundle_id, id) корневого пакета);
+        //   * stage1_drafts/shipment_stage1_drafts — привязка черновика к машине
+        //     и снимок состава, с которым форма грузила позиции;
+        //   * remote_*_items.sourceDocumentId/ItemId — происхождение позиции.
+        //     Без него приёмка по нескольким УПД уезжает на сервер «ничьими»
+        //     строками, и веб-портал не раскладывает её по документам.
+        internal val MIGRATION_25_26 = object : Migration(25, 26) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `remote_source_documents` ADD COLUMN `groupId` TEXT")
+                db.execSQL("ALTER TABLE `remote_source_documents` ADD COLUMN `groupRevision` INTEGER")
+                // Покупатель (графа 6) едет этой же миграцией, а не своей: форс
+                // version = 0 ниже одинаково дотягивает обе колонки, а второй
+                // такой проход — это ещё раз GET по каждому документу окна.
+                db.execSQL("ALTER TABLE `remote_source_documents` ADD COLUMN `buyerName` TEXT")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_remote_source_documents_groupId` " +
+                        "ON `remote_source_documents` (`groupId`)",
+                )
+
+                db.execSQL("ALTER TABLE `remote_delivery_items` ADD COLUMN `sourceDocumentId` TEXT")
+                db.execSQL("ALTER TABLE `remote_delivery_items` ADD COLUMN `sourceDocumentItemId` TEXT")
+                db.execSQL("ALTER TABLE `remote_shipment_items` ADD COLUMN `sourceDocumentId` TEXT")
+                db.execSQL("ALTER TABLE `remote_shipment_items` ADD COLUMN `sourceDocumentItemId` TEXT")
+
+                // Существующие черновики остаются с groupId = NULL. Форма
+                // подхватит их по updId (через groupId якорного документа) и
+                // проставит значение при первом же сохранении — иначе начатая
+                // до обновления приёмка «отвязалась» бы от своей карточки.
+                // NULL в SQLite не конфликтует с NULL, поэтому UNIQUE-индекс
+                // старым строкам не мешает.
+                for (table in listOf("stage1_drafts", "shipment_stage1_drafts")) {
+                    db.execSQL("ALTER TABLE `$table` ADD COLUMN `groupId` TEXT")
+                    db.execSQL(
+                        "ALTER TABLE `$table` ADD COLUMN `loadedDocIdsJson` TEXT NOT NULL DEFAULT '[]'",
+                    )
+                    db.execSQL("ALTER TABLE `$table` ADD COLUMN `loadedGroupRevision` INTEGER")
+                    db.execSQL(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS `index_${table}_groupId` " +
+                            "ON `$table` (`groupId`)",
+                    )
+                }
+
+                // Форс-реконсиляция уже закэшированных УПД — ровно та же
+                // причина и те же границы, что в MIGRATION_23_24: дельта
+                // отбирает документы по изменившемуся updated_at, добавление
+                // колонки его не меняет, а sync-курсор живёт в DeviceSettings и
+                // переживает обновление приложения. Без этого UPDATE groupId
+                // остался бы NULL навсегда, и склейка не заработала бы вообще.
+                //
+                // Окно 90 дней = окно staleOnClient на сервере: документы
+                // старше него сервер назад не отдаст, и они застряли бы с
+                // version = 0 навсегда.
+                db.execSQL(
+                    "UPDATE `remote_source_documents` SET `version` = 0 " +
+                        "WHERE `updatedAt` >= strftime('%Y-%m-%dT%H:%M:%SZ','now','-90 days')",
                 )
             }
         }

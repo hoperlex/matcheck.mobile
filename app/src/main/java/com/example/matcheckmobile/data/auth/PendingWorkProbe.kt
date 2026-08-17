@@ -123,11 +123,10 @@ class PendingWorkProbe(private val database: MatcheckDatabase) {
 
     private companion object {
         const val TAG = "PendingWorkProbe"
-        val UNSENT_PHOTO_STATUSES = listOf(
-            RemotePhotoStatus.PENDING_UPLOAD,
-            RemotePhotoStatus.UPLOADING,
-            RemotePhotoStatus.UPLOAD_ERROR,
-        )
+        // Включает и стадию подготовки (PENDING_PREPARE / PREPARING /
+        // PREPARE_ERROR): кадр уже снят, но ещё не собран — выходить из
+        // аккаунта с ним так же опасно, как с неотправленным blob'ом.
+        val UNSENT_PHOTO_STATUSES = RemotePhotoStatus.UNSENT
         val QUARANTINE_ONLY = listOf(RemotePhotoStatus.QUARANTINED_FOREIGN_SITE)
     }
 }

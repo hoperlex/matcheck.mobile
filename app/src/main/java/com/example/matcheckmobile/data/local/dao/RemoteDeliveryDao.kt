@@ -38,6 +38,61 @@ interface RemoteDeliveryDao {
     @androidx.room.Upsert
     suspend fun upsertPhoto(photo: RemoteDeliveryPhotoEntity)
 
+    /**
+     * Вставка photo intents при финализации. IGNORE — принципиально:
+     * повторная финализация (инспектор нажал «Завершить» второй раз, процесс
+     * умер до удаления черновика) не должна откатывать строку, которая уже
+     * прошла подготовку или заливку, обратно в PENDING_PREPARE и терять
+     * localBlobPath/contentHash.
+     *
+     * Конфликт ловится и по PK (детерминированный id), и по уникальному
+     * индексу (deliveryId, sourcePath).
+     */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertPhotoIntents(photos: List<RemoteDeliveryPhotoEntity>)
+
+    /**
+     * CAS-захват кадра воркером подготовки. Возвращает число изменённых строк:
+     * 0 означает, что строку уже забрал другой воркер — её надо пропустить.
+     */
+    @Query(
+        """
+        UPDATE remote_delivery_photos
+        SET uploadStatus = 'PREPARING', preparingSince = :now
+        WHERE id = :id AND uploadStatus IN ('PENDING_PREPARE', 'PREPARE_ERROR')
+        """,
+    )
+    suspend fun claimPhotoForPrepare(id: String, now: Long): Int
+
+    /**
+     * Возврат просроченных lease: процесс убили в момент подготовки, статус
+     * остался PREPARING. Без этого кадр завис бы навсегда — ровно та потеря,
+     * ради которой вводился PENDING_PREPARE.
+     */
+    @Query(
+        """
+        UPDATE remote_delivery_photos
+        SET uploadStatus = 'PENDING_PREPARE', preparingSince = NULL
+        WHERE uploadStatus = 'PREPARING'
+          AND (preparingSince IS NULL OR preparingSince < :expiredBefore)
+        """,
+    )
+    suspend fun releaseExpiredPreparing(expiredBefore: Long): Int
+
+    /**
+     * Сколько строк всё ещё ждут подготовки из этого исходника. Исходник
+     * удаляем только когда счётчик обнулился: один кадр может быть приложен
+     * и к приёмке, и к отгрузке.
+     */
+    @Query(
+        """
+        SELECT COUNT(*) FROM remote_delivery_photos
+        WHERE sourcePath = :sourcePath
+          AND uploadStatus IN ('PENDING_PREPARE', 'PREPARING', 'PREPARE_ERROR')
+        """,
+    )
+    suspend fun countAwaitingPrepareForSource(sourcePath: String): Int
+
     @Query("SELECT * FROM remote_delivery_photos WHERE uploadStatus IN (:statuses)")
     suspend fun findPhotosByStatus(statuses: List<String>): List<RemoteDeliveryPhotoEntity>
 
@@ -68,10 +123,18 @@ interface RemoteDeliveryDao {
         delivery: RemoteDeliveryEntity,
         items: List<RemoteDeliveryItemEntity>,
         photos: List<RemoteDeliveryPhotoEntity>,
+        /**
+         * Кадры, снятые в форме и ещё не подготовленные. Вставляются IGNORE:
+         * они принадлежат этой же транзакции (сущность + мутация + фото
+         * появляются вместе), но повторная финализация не должна затирать
+         * строку, которая уже ушла в подготовку или заливку.
+         */
+        photoIntents: List<RemoteDeliveryPhotoEntity> = emptyList(),
     ) {
         upsert(delivery)
         deleteItemsByDelivery(delivery.id)
         if (items.isNotEmpty()) replaceItems(items)
+        if (photoIntents.isNotEmpty()) insertPhotoIntents(photoIntents)
         // Photo живут своим pipeline (PhotoUploadProcessor: presign → S3 → confirm),
         // и сервер на /deliveries upsert не возвращает их состояние (photos=[]).
         // Поэтому ВНУТРИ saveAggregate НЕ удаляем локальные фото — иначе

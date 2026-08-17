@@ -1,6 +1,7 @@
 package com.example.matcheckmobile.presentation.viewmodel
 
 import com.example.matcheckmobile.data.local.entity.RemoteSourceDocumentEntity
+import com.example.matcheckmobile.domain.model.testDoc
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -107,37 +108,74 @@ class UpdSelectFilterTest {
         assertTrue(result.isEmpty())
     }
 
+    @Test
+    fun `привязка одного документа машины скрывает всю машину`() {
+        // Иначе после оформления приёмки остаток документов той же загрузки
+        // вернулся бы в список, и инспектор оформил бы тот же рейс второй раз —
+        // ровно та проблема, ради которой машины и склеиваются.
+        val docs = listOf(
+            doc("upd-1", siteId = "site-1", direction = "inbound", groupId = "bundle-1"),
+            doc("upd-2", siteId = "site-1", direction = "inbound", groupId = "bundle-1"),
+            doc("wb-3", siteId = "site-1", direction = "inbound", groupId = "bundle-1"),
+        )
+
+        val result = filterUpdDocsForSite(
+            docs = docs,
+            currentSiteId = "site-1",
+            direction = "inbound",
+            attachedIds = setOf("upd-1"),
+        )
+
+        assertTrue(result.isEmpty())
+    }
+
+    @Test
+    fun `чужая машина остаётся в списке`() {
+        val docs = listOf(
+            doc("upd-1", siteId = "site-1", direction = "inbound", groupId = "bundle-1"),
+            doc("upd-2", siteId = "site-1", direction = "inbound", groupId = "bundle-2"),
+        )
+
+        val result = filterUpdDocsForSite(
+            docs = docs,
+            currentSiteId = "site-1",
+            direction = "inbound",
+            attachedIds = setOf("upd-1"),
+        )
+
+        assertEquals(listOf("upd-2"), result.map { it.id })
+    }
+
+    @Test
+    fun `документы без машины фильтруются поштучно, как раньше`() {
+        // groupId = null — legacy-сборка и документы из EDO/mail. Скрывать
+        // «соседей» по null нельзя: у них нет ничего общего.
+        val docs = listOf(
+            doc("a", siteId = "site-1", direction = "inbound"),
+            doc("b", siteId = "site-1", direction = "inbound"),
+        )
+
+        val result = filterUpdDocsForSite(
+            docs = docs,
+            currentSiteId = "site-1",
+            direction = "inbound",
+            attachedIds = setOf("a"),
+        )
+
+        assertEquals(listOf("b"), result.map { it.id })
+    }
+
     // --- Fixture helper ---
 
     private fun doc(
         id: String,
         siteId: String?,
         direction: String,
-    ): RemoteSourceDocumentEntity = RemoteSourceDocumentEntity(
+        groupId: String? = null,
+    ): RemoteSourceDocumentEntity = testDoc(
         id = id,
-        kind = "upd",
-        direction = direction,
-        status = "unaccepted",
-        supplierId = null,
-        recipientId = null,
-        contractorId = null,
-        recipientMolId = null,
         siteId = siteId,
-        supplierName = null,
-        contractorName = null,
-        siteName = null,
-        createdByUserPhone = null,
-        docNumber = null,
-        docDate = null,
-        totalSum = null,
-        vatSum = null,
-        expectedDate = null,
-        origin = "web",
-        parsedAt = "2026-07-02T00:00:00Z",
-        parseErrorCode = null,
-        originalFilename = null,
-        version = 1,
-        createdAt = "2026-07-02T00:00:00Z",
-        updatedAt = "2026-07-02T00:00:00Z",
+        direction = direction,
+        groupId = groupId,
     )
 }

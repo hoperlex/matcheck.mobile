@@ -38,6 +38,41 @@ interface RemoteShipmentDao {
     @androidx.room.Upsert
     suspend fun upsertPhoto(photo: RemoteShipmentPhotoEntity)
 
+    /** См. RemoteDeliveryDao.insertPhotoIntents — IGNORE, не откатываем продвинувшиеся строки. */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertPhotoIntents(photos: List<RemoteShipmentPhotoEntity>)
+
+    /** См. RemoteDeliveryDao.claimPhotoForPrepare. */
+    @Query(
+        """
+        UPDATE remote_shipment_photos
+        SET uploadStatus = 'PREPARING', preparingSince = :now
+        WHERE id = :id AND uploadStatus IN ('PENDING_PREPARE', 'PREPARE_ERROR')
+        """,
+    )
+    suspend fun claimPhotoForPrepare(id: String, now: Long): Int
+
+    /** См. RemoteDeliveryDao.releaseExpiredPreparing. */
+    @Query(
+        """
+        UPDATE remote_shipment_photos
+        SET uploadStatus = 'PENDING_PREPARE', preparingSince = NULL
+        WHERE uploadStatus = 'PREPARING'
+          AND (preparingSince IS NULL OR preparingSince < :expiredBefore)
+        """,
+    )
+    suspend fun releaseExpiredPreparing(expiredBefore: Long): Int
+
+    /** См. RemoteDeliveryDao.countAwaitingPrepareForSource. */
+    @Query(
+        """
+        SELECT COUNT(*) FROM remote_shipment_photos
+        WHERE sourcePath = :sourcePath
+          AND uploadStatus IN ('PENDING_PREPARE', 'PREPARING', 'PREPARE_ERROR')
+        """,
+    )
+    suspend fun countAwaitingPrepareForSource(sourcePath: String): Int
+
     @Query("SELECT * FROM remote_shipment_photos WHERE uploadStatus IN (:statuses)")
     suspend fun findPhotosByStatus(statuses: List<String>): List<RemoteShipmentPhotoEntity>
 
@@ -63,10 +98,13 @@ interface RemoteShipmentDao {
         shipment: RemoteShipmentEntity,
         items: List<RemoteShipmentItemEntity>,
         photos: List<RemoteShipmentPhotoEntity>,
+        /** См. RemoteDeliveryDao.saveAggregate — кадры этой же транзакции, IGNORE. */
+        photoIntents: List<RemoteShipmentPhotoEntity> = emptyList(),
     ) {
         upsert(shipment)
         deleteItemsByShipment(shipment.id)
         if (items.isNotEmpty()) replaceItems(items)
+        if (photoIntents.isNotEmpty()) insertPhotoIntents(photoIntents)
         // Photo живут своим pipeline и сервер на upsert их не возвращает —
         // если делать deletePhotos+replace, локальные PENDING_UPLOAD стираются
         // сразу после push мутации (см. комментарий в RemoteDeliveryDao).

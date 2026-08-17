@@ -55,34 +55,61 @@ class RemotePhotoStorage(private val context: Context) {
     /**
      * Берёт картинку по [sourceUri], сжимает её до main + thumb (JPEG q=85),
      * пишет на диск и возвращает результат с SHA-256.
+     *
+     * Запись атомарна: оба JPEG сначала пишутся во временные файлы и только
+     * после успеха переименовываются в финальные. Раньше compress шёл прямо в
+     * `$photoId.jpg`, и обрыв на середине (кончилось место, OOM между main и
+     * thumb) оставлял на диске обрезанный JPEG, который выглядел как готовый
+     * blob. Временные файлы и битмапы чистятся в finally.
      */
     fun prepareFromUri(sourceUri: Uri, photoId: String): PreparedPhoto {
-        val mainBitmap = loadDownsampled(sourceUri, MAIN_MAX_SIDE)
-            ?: error("can't decode bitmap from $sourceUri")
-        val orientedMain = applyExifRotation(sourceUri, mainBitmap)
+        val mainTmp = File(photosDir, "$photoId.jpg.tmp")
+        val thumbTmp = File(photosDir, "$photoId.thumb.jpg.tmp")
+        var orientedMain: Bitmap? = null
+        var thumbBitmap: Bitmap? = null
+        try {
+            val mainBitmap = loadDownsampled(sourceUri, MAIN_MAX_SIDE)
+                ?: error("can't decode bitmap from $sourceUri")
+            orientedMain = applyExifRotation(sourceUri, mainBitmap)
 
-        // Порядок важен: сначала пишем main, потом делаем thumb. Если делать
-        // наоборот, scaleToMaxSide может зарекайклить orientedMain, и compress
-        // в JPEG упадёт с «Can't compress a recycled bitmap».
-        val mainFile = File(photosDir, "$photoId.jpg")
-        val mainBytes = writeJpeg(orientedMain, mainFile, MAIN_QUALITY)
+            // Порядок важен: сначала пишем main, потом делаем thumb. Если делать
+            // наоборот, scaleToMaxSide может зарекайклить orientedMain, и compress
+            // в JPEG упадёт с «Can't compress a recycled bitmap».
+            val mainBytes = writeJpeg(orientedMain, mainTmp, MAIN_QUALITY)
 
-        val thumbBitmap = scaleToMaxSide(orientedMain, THUMB_MAX_SIDE)
-        val thumbFile = File(photosDir, "$photoId.thumb.jpg")
-        val thumbBytes = writeJpeg(thumbBitmap, thumbFile, THUMB_QUALITY)
+            thumbBitmap = scaleToMaxSide(orientedMain, THUMB_MAX_SIDE)
+            val thumbBytes = writeJpeg(thumbBitmap, thumbTmp, THUMB_QUALITY)
 
-        if (thumbBitmap !== orientedMain) thumbBitmap.recycle()
-        if (!orientedMain.isRecycled) orientedMain.recycle()
+            val mainFile = File(photosDir, "$photoId.jpg")
+            val thumbFile = File(photosDir, "$photoId.thumb.jpg")
+            // Публикуем оба файла только когда оба готовы. renameTo в пределах
+            // одного каталога — атомарная операция файловой системы.
+            mainFile.delete()
+            thumbFile.delete()
+            if (!mainTmp.renameTo(mainFile)) error("can't publish main jpeg for $photoId")
+            if (!thumbTmp.renameTo(thumbFile)) {
+                mainFile.delete()
+                error("can't publish thumb jpeg for $photoId")
+            }
 
-        return PreparedPhoto(
-            mainFile = mainFile,
-            mainSha256Hex = sha256Hex(mainBytes),
-            mainSizeBytes = mainBytes.size.toLong(),
-            thumbFile = thumbFile,
-            thumbSha256Hex = sha256Hex(thumbBytes),
-            thumbSizeBytes = thumbBytes.size.toLong(),
-            contentType = JPEG_MIME,
-        )
+            return PreparedPhoto(
+                mainFile = mainFile,
+                mainSha256Hex = sha256Hex(mainBytes),
+                mainSizeBytes = mainBytes.size.toLong(),
+                thumbFile = thumbFile,
+                thumbSha256Hex = sha256Hex(thumbBytes),
+                thumbSizeBytes = thumbBytes.size.toLong(),
+                contentType = JPEG_MIME,
+            )
+        } finally {
+            val thumb = thumbBitmap
+            val main = orientedMain
+            if (thumb != null && thumb !== main && !thumb.isRecycled) thumb.recycle()
+            if (main != null && !main.isRecycled) main.recycle()
+            // Останутся только если публикация не состоялась.
+            runCatching { if (mainTmp.exists()) mainTmp.delete() }
+            runCatching { if (thumbTmp.exists()) thumbTmp.delete() }
+        }
     }
 
     fun deleteBlob(path: String?) {

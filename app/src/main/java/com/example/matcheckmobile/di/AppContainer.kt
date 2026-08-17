@@ -26,6 +26,7 @@ import com.example.matcheckmobile.data.repository.DeliveryRepository
 import com.example.matcheckmobile.data.repository.ForeignSiteQuarantine
 import com.example.matcheckmobile.data.repository.ManualDispatchDraftRepository
 import com.example.matcheckmobile.data.repository.ManualEntryDraftRepository
+import com.example.matcheckmobile.data.repository.PhotoPrepareProcessor
 import com.example.matcheckmobile.data.repository.ShipmentStage1DraftRepository
 import com.example.matcheckmobile.data.repository.ShipmentStage2DraftRepository
 import com.example.matcheckmobile.data.repository.Stage1DraftRepository
@@ -34,7 +35,6 @@ import com.example.matcheckmobile.data.repository.MutationProcessor
 import com.example.matcheckmobile.data.repository.PendingAwareRemoteWriter
 import com.example.matcheckmobile.data.repository.OperationRepository
 import com.example.matcheckmobile.data.repository.PhotoFetcher
-import com.example.matcheckmobile.data.repository.PhotoRepository
 import com.example.matcheckmobile.data.repository.PhotoUploadProcessor
 import com.example.matcheckmobile.data.repository.SourceDocumentBackfillService
 import com.example.matcheckmobile.data.repository.ReceiptSessionRepository
@@ -265,11 +265,6 @@ class AppContainer(val appContext: Context) {
 
     val remotePhotoStorage: RemotePhotoStorage = RemotePhotoStorage(appContext)
 
-    val photoRepository: PhotoRepository = PhotoRepository(
-        deliveryDao = database.remoteDeliveryDao(),
-        shipmentDao = database.remoteShipmentDao(),
-        photoStorage = remotePhotoStorage,
-    )
 
     val photoFetcher: PhotoFetcher = PhotoFetcher(photosApi = photosApi)
 
@@ -386,6 +381,21 @@ class AppContainer(val appContext: Context) {
 
     /** Диагностический журнал на диске: заполняется финализацией и стартом. */
     val incidentJournal: IncidentJournal = IncidentJournal(appContext, appScope)
+
+    /**
+     * Подготовка кадров: PENDING_PREPARE → PENDING_UPLOAD. Идёт до и независимо
+     * от сети (см. PhotoPrepareWorker), поэтому в syncRepository не входит.
+     * Объявлен после incidentJournal и photoStorage — оба ему нужны.
+     * Свободное место меряем по filesDir: main+thumb пишутся именно туда.
+     */
+    val photoPrepareProcessor: PhotoPrepareProcessor = PhotoPrepareProcessor(
+        deliveryDao = database.remoteDeliveryDao(),
+        shipmentDao = database.remoteShipmentDao(),
+        photoStorage = remotePhotoStorage,
+        toUri = { file -> photoStorage.toContentUri(file) },
+        freeSpaceBytes = { appContext.filesDir.usableSpace },
+        journal = incidentJournal,
+    )
 
     /**
      * Отдельный scope под таймер success-оверлея: Default, а не IO, потому что

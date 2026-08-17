@@ -7,6 +7,9 @@ import com.example.matcheckmobile.data.local.entity.ShipmentStage1DraftEntity
 import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.di.AppContainer
 import com.example.matcheckmobile.domain.BusinessTime
+import com.example.matcheckmobile.domain.model.draftGroupKey
+import com.example.matcheckmobile.domain.model.groupDocsByMachine
+import com.example.matcheckmobile.domain.model.groupKeyOf
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -24,8 +27,19 @@ import java.time.LocalDate
 data class DispatchUpdRow(
     val document: RemoteSourceDocumentEntity?,
     val supplierName: String?,
-    val contractorName: String?,
+    val consigneeName: String?,
+    /**
+     * Покупатель (графа 6) — вторая ступень подписи строки. Подрядчика в
+     * списках УПД не показываем вовсе: на портале он скрыт из таблиц
+     * документов, и подпись «Подрядчик» расходилась бы с тем, что видит
+     * менеджер.
+     */
+    val buyerName: String?,
     val draftId: String? = null,
+    /** «Машина», см. [IntakeUpdRow.groupId]. */
+    val groupId: String? = null,
+    /** Документы строки в порядке sortGroupDocs, см. [IntakeUpdRow.documents]. */
+    val documents: List<RemoteSourceDocumentEntity> = emptyList(),
 )
 
 /** См. [IntakeUpdGroup]: [key] — для Compose, [displayName] — на экран. */
@@ -69,10 +83,17 @@ class DispatchUpdSelectViewModel(container: AppContainer) : ViewModel() {
             }
         }
         val byCounterpartyId = cps.associateBy { it.id }
-        val draftsByUpdId: Map<String, String> = drafts
-            .mapNotNull { d -> d.updId?.let { it to d.localDraftId } }
+        val docsById = docs.associateBy { it.id }
+        // Совместимый ключ черновика — см. IntakeUpdSelectViewModel.
+        val draftsByGroupKey: Map<String, String> = drafts
+            .mapNotNull { d ->
+                draftGroupKey(d.groupId, d.updId, docsById)?.let { it to d.localDraftId }
+            }
             .toMap()
-        val emptyDrafts: List<ShipmentStage1DraftEntity> = drafts.filter { it.updId == null }
+        // Ни документа, ни машины — см. IntakeUpdSelectViewModel.
+        val emptyDrafts: List<ShipmentStage1DraftEntity> = drafts.filter {
+            it.updId == null && it.groupId == null
+        }
 
         // Direction + attachedIds + siteId в одном месте. См. UpdSelectFilter.
         val ownDocs = filterUpdDocsForSite(
@@ -84,16 +105,27 @@ class DispatchUpdSelectViewModel(container: AppContainer) : ViewModel() {
 
         val todayRows = mutableListOf<DispatchUpdRow>()
         val futureRows = mutableListOf<DispatchUpdRow>()
-        for (d in ownDocs) {
-            val draftId = draftsByUpdId[d.id]
+        // Склейка документов одной машины — см. IntakeUpdSelectViewModel.
+        for (groupDocs in groupDocsByMachine(ownDocs)) {
+            val d = groupDocs.first()
+            val draftId = draftsByGroupKey[groupKeyOf(d)]
             val row = DispatchUpdRow(
                 document = d,
                 // takeIf(isNotBlank) — см. IntakeUpdSelectViewModel.
-                supplierName = d.supplierName?.takeIf(String::isNotBlank)
-                    ?: d.supplierId?.let { byCounterpartyId[it]?.name },
-                contractorName = d.contractorName?.takeIf(String::isNotBlank)
-                    ?: d.contractorId?.let { byCounterpartyId[it]?.name },
+                supplierName = groupDocs.firstNotNullOfOrNull { doc ->
+                    doc.supplierName?.takeIf(String::isNotBlank)
+                        ?: doc.supplierId?.let { byCounterpartyId[it]?.name }
+                },
+                // Без fallback'а по справочнику — см. IntakeUpdSelectViewModel.
+                buyerName = groupDocs.firstNotNullOfOrNull {
+                    it.buyerName?.takeIf(String::isNotBlank)
+                },
+                consigneeName = groupDocs.firstNotNullOfOrNull {
+                    it.consigneeName?.takeIf(String::isNotBlank)
+                },
                 draftId = draftId,
+                groupId = d.groupId,
+                documents = groupDocs,
             )
             val bucket = when {
                 draftId != null -> todayRows
@@ -107,7 +139,8 @@ class DispatchUpdSelectViewModel(container: AppContainer) : ViewModel() {
                 DispatchUpdRow(
                     document = null,
                     supplierName = null,
-                    contractorName = null,
+                    consigneeName = null,
+                    buyerName = null,
                     draftId = draft.localDraftId,
                 ),
             )

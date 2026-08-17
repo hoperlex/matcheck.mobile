@@ -21,12 +21,12 @@ android {
         applicationId = "com.example.matcheckmobile"
         minSdk = 24
         targetSdk = 35
-        // Прод — 1.0.32 (versionCode 33). Номер обязан строго расти: in-app
+        // Прод — 1.0.35 (versionCode 36). Номер обязан строго расти: in-app
         // updater сравнивает manifest.versionCode с BuildConfig.VERSION_CODE и
         // предлагает обновление только когда первый больше. Непрерывность не
         // требуется — пропуски допустимы.
-        versionCode = 36
-        versionName = "1.0.35"
+        versionCode = 37
+        versionName = "1.0.36"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -129,6 +129,15 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+    // Схемы Room экспортируются в app/schemas и коммитятся в репозиторий: без
+    // них MigrationTestHelper не умеет создавать БД предыдущей версии, а именно
+    // миграционный тест страхует от fallbackToDestructiveMigration
+    // (MatcheckDatabase.get) — при неудачной миграции он снёс бы черновики и
+    // неотправленные мутации инспектора.
+    sourceSets {
+        getByName("androidTest").assets.srcDir(layout.projectDirectory.dir("schemas"))
+    }
+
     testOptions {
         unitTests {
             // JVM-тесты не видят реализацию android.util.Log — без этого любой
@@ -137,6 +146,11 @@ android {
             isReturnDefaultValues = true
         }
     }
+}
+
+ksp {
+    // Каталог экспорта схем Room (см. sourceSets.androidTest выше).
+    arg("room.schemaLocation", layout.projectDirectory.dir("schemas").asFile.absolutePath)
 }
 
 dependencies {
@@ -183,6 +197,7 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.navigation.testing)
+    androidTestImplementation(libs.androidx.room.testing)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

@@ -7,6 +7,9 @@ import com.example.matcheckmobile.data.local.entity.Stage1DraftEntity
 import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.di.AppContainer
 import com.example.matcheckmobile.domain.BusinessTime
+import com.example.matcheckmobile.domain.model.draftGroupKey
+import com.example.matcheckmobile.domain.model.groupDocsByMachine
+import com.example.matcheckmobile.domain.model.groupKeyOf
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -41,8 +44,26 @@ import java.time.LocalDate
 data class IntakeUpdRow(
     val document: RemoteSourceDocumentEntity?,
     val supplierName: String?,
-    val contractorName: String?,
+    val consigneeName: String?,
+    /**
+     * Покупатель (графа 6) — вторая ступень подписи строки. Подрядчика в
+     * списках УПД не показываем вовсе: на портале он скрыт из таблиц
+     * документов, и подпись «Подрядчик» расходилась бы с тем, что видит
+     * менеджер.
+     */
+    val buyerName: String?,
     val draftId: String? = null,
+    /**
+     * «Машина» — id корневого пакета. Непустой у строки, склеенной из
+     * нескольких документов одной загрузки; тап по такой строке открывает форму
+     * по группе, а не по документу.
+     */
+    val groupId: String? = null,
+    /**
+     * Документы строки в порядке sortGroupDocs. Для обычной строки — список из
+     * одного элемента, [document] — его же (якорь). Пусто у пустого черновика.
+     */
+    val documents: List<RemoteSourceDocumentEntity> = emptyList(),
 )
 
 /**
@@ -92,11 +113,25 @@ class IntakeUpdSelectViewModel(container: AppContainer) : ViewModel() {
             }
         }
         val byCounterpartyId = cps.associateBy { it.id }
-        // updId → draftId. По uniqueness индекса значение единственное.
-        val draftsByUpdId: Map<String, String> = drafts
-            .mapNotNull { d -> d.updId?.let { it to d.localDraftId } }
+        val docsById = docs.associateBy { it.id }
+        // Групповой ключ → draftId. Ключ обязан быть совместимым со старыми
+        // записями: черновик, начатый ДО появления группировки, знает только
+        // updId, а строка списка ищет себя по groupId машины. Без цепочки
+        // «groupId черновика → groupId его якорного документа → updId» такой
+        // черновик после обновления приложения потерял бы свою карточку вместе
+        // с бейджем «Начато» и фотографиями.
+        val draftsByGroupKey: Map<String, String> = drafts
+            .mapNotNull { d ->
+                draftGroupKey(d.groupId, d.updId, docsById)?.let { it to d.localDraftId }
+            }
             .toMap()
-        val emptyDrafts: List<Stage1DraftEntity> = drafts.filter { it.updId == null }
+        // Пустая приёмка — ни документа, ни машины. Проверка groupId не
+        // лишняя: черновик машины, сохранённый до того, как форма догрузила
+        // документы, имеет updId = null, и без неё он показался бы дважды —
+        // и своей карточкой, и строкой в «Созданы вручную».
+        val emptyDrafts: List<Stage1DraftEntity> = drafts.filter {
+            it.updId == null && it.groupId == null
+        }
 
         // Фильтр: direction + not-attached + siteId. Смотри UpdSelectFilter.kt
         // и UpdSelectFilterTest — единый источник истины для этого правила.
@@ -109,17 +144,36 @@ class IntakeUpdSelectViewModel(container: AppContainer) : ViewModel() {
 
         val todayRows = mutableListOf<IntakeUpdRow>()
         val futureRows = mutableListOf<IntakeUpdRow>()
-        for (d in ownDocs) {
-            val draftId = draftsByUpdId[d.id]
+        // Документы одной машины схлопываются в одну строку. groupKeyOf даёт
+        // groupId для машины и собственный id для одиночного документа —
+        // ветвиться дальше не нужно.
+        for (groupDocs in groupDocsByMachine(ownDocs)) {
+            val d = groupDocs.first()
+            val draftId = draftsByGroupKey[groupKeyOf(d)]
             val row = IntakeUpdRow(
                 document = d,
                 // takeIf(isNotBlank): пустая, но не-null строка не должна
                 // блокировать fallback на справочник контрагентов.
-                supplierName = d.supplierName?.takeIf(String::isNotBlank)
-                    ?: d.supplierId?.let { byCounterpartyId[it]?.name },
-                contractorName = d.contractorName?.takeIf(String::isNotBlank)
-                    ?: d.contractorId?.let { byCounterpartyId[it]?.name },
+                supplierName = groupDocs.firstNotNullOfOrNull { doc ->
+                    doc.supplierName?.takeIf(String::isNotBlank)
+                        ?: doc.supplierId?.let { byCounterpartyId[it]?.name }
+                },
+                // Без fallback'а на справочник контрагентов, в отличие от
+                // поставщика: сервер уже отдаёт COALESCE(consignee_name_raw,
+                // counterparties.name), а искать графу 4 по id тут нечем —
+                // её печатают без ИНН, consigneeId на мобилу не приходит.
+                //
+                // Первое непустое по машине, а не с якоря: грузополучателя
+                // может нести только транспортная накладная (см. mergeGroupParty).
+                buyerName = groupDocs.firstNotNullOfOrNull {
+                    it.buyerName?.takeIf(String::isNotBlank)
+                },
+                consigneeName = groupDocs.firstNotNullOfOrNull {
+                    it.consigneeName?.takeIf(String::isNotBlank)
+                },
                 draftId = draftId,
+                groupId = d.groupId,
+                documents = groupDocs,
             )
             // Today — только expectedDate == today. Прочерк/null/любая другая
             // дата (вкл. прошлое и будущее) → Future. Если есть draft —
@@ -138,7 +192,8 @@ class IntakeUpdSelectViewModel(container: AppContainer) : ViewModel() {
                 IntakeUpdRow(
                     document = null,
                     supplierName = null,
-                    contractorName = null,
+                    consigneeName = null,
+                    buyerName = null,
                     draftId = draft.localDraftId,
                 ),
             )

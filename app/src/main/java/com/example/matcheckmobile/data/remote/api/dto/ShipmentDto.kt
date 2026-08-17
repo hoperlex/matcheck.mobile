@@ -60,6 +60,9 @@ data class ShipmentDto(
 data class ShipmentItemDto(
     val id: String,
     val materialId: String? = null,
+    /** Происхождение позиции, см. [com.example.matcheckmobile.data.remote.api.dto.DeliveryItemDto.sourceDocumentId]. */
+    val sourceDocumentId: String? = null,
+    val sourceDocumentItemId: String? = null,
     val nameRaw: String,
     val qtyPlanned: String? = null,
     val qtyActual: String? = null,
@@ -124,6 +127,9 @@ data class ShipmentUpsertRequest(
 data class ShipmentUpsertItem(
     val id: String? = null,
     val materialId: String? = null,
+    /** Происхождение позиции, см. [com.example.matcheckmobile.data.remote.api.dto.DeliveryItemDto.sourceDocumentId]. */
+    val sourceDocumentId: String? = null,
+    val sourceDocumentItemId: String? = null,
     val nameRaw: String,
     val qtyPlanned: String? = null,
     val qtyActual: String? = null,

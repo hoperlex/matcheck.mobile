@@ -22,8 +22,25 @@ internal fun filterUpdDocsForSite(
     currentSiteId: String,
     direction: String,
     attachedIds: Set<String>,
-): List<RemoteSourceDocumentEntity> = docs.filter { d ->
-    d.direction == direction &&
-        d.id !in attachedIds &&
-        d.siteId == currentSiteId
+): List<RemoteSourceDocumentEntity> {
+    // Привязан один документ машины — скрыта ВСЯ машина. Иначе после оформления
+    // приёмки остаток её документов вернулся бы в список отдельной карточкой, и
+    // инспектор оформил бы тот же рейс второй раз — ровно то, ради чего
+    // группировка и делалась.
+    //
+    // Ищем по всему снимку, а не по отфильтрованному: привязанный документ уже
+    // не проходит фильтр сам, но именно он приносит groupId своей машины.
+    // В Room он есть — привязанные УПД дотягивает SourceDocumentBackfillService.
+    val attachedGroupIds: Set<String> = if (attachedIds.isEmpty()) emptySet() else {
+        docs.asSequence()
+            .filter { it.id in attachedIds }
+            .mapNotNull { it.groupId }
+            .toSet()
+    }
+    return docs.filter { d ->
+        d.direction == direction &&
+            d.id !in attachedIds &&
+            d.groupId !in attachedGroupIds &&
+            d.siteId == currentSiteId
+    }
 }

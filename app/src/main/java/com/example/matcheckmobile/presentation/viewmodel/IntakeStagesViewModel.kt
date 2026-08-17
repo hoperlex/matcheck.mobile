@@ -2,9 +2,12 @@ package com.example.matcheckmobile.presentation.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.matcheckmobile.data.local.entity.RemoteSourceDocumentEntity
 import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.di.AppContainer
 import com.example.matcheckmobile.domain.BusinessTime
+import com.example.matcheckmobile.domain.model.draftGroupKey
+import com.example.matcheckmobile.domain.model.groupKeyOf
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -75,6 +78,11 @@ class IntakeStagesViewModel(container: AppContainer) : ViewModel() {
             d.direction == "inbound" && d.siteId == currentSiteId
         }
         val ownDocIds: Set<String> = ownDocs.mapTo(mutableSetOf()) { it.id }
+        // Ключ машины: документы одной загрузки — одна карточка в списке и одна
+        // приёмка, поэтому и в счётчике они обязаны считаться один раз. Иначе
+        // «Сегодня» показывало бы 3 там, где инспектор видит одну карточку.
+        val ownDocsByGroup: Map<String, List<RemoteSourceDocumentEntity>> =
+            ownDocs.groupBy(::groupKeyOf)
         val ownDeliveries = stage2Deliveries.filter { it.siteId == currentSiteId }
 
         // Drafts: linked-draft (updId != null) считаем «своим» только если
@@ -83,14 +91,21 @@ class IntakeStagesViewModel(container: AppContainer) : ViewModel() {
         // определить принадлежность нельзя; лучше не терять локальную
         // незавершённую работу инспектора).
         val ownDrafts = drafts.filter { it.updId == null || it.updId in ownDocIds }
-        val updWithDraft: Set<String> = ownDrafts.mapNotNull { it.updId }.toSet()
+        // Совместимый ключ черновика — см. IntakeUpdSelectViewModel: у записей,
+        // начатых до появления группировки, groupId пуст.
+        val docsById = docs.associateBy { it.id }
+        val groupsWithDraft: Set<String> = ownDrafts
+            .mapNotNull { d -> draftGroupKey(d.groupId, d.updId, docsById) }
+            .toSet()
 
         // Всего: непривязанные УПД на сегодня без draft + drafts +
         // filled-приёмки.
-        val unattachedTodayWithoutDraft = ownDocs.count { d ->
-            d.id !in attachedIds &&
-                d.id !in updWithDraft &&
-                d.expectedDate == today
+        val unattachedTodayWithoutDraft = ownDocsByGroup.count { (key, groupDocs) ->
+            // Машина привязана целиком, если привязан любой её документ — тем же
+            // правилом, что и в UpdSelectFilter.
+            groupDocs.none { it.id in attachedIds } &&
+                key !in groupsWithDraft &&
+                groupDocs.any { it.expectedDate == today }
         }
         val totalToday = ownDrafts.size + unattachedTodayWithoutDraft + ownDeliveries.size
 

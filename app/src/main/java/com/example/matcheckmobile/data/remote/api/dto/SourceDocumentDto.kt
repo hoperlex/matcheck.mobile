@@ -25,6 +25,15 @@ data class SourceDocumentDto(
     val siteId: String? = null,
     val supplierName: String? = null,
     val contractorName: String? = null,
+    // Грузополучатель — графа 4 шапки УПД. Сервер уже отдаёт его
+    // COALESCE(consignee_name_raw, counterparties.name), поэтому id на мобиле
+    // не нужен: связывать нечего, графу 4 печатают без ИНН. Показывается
+    // в списке выбора УПД (Intake/DispatchUpdSelectScreen).
+    val consigneeName: String? = null,
+    // Покупатель — графа 6 шапки УПД. Вторая ступень подписи в списках выбора:
+    // подрядчика там не показывают вовсе (на портале он скрыт из таблиц
+    // документов), поэтому при нераспознанной графе 4 показывается покупатель.
+    val buyerName: String? = null,
     val siteName: String? = null,
     // Автор УПД — пользователь, загрузивший её через веб-портал (/upload-upd*).
     // Для EDO/mail-полученных все три поля = null. Phone используется на 1 Этапе
@@ -52,6 +61,17 @@ data class SourceDocumentDto(
     val version: Int,
     val createdAt: String,
     val updatedAt: String,
+    /**
+     * «Машина» — id корневого пакета загрузки. Документы с одним groupId
+     * приехали одним рейсом и склеиваются в одну приёмку. null для legacy-сборки
+     * и для документов без пакета: там группировать нельзя.
+     *
+     * Default null нужен не только для старого сервера: поле объявлено
+     * .optional() в контракте и не приходит от producers, которые его не
+     * считают. См. RemoteSourceDocumentEntity.groupId.
+     */
+    val groupId: String? = null,
+    val groupRevision: Int? = null,
     val items: List<SourceItemDto> = emptyList(),
     val attachments: List<SourceAttachmentDto> = emptyList(),
 )

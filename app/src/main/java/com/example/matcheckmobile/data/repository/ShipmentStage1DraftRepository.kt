@@ -18,6 +18,8 @@ class ShipmentStage1DraftRepository(private val dao: ShipmentStage1DraftDao) {
 
     suspend fun findByUpdId(updId: String): ShipmentStage1DraftEntity? = dao.findByUpdId(updId)
 
+    suspend fun findByGroupId(groupId: String): ShipmentStage1DraftEntity? = dao.findByGroupId(groupId)
+
     suspend fun upsert(state: ShipmentStage1DraftState) {
         val existing = dao.findById(state.localDraftId)
         val stable = if (existing != null) state.copy(createdAt = existing.createdAt) else state
@@ -32,6 +34,9 @@ class ShipmentStage1DraftRepository(private val dao: ShipmentStage1DraftDao) {
         ShipmentStage1DraftState(
             localDraftId = entity.localDraftId,
             updId = entity.updId,
+            groupId = entity.groupId,
+            loadedDocIds = decodeStringList(entity.loadedDocIdsJson),
+            loadedGroupRevision = entity.loadedGroupRevision,
             documentPhotoPaths = decodeStringList(entity.documentPhotoPathsJson),
             cargoPhotoPaths = decodeStringList(entity.cargoPhotoPathsJson),
             vehicleTypeCode = entity.vehicleTypeCode,
@@ -50,6 +55,9 @@ class ShipmentStage1DraftRepository(private val dao: ShipmentStage1DraftDao) {
         ShipmentStage1DraftEntity(
             localDraftId = localDraftId,
             updId = updId,
+            groupId = groupId,
+            loadedDocIdsJson = encodeStringList(loadedDocIds),
+            loadedGroupRevision = loadedGroupRevision,
             documentPhotoPathsJson = encodeStringList(documentPhotoPaths),
             cargoPhotoPathsJson = encodeStringList(cargoPhotoPaths),
             vehicleTypeCode = vehicleTypeCode,
@@ -73,6 +81,8 @@ class ShipmentStage1DraftRepository(private val dao: ShipmentStage1DraftDao) {
             MaterialDraftWire(
                 name = it.name, qty = it.qty, unit = it.unit,
                 id = it.id, price = it.price, vatRate = it.vatRate, vatSum = it.vatSum,
+                sourceDocumentId = it.sourceDocumentId,
+                sourceDocumentItemId = it.sourceDocumentItemId,
             )
         }
         return json.encodeToString(materialListSer, wire)
@@ -83,6 +93,8 @@ class ShipmentStage1DraftRepository(private val dao: ShipmentStage1DraftDao) {
             MaterialDraft(
                 name = it.name, qty = it.qty, unit = it.unit,
                 id = it.id, price = it.price, vatRate = it.vatRate, vatSum = it.vatSum,
+                sourceDocumentId = it.sourceDocumentId,
+                sourceDocumentItemId = it.sourceDocumentItemId,
             )
         }
     }.getOrDefault(emptyList())
@@ -96,6 +108,13 @@ class ShipmentStage1DraftRepository(private val dao: ShipmentStage1DraftDao) {
         val price: String? = null,
         val vatRate: String? = null,
         val vatSum: String? = null,
+        /**
+         * Происхождение позиции. Default null обязателен: черновики,
+         * записанные до появления полей, декодируются этим же
+         * сериализатором и не должны падать.
+         */
+        val sourceDocumentId: String? = null,
+        val sourceDocumentItemId: String? = null,
     )
 
     companion object {
@@ -108,6 +127,12 @@ class ShipmentStage1DraftRepository(private val dao: ShipmentStage1DraftDao) {
 data class ShipmentStage1DraftState(
     val localDraftId: String,
     val updId: String?,
+    /** «Машина», см. [Stage1DraftState.groupId]. */
+    val groupId: String? = null,
+    /** Состав машины, по которому в форму загружены позиции. */
+    val loadedDocIds: List<String> = emptyList(),
+    /** Версия состава на тот же момент. Сверяется при финализации. */
+    val loadedGroupRevision: Int? = null,
     val documentPhotoPaths: List<String>,
     val cargoPhotoPaths: List<String>,
     val vehicleTypeCode: String?,

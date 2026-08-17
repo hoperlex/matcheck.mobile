@@ -6,10 +6,13 @@ import androidx.lifecycle.viewModelScope
 import com.example.matcheckmobile.data.repository.ManualDispatchDraftState
 import com.example.matcheckmobile.data.repository.ShipmentRepository
 import com.example.matcheckmobile.di.AppContainer
+import com.example.matcheckmobile.media.PhotoSourceInvalidException
 import com.example.matcheckmobile.media.photoTakenAtIso
 import com.example.matcheckmobile.presentation.components.MaterialDraft
 import com.example.matcheckmobile.presentation.navigation.Routes
 import com.example.matcheckmobile.sync.MatcheckSyncScheduler
+import com.example.matcheckmobile.sync.PhotoPrepareScheduler
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -20,6 +23,7 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
+import kotlinx.coroutines.withContext
 
 /**
  * «Ручной вынос» — отгрузка без УПД и автотранспорта (зеркало
@@ -220,6 +224,28 @@ class ManualDispatchFormViewModel(
 
         _state.update { it.copy(isSaving = true, error = null) }
         viewModelScope.launch {
+            // Кадры проверяем ДО создания отгрузки — см. Stage2FormViewModel.
+            val photoIntents = try {
+                withContext(Dispatchers.IO) {
+                    container.photoStorage.intentsFrom(
+                        cur.documentPhotoPaths,
+                        kind = "document",
+                        stage = "before",
+                    ) + container.photoStorage.intentsFrom(
+                        cur.cargoPhotoPaths,
+                        kind = "cargo",
+                        stage = "before",
+                    )
+                }
+            } catch (e: PhotoSourceInvalidException) {
+                _state.update {
+                    it.copy(
+                        isSaving = false,
+                        error = "Не удалось добавить фото: ${e.problems.joinToString("; ")}",
+                    )
+                }
+                return@launch
+            }
             try {
                 val items = cur.materials
                     .filter { it.name.isNotBlank() || it.qty.isNotBlank() }
@@ -282,58 +308,20 @@ class ManualDispatchFormViewModel(
                         isAssets = cur.isAssets,
                         sourceDocumentIds = emptyList(),
                         items = items,
+                        // Фото с stage='before' — на веб-портале попадут в секцию
+                        // «1 Этап». «2 Этап» останется пустым (для ручного вноса
+                        // второго этапа нет — инспектор уже подтвердил собой).
+                        photos = photoIntents,
                     ),
                 )
 
-                val photoErrors = mutableListOf<String>()
-                // Фото с stage='before' — на веб-портале попадут в секцию
-                // «1 Этап». «2 Этап» останется пустым (для ручного вноса
-                // второго этапа нет — инспектор уже подтвердил собой).
-                cur.documentPhotoPaths.forEach { path ->
-                    try {
-                        val uri = container.photoStorage.toContentUri(File(path))
-                        container.photoRepository.captureForShipment(
-                            shipmentId = shipmentId,
-                            kind = "document",
-                            sourceUri = uri,
-                            stage = "before",
-                            takenAt = photoTakenAtIso(File(path)),
-                        )
-                    } catch (t: Throwable) {
-                        android.util.Log.e("ManualDispatch", "document photo failed: $path", t)
-                        photoErrors += "док ${File(path).name}: ${t.message ?: t::class.simpleName}"
-                    }
-                }
-                cur.cargoPhotoPaths.forEach { path ->
-                    try {
-                        val uri = container.photoStorage.toContentUri(File(path))
-                        container.photoRepository.captureForShipment(
-                            shipmentId = shipmentId,
-                            kind = "cargo",
-                            sourceUri = uri,
-                            stage = "before",
-                            takenAt = photoTakenAtIso(File(path)),
-                        )
-                    } catch (t: Throwable) {
-                        android.util.Log.e("ManualDispatch", "cargo photo failed: $path", t)
-                        photoErrors += "груз ${File(path).name}: ${t.message ?: t::class.simpleName}"
-                    }
-                }
-
+                PhotoPrepareScheduler.requestPrepare(container.appContext)
                 MatcheckSyncScheduler.requestImmediateSync(container.appContext)
-                if (photoErrors.isNotEmpty()) {
-                    _state.update {
-                        it.copy(
-                            isSaving = false,
-                            error = "Не удалось добавить фото: ${photoErrors.joinToString("; ")}",
-                        )
-                    }
-                } else {
-                    // Финализировано → черновик удаляем ДО finalized=true, чтобы
-                    // автосейв не воскресил строку (см. Stage1FormViewModel).
-                    container.manualDispatchDraftRepository.deleteById(draftLocalId)
-                    _state.update { it.copy(isSaving = false, finalized = true) }
-                }
+
+                // Финализировано → черновик удаляем ДО finalized=true, чтобы
+                // автосейв не воскресил строку (см. Stage1FormViewModel).
+                container.manualDispatchDraftRepository.deleteById(draftLocalId)
+                _state.update { it.copy(isSaving = false, finalized = true) }
             } catch (t: Throwable) {
                 android.util.Log.e("ManualDispatch", "finalize failed", t)
                 _state.update {
