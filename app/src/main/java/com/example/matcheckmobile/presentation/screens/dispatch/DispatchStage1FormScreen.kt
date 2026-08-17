@@ -63,6 +63,7 @@ import com.example.matcheckmobile.presentation.components.VehicleLoadInfo
 import com.example.matcheckmobile.presentation.components.VehicleTypeChips
 import com.example.matcheckmobile.presentation.components.rememberPhotoCapture
 import com.example.matcheckmobile.presentation.viewmodel.DispatchStage1FormViewModel
+import com.example.matcheckmobile.presentation.viewmodel.buildMaterialDisplayGroups
 import com.example.matcheckmobile.presentation.viewmodel.SHIPMENT_PURPOSE_OPTIONS
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
 import kotlinx.coroutines.launch
@@ -338,13 +339,22 @@ fun DispatchStage1FormScreen(
                         // появиться автоматически, а редактировать их на 1 Этапе нельзя —
                         // блок «Материалы (0)» только смущает инспектора.
                         if (state.updId != null) {
-                            MaterialsField(
-                                value = state.materials,
-                                onValueChange = vm::setMaterials,
-                                readOnly = true,
-                                buttonTextStyle = materialsButtonTextStyle,
-                                buttonMinHeight = if (isTablet) 72.dp else 64.dp,
-                            )
+                            // Блок на каждый документ машины — зеркало приёмки. Разбивка
+                            // визуальная: state.materials не меняется ни составом, ни
+                            // порядком, от которого зависят цены и НДС при финализации.
+                            buildMaterialDisplayGroups(state.materials, state.groupDocLabels)
+                                .forEach { group ->
+                                    MaterialsField(
+                                        value = group.materials,
+                                        // На 1 Этапе поле только для просмотра, подсписок
+                                        // обратно в состояние не уходит.
+                                        onValueChange = {},
+                                        readOnly = true,
+                                        label = group.label,
+                                        buttonTextStyle = materialsButtonTextStyle,
+                                        buttonMinHeight = if (isTablet) 72.dp else 64.dp,
+                                    )
+                                }
                         }
 
                         OutlinedTextField(

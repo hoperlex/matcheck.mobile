@@ -204,6 +204,7 @@ fun MaterialsField(
             initial = value,
             readOnly = readOnly,
             managerPhone = managerPhone,
+            title = label,
             onDismiss = { result ->
                 if (!readOnly) onValueChange(result)
                 dialogVisible = false
@@ -220,7 +221,7 @@ fun MaterialsField(
  * иконку за край.
  */
 @Composable
-private fun MaterialsDialogHeader(managerPhone: String?) {
+private fun MaterialsDialogHeader(title: String, managerPhone: String?) {
     val context = LocalContext.current
     val phone = managerPhone?.trim()?.takeIf { it.isNotEmpty() }
     Row(
@@ -229,7 +230,7 @@ private fun MaterialsDialogHeader(managerPhone: String?) {
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            text = "Материалы",
+            text = title,
             style = MaterialTheme.typography.titleLarge,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -285,6 +286,10 @@ private fun MaterialsEditorDialog(
     onDismiss: (List<MaterialDraft>) -> Unit,
     readOnly: Boolean = false,
     managerPhone: String? = null,
+    // Заголовок повторяет подпись блока, из которого диалог открыт: у машины из
+    // нескольких УПД блоков несколько, и общее «Материалы» не сказало бы, чьи
+    // позиции сейчас на экране.
+    title: String = "Материалы",
 ) {
     val items = remember {
         mutableStateListOf<MaterialDraft>().apply { addAll(initial) }
@@ -334,7 +339,7 @@ private fun MaterialsEditorDialog(
                 modifier = Modifier.padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                MaterialsDialogHeader(managerPhone = managerPhone)
+                MaterialsDialogHeader(title = title, managerPhone = managerPhone)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()

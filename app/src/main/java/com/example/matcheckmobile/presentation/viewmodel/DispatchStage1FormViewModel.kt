@@ -161,6 +161,7 @@ class DispatchStage1FormViewModel(
                 updId = anchor.id,
                 groupId = anchor.groupId ?: it.groupId,
                 groupDocIds = docs.map { d -> d.id },
+                groupDocLabels = docs.map { d -> GroupDocumentLabel(d.id, d.docNumber) },
                 loadedGroupRevision = anchor.groupRevision,
                 updSupplierId = party.supplierId,
                 // Для отгрузки получателем чаще выступает recipientId УПД
@@ -330,6 +331,7 @@ class DispatchStage1FormViewModel(
                 updId = docs.first().id,
                 groupId = docs.first().groupId ?: it.groupId,
                 groupDocIds = docs.map { d -> d.id },
+                groupDocLabels = docs.map { d -> GroupDocumentLabel(d.id, d.docNumber) },
                 loadedGroupRevision = docs.first().groupRevision,
                 materials = merged.materials,
                 materialFinancials = merged.financials,
@@ -516,6 +518,8 @@ data class DispatchStage1FormUiState(
     val groupId: String? = null,
     /** Состав машины, по которому загружены позиции. См. [Stage1FormUiState.groupDocIds]. */
     val groupDocIds: List<String> = emptyList(),
+    /** Документы с номерами для заголовков блоков. См. [Stage1FormUiState.groupDocLabels]. */
+    val groupDocLabels: List<GroupDocumentLabel> = emptyList(),
     /** Версия состава на момент загрузки формы. */
     val loadedGroupRevision: Int? = null,
     /** Состав машины разошёлся, см. [Stage1FormUiState.groupChanged]. */

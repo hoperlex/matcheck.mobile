@@ -197,6 +197,7 @@ class Stage1FormViewModel(
                 updId = anchor.id,
                 groupId = anchor.groupId ?: it.groupId,
                 groupDocIds = docs.map { d -> d.id },
+                groupDocLabels = docs.map { d -> GroupDocumentLabel(d.id, d.docNumber) },
                 loadedGroupRevision = anchor.groupRevision,
                 updSupplierId = party.supplierId,
                 updContractorId = party.contractorId,
@@ -444,6 +445,7 @@ class Stage1FormViewModel(
                 updId = docs.first().id,
                 groupId = docs.first().groupId ?: it.groupId,
                 groupDocIds = docs.map { d -> d.id },
+                groupDocLabels = docs.map { d -> GroupDocumentLabel(d.id, d.docNumber) },
                 loadedGroupRevision = docs.first().groupRevision,
                 materials = merged.materials,
                 materialFinancials = merged.financials,
@@ -663,6 +665,16 @@ data class Stage1FormUiState(
      * Именно он уходит в sourceDocumentIds на финализации.
      */
     val groupDocIds: List<String> = emptyList(),
+    /**
+     * Те же документы, но с номерами — для заголовков блоков «Материалы …».
+     *
+     * Отдельным полем, а не заменой groupDocIds: тот участвует в сравнении
+     * состава, сохраняется в черновик и уходит в sourceDocumentIds, и менять его
+     * тип ради подписи на экране незачем. Порядок — sortGroupDocs, как у
+     * groupDocIds; в черновик НЕ сохраняется (при восстановлении заполняется
+     * заново из Room), поэтому в draftPayloadEquals не участвует.
+     */
+    val groupDocLabels: List<GroupDocumentLabel> = emptyList(),
     /** Версия состава машины на момент загрузки формы. Сверяется на финализации. */
     val loadedGroupRevision: Int? = null,
     /**

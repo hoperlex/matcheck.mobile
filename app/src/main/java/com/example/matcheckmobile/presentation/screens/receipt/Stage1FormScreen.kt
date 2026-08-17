@@ -61,6 +61,7 @@ import com.example.matcheckmobile.presentation.components.VehicleLoadInfo
 import com.example.matcheckmobile.presentation.components.VehicleTypeChips
 import com.example.matcheckmobile.presentation.components.rememberPhotoCapture
 import com.example.matcheckmobile.presentation.viewmodel.Stage1FormViewModel
+import com.example.matcheckmobile.presentation.viewmodel.buildMaterialDisplayGroups
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
 
 private val TabletBreakpoint = 600.dp
@@ -369,18 +370,31 @@ fun Stage1FormScreen(
                         // появиться автоматически, а редактировать их на 1 Этапе нельзя —
                         // блок «Материалы (0)» только смущает инспектора.
                         if (state.updId != null) {
-                            MaterialsField(
-                                value = state.materials,
-                                onValueChange = vm::setMaterials,
-                                readOnly = true,
-                                buttonTextStyle = materialsButtonTextStyle,
-                                buttonMinHeight = if (isTablet) 72.dp else 64.dp,
-                                // Телефон менеджера-автора УПД: на 1 Этапе в шапке модалки
-                                // «Материалы» появляется иконка звонка. Только если УПД
-                                // загружена с веб-портала (НЕ из EDO/mail) и у автора
-                                // указан телефон — иначе null и иконка не рисуется.
-                                managerPhone = state.managerPhone,
-                            )
+                            // Блок на КАЖДЫЙ документ машины: инспектор принимает её по
+                            // документам, и в одном списке «Материалы (3)» не видно, что к
+                            // какой накладной относится. Разбивка чисто визуальная —
+                            // state.materials остаётся единым и в прежнем порядке, иначе
+                            // финализация увела бы цены и НДС к чужим позициям
+                            // (см. buildMaterialDisplayGroups).
+                            buildMaterialDisplayGroups(state.materials, state.groupDocLabels)
+                                .forEach { group ->
+                                    MaterialsField(
+                                        value = group.materials,
+                                        // readOnly: правки на 1 Этапе не принимаются, и
+                                        // подсписок обратно в состояние не уходит.
+                                        onValueChange = {},
+                                        readOnly = true,
+                                        label = group.label,
+                                        buttonTextStyle = materialsButtonTextStyle,
+                                        buttonMinHeight = if (isTablet) 72.dp else 64.dp,
+                                        // Телефон менеджера-автора УПД: на 1 Этапе в шапке
+                                        // модалки «Материалы» появляется иконка звонка.
+                                        // Только если УПД загружена с веб-портала (НЕ из
+                                        // EDO/mail) и у автора указан телефон — иначе null
+                                        // и иконка не рисуется.
+                                        managerPhone = state.managerPhone,
+                                    )
+                                }
                         }
 
                         OutlinedTextField(
