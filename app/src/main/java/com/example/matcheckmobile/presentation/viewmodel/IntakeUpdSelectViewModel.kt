@@ -87,6 +87,21 @@ private const val MANUAL_GROUP_LABEL = "Созданы вручную"
 
 class IntakeUpdSelectViewModel(container: AppContainer) : ViewModel() {
 
+    /**
+     * Жест «потянуть для обновления». Механика общая со всеми списками —
+     * см. [SyncRefreshDelegate]: индикатор гаснет по факту синхронизации, а не
+     * по факту постановки задачи, иначе при мёртвой сети он мигнёт и оставит
+     * инспектора с прежним списком.
+     */
+    private val refreshDelegate = SyncRefreshDelegate(container.appContext, viewModelScope)
+
+    val refreshState: StateFlow<SyncRefreshState> = refreshDelegate.state
+
+    fun refresh() = refreshDelegate.refresh()
+
+    fun consumeRefreshError() = refreshDelegate.consumeError()
+
+
     val state: StateFlow<IntakeUpdGroupsState> = combine(
         combine(
             container.database.remoteSourceDocumentDao().observeAll(),

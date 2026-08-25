@@ -7,17 +7,13 @@ import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.di.AppContainer
 import com.example.matcheckmobile.domain.BusinessTime
 import com.example.matcheckmobile.domain.model.sourceDocTitlePrefix
-import com.example.matcheckmobile.sync.MatcheckSyncScheduler
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.format.DateTimeFormatter
@@ -51,33 +47,14 @@ data class ArchiveDispatchDayGroup(
 
 class ArchiveDispatchListViewModel(private val container: AppContainer) : ViewModel() {
 
-    private val _refreshState = MutableStateFlow(ArchiveRefreshState())
+    private val refreshDelegate = SyncRefreshDelegate(container.appContext, viewModelScope)
 
     /** Зеркало [ArchiveIntakeListViewModel.refreshState]. */
-    val refreshState: StateFlow<ArchiveRefreshState> = _refreshState.asStateFlow()
+    val refreshState: StateFlow<SyncRefreshState> = refreshDelegate.state
 
-    /** Синхронизация по жесту с ожиданием завершения задачи — см. приёмки. */
-    fun refresh() {
-        if (_refreshState.value.isRefreshing) return
-        _refreshState.value = ArchiveRefreshState(isRefreshing = true)
-        viewModelScope.launch {
-            // Судим по исходу цикла, а не по статусу задачи: логическая ошибка
-            // синка возвращается технически успешной задачей (иначе FAILED-звено
-            // увело бы в FAILED все приложенные за ним запросы), и по state
-            // «синхронизировались» от «сервер отказал» не отличить.
-            val result = runCatching {
-                MatcheckSyncScheduler.requestImmediateSyncAndAwait(container.appContext)
-            }.getOrNull()
-            _refreshState.value = ArchiveRefreshState(
-                isRefreshing = false,
-                error = if (result?.ok == true) null else SYNC_FAILED_MESSAGE,
-            )
-        }
-    }
+    fun refresh() = refreshDelegate.refresh()
 
-    fun consumeRefreshError() {
-        _refreshState.update { it.copy(error = null) }
-    }
+    fun consumeRefreshError() = refreshDelegate.consumeError()
 
     init {
         // Backfill docNumber по тем же sourceDocs, что и DispatchStage2ListViewModel:
@@ -175,7 +152,6 @@ class ArchiveDispatchListViewModel(private val container: AppContainer) : ViewMo
     )
 
     private companion object {
-        const val SYNC_FAILED_MESSAGE = "Не удалось обновить — проверьте связь"
         const val UPD_SUMMARY_MAX_INLINE = 2
         val ARCHIVE_STATUSES = listOf("confirmed_mol")
         /** Семь календарных дат: сегодня и шесть предыдущих. Зона — [BusinessTime.ZONE]. */

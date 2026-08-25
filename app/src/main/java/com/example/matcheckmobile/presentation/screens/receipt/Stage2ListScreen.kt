@@ -19,6 +19,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -57,6 +60,8 @@ fun Stage2ListScreen(
     onOpenDelivery: (String) -> Unit,
 ) {
     val vm: Stage2ListViewModel = matcheckViewModel()
+    val refreshState by vm.refreshState.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
     // Открытие экрана = свежая синхронизация: тянем изменения других планшетов
     // сразу, не дожидаясь SSE (в фоне рвётся) или периодики (15 мин). Дешёвый
     // pull; reconcile за ним троттлится. См. план «надёжная синхронизация».
@@ -73,7 +78,17 @@ fun Stage2ListScreen(
         }
     }
 
+    // Ошибку обновления показываем явно: молча оставленный старый список —
+    // это ровно тот случай, когда на двух планшетах разные данные, а инспектор
+    // об этом не знает.
+    LaunchedEffect(refreshState.error) {
+        val message = refreshState.error ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
+        vm.consumeRefreshError()
+    }
+
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("Выбор УПД для приёмки") },
@@ -89,101 +104,107 @@ fun Stage2ListScreen(
             )
         },
     ) { padding ->
-        BoxWithConstraints(
+        PullToRefreshBox(
+            isRefreshing = refreshState.isRefreshing,
+            onRefresh = vm::refresh,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            val isLandscape = LocalConfiguration.current.orientation ==
-                Configuration.ORIENTATION_LANDSCAPE
-            val outerPadding = if (maxWidth >= 600.dp) 32.dp else 16.dp
-            // В landscape: тот же layout, что у IntakeUpdSelect (1 Этап) —
-            // карточки от левой границы до правой, без 720dp-потолка.
-            // Иначе на планшете список приёмок 2 Этапа выглядит зажатым по
-            // центру, тогда как 1 Этап на этом же экране уже full-width.
-            val contentPadding = if (isLandscape) {
-                PaddingValues(
-                    start = 0.dp,
-                    end = 0.dp,
-                    top = 8.dp,
-                    bottom = outerPadding,
-                )
-            } else {
-                PaddingValues(outerPadding)
-            }
-            val contentWidthModifier = if (isLandscape) {
-                Modifier.fillMaxWidth()
-            } else {
-                Modifier.widthIn(max = ContentMaxWidth).fillMaxWidth()
-            }
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(contentPadding),
-                contentAlignment = Alignment.TopCenter,
+            BoxWithConstraints(
+                modifier = Modifier.fillMaxSize(),
             ) {
-                Column(
-                    modifier = contentWidthModifier,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                val isLandscape = LocalConfiguration.current.orientation ==
+                    Configuration.ORIENTATION_LANDSCAPE
+                val outerPadding = if (maxWidth >= 600.dp) 32.dp else 16.dp
+                // В landscape: тот же layout, что у IntakeUpdSelect (1 Этап) —
+                // карточки от левой границы до правой, без 720dp-потолка.
+                // Иначе на планшете список приёмок 2 Этапа выглядит зажатым по
+                // центру, тогда как 1 Этап на этом же экране уже full-width.
+                val contentPadding = if (isLandscape) {
+                    PaddingValues(
+                        start = 0.dp,
+                        end = 0.dp,
+                        top = 8.dp,
+                        bottom = outerPadding,
+                    )
+                } else {
+                    PaddingValues(outerPadding)
+                }
+                val contentWidthModifier = if (isLandscape) {
+                    Modifier.fillMaxWidth()
+                } else {
+                    Modifier.widthIn(max = ContentMaxWidth).fillMaxWidth()
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(contentPadding),
+                    contentAlignment = Alignment.TopCenter,
                 ) {
-                    if (groups.isEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 24.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                text = "Нет приёмок, ожидающих подтверждения",
-                                style = MaterialTheme.typography.titleMedium,
-                                textAlign = TextAlign.Center,
-                            )
-                        }
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            groups.forEach { group ->
-                                // По умолчанию группа раскрыта — на 2 Этапе обычно
-                                // немного активных приёмок, и инспектору удобнее
-                                // видеть карточки сразу, без лишнего клика.
-                                val expanded = expandedMap[group.key] ?: true
-                                item(key = "group:${group.key}") {
-                                    Column(modifier = Modifier.fillMaxWidth()) {
-                                        GroupHeaderCard(
-                                            name = group.displayName,
-                                            count = group.rows.size,
-                                            expanded = expanded,
-                                            onToggle = {
-                                                expandedMap[group.key] = !expanded
-                                            },
-                                        )
-                                        AnimatedVisibility(
-                                            visible = expanded,
-                                            enter = expandVertically() + fadeIn(),
-                                            exit = shrinkVertically() + fadeOut(),
-                                        ) {
-                                            Column(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(start = 8.dp, top = 8.dp),
-                                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                    Column(
+                        modifier = contentWidthModifier,
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        if (groups.isEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 24.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = "Нет приёмок, ожидающих подтверждения",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    textAlign = TextAlign.Center,
+                                )
+                            }
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                groups.forEach { group ->
+                                    // По умолчанию группа раскрыта — на 2 Этапе обычно
+                                    // немного активных приёмок, и инспектору удобнее
+                                    // видеть карточки сразу, без лишнего клика.
+                                    val expanded = expandedMap[group.key] ?: true
+                                    item(key = "group:${group.key}") {
+                                        Column(modifier = Modifier.fillMaxWidth()) {
+                                            GroupHeaderCard(
+                                                name = group.displayName,
+                                                count = group.rows.size,
+                                                expanded = expanded,
+                                                onToggle = {
+                                                    expandedMap[group.key] = !expanded
+                                                },
+                                            )
+                                            AnimatedVisibility(
+                                                visible = expanded,
+                                                enter = expandVertically() + fadeIn(),
+                                                exit = shrinkVertically() + fadeOut(),
                                             ) {
-                                                group.rows.forEach { row ->
-                                                    UpdSummaryCard(
-                                                        title = row.titleText,
-                                                        subtitle = row.subtitleText,
-                                                        onClick = { onOpenDelivery(row.delivery.id) },
-                                                        // «Начато» скрыт — на 2 Этапе показываем таймер.
-                                                        // row.hasDraft в VM считается, может пригодиться позже.
-                                                        started = false,
-                                                        timer = stage2TimerBadge(
-                                                            arrivedAt = row.delivery.arrivedAt,
-                                                            fallback = row.delivery.updatedAt,
-                                                            nowMs = nowMs,
-                                                        ),
-                                                    )
+                                                Column(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(start = 8.dp, top = 8.dp),
+                                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                                ) {
+                                                    group.rows.forEach { row ->
+                                                        UpdSummaryCard(
+                                                            title = row.titleText,
+                                                            subtitle = row.subtitleText,
+                                                            onClick = { onOpenDelivery(row.delivery.id) },
+                                                            // «Начато» скрыт — на 2 Этапе показываем таймер.
+                                                            // row.hasDraft в VM считается, может пригодиться позже.
+                                                            started = false,
+                                                            timer = stage2TimerBadge(
+                                                                arrivedAt = row.delivery.arrivedAt,
+                                                                fallback = row.delivery.updatedAt,
+                                                                nowMs = nowMs,
+                                                            ),
+                                                        )
+                                                    }
                                                 }
                                             }
                                         }

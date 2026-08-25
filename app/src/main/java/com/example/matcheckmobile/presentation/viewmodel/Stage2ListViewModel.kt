@@ -51,6 +51,21 @@ data class Stage2DeliveryGroup(
  */
 class Stage2ListViewModel(container: AppContainer) : ViewModel() {
 
+    /**
+     * Жест «потянуть для обновления». Механика общая со всеми списками —
+     * см. [SyncRefreshDelegate]: индикатор гаснет по факту синхронизации, а не
+     * по факту постановки задачи, иначе при мёртвой сети он мигнёт и оставит
+     * инспектора с прежним списком.
+     */
+    private val refreshDelegate = SyncRefreshDelegate(container.appContext, viewModelScope)
+
+    val refreshState: StateFlow<SyncRefreshState> = refreshDelegate.state
+
+    fun refresh() = refreshDelegate.refresh()
+
+    fun consumeRefreshError() = refreshDelegate.consumeError()
+
+
     init {
         // /sync для inspector_kpp фильтрует УПД, привязанные к приёмке/отгрузке,
         // поэтому для filled-приёмок их docNumber приходится дотягивать

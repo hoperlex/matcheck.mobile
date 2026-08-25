@@ -35,6 +35,21 @@ data class Stage2ShipmentGroup(
  */
 class DispatchStage2ListViewModel(container: AppContainer) : ViewModel() {
 
+    /**
+     * Жест «потянуть для обновления». Механика общая со всеми списками —
+     * см. [SyncRefreshDelegate]: индикатор гаснет по факту синхронизации, а не
+     * по факту постановки задачи, иначе при мёртвой сети он мигнёт и оставит
+     * инспектора с прежним списком.
+     */
+    private val refreshDelegate = SyncRefreshDelegate(container.appContext, viewModelScope)
+
+    val refreshState: StateFlow<SyncRefreshState> = refreshDelegate.state
+
+    fun refresh() = refreshDelegate.refresh()
+
+    fun consumeRefreshError() = refreshDelegate.consumeError()
+
+
     init {
         // См. Stage2ListViewModel.init: backfill только «своих» отгрузок,
         // чтобы не пингать сервер УПД из чужого объекта.

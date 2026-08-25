@@ -19,6 +19,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -31,6 +34,7 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -67,6 +71,8 @@ fun IntakeUpdSelectScreen(
     onCreateEmpty: () -> Unit,
 ) {
     val vm: IntakeUpdSelectViewModel = matcheckViewModel()
+    val refreshState by vm.refreshState.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
     val state by vm.state.collectAsStateWithLifecycle()
     val expandedMap = remember { mutableStateMapOf<String, Boolean>() }
     var selectedTab by remember { mutableStateOf(IntakeUpdTab.Today) }
@@ -74,7 +80,17 @@ fun IntakeUpdSelectScreen(
     val futureCount = remember(state) { state.future.sumOf { it.rows.size } }
     val activeGroups = if (selectedTab == IntakeUpdTab.Today) state.today else state.future
 
+    // Ошибку обновления показываем явно: молча оставленный старый список —
+    // это ровно тот случай, когда на двух планшетах разные данные, а инспектор
+    // об этом не знает.
+    LaunchedEffect(refreshState.error) {
+        val message = refreshState.error ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
+        vm.consumeRefreshError()
+    }
+
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("Выбор УПД для приёмки") },
@@ -116,75 +132,81 @@ fun IntakeUpdSelectScreen(
             }
         },
     ) { padding ->
-        BoxWithConstraints(
+        PullToRefreshBox(
+            isRefreshing = refreshState.isRefreshing,
+            onRefresh = vm::refresh,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            val isLandscape = LocalConfiguration.current.orientation ==
-                Configuration.ORIENTATION_LANDSCAPE
-            val outerPadding = if (maxWidth >= 600.dp) 32.dp else 16.dp
-            // В landscape: уплотняем top (между TopAppBar и табами не было
-            // смысла держать большой gap — это пустота) и убираем боковые
-            // поля — карточки УПД от левой границы до правой, как на MainScreen
-            // и Stages-экранах.
-            val contentPadding = if (isLandscape) {
-                PaddingValues(
-                    start = 0.dp,
-                    end = 0.dp,
-                    top = 8.dp,
-                    bottom = outerPadding,
-                )
-            } else {
-                PaddingValues(outerPadding)
-            }
-            val contentWidthModifier = if (isLandscape) {
-                Modifier.fillMaxWidth()
-            } else {
-                Modifier.widthIn(max = ContentMaxWidth).fillMaxWidth()
-            }
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(contentPadding),
-                contentAlignment = Alignment.TopCenter,
+            BoxWithConstraints(
+                modifier = Modifier.fillMaxSize(),
             ) {
-                Column(
-                    modifier = contentWidthModifier,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    IntakeUpdTabSelector(
-                        selected = selectedTab,
-                        todayCount = todayCount,
-                        futureCount = futureCount,
-                        onSelect = { selectedTab = it },
+                val isLandscape = LocalConfiguration.current.orientation ==
+                    Configuration.ORIENTATION_LANDSCAPE
+                val outerPadding = if (maxWidth >= 600.dp) 32.dp else 16.dp
+                // В landscape: уплотняем top (между TopAppBar и табами не было
+                // смысла держать большой gap — это пустота) и убираем боковые
+                // поля — карточки УПД от левой границы до правой, как на MainScreen
+                // и Stages-экранах.
+                val contentPadding = if (isLandscape) {
+                    PaddingValues(
+                        start = 0.dp,
+                        end = 0.dp,
+                        top = 8.dp,
+                        bottom = outerPadding,
                     )
+                } else {
+                    PaddingValues(outerPadding)
+                }
+                val contentWidthModifier = if (isLandscape) {
+                    Modifier.fillMaxWidth()
+                } else {
+                    Modifier.widthIn(max = ContentMaxWidth).fillMaxWidth()
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(contentPadding),
+                    contentAlignment = Alignment.TopCenter,
+                ) {
+                    Column(
+                        modifier = contentWidthModifier,
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        IntakeUpdTabSelector(
+                            selected = selectedTab,
+                            todayCount = todayCount,
+                            futureCount = futureCount,
+                            onSelect = { selectedTab = it },
+                        )
 
-                    if (activeGroups.isEmpty()) {
-                        IntakeUpdEmptyState(tab = selectedTab)
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            activeGroups.forEach { group ->
-                                // Per-tab ключ: переключение «Сегодня/Будущие»
-                                // не сбрасывает пользовательский тоггл. Дефолт:
-                                // в «Сегодня» — раскрыто, в «Будущие» — свёрнуто.
-                                val key = "${selectedTab.name}:${group.key}"
-                                val defaultExpanded = selectedTab == IntakeUpdTab.Today
-                                val expanded = expandedMap[key] ?: defaultExpanded
-                                item(key = "group:$key") {
-                                    IntakeUpdGroupSection(
-                                        group = group,
-                                        expanded = expanded,
-                                        onToggle = {
-                                            expandedMap[key] = !expanded
-                                        },
-                                        onOpenWithUpd = onOpenWithUpd,
-                                        onOpenWithGroup = onOpenWithGroup,
-                                        onOpenDraft = onOpenDraft,
-                                    )
+                        if (activeGroups.isEmpty()) {
+                            IntakeUpdEmptyState(tab = selectedTab)
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                activeGroups.forEach { group ->
+                                    // Per-tab ключ: переключение «Сегодня/Будущие»
+                                    // не сбрасывает пользовательский тоггл. Дефолт:
+                                    // в «Сегодня» — раскрыто, в «Будущие» — свёрнуто.
+                                    val key = "${selectedTab.name}:${group.key}"
+                                    val defaultExpanded = selectedTab == IntakeUpdTab.Today
+                                    val expanded = expandedMap[key] ?: defaultExpanded
+                                    item(key = "group:$key") {
+                                        IntakeUpdGroupSection(
+                                            group = group,
+                                            expanded = expanded,
+                                            onToggle = {
+                                                expandedMap[key] = !expanded
+                                            },
+                                            onOpenWithUpd = onOpenWithUpd,
+                                            onOpenWithGroup = onOpenWithGroup,
+                                            onOpenDraft = onOpenDraft,
+                                        )
+                                    }
                                 }
                             }
                         }
