@@ -62,6 +62,45 @@ class DeviceSettings(private val context: Context) {
         context.dataStore.edit { it.remove(KEY_SYNC_CURSOR) }
     }
 
+    /**
+     * Поколение запросов синхронизации — счётчик внешних триггеров.
+     *
+     * Зачем счётчик, а не «поставить себя заново». Триггер, пришедший во время
+     * работы воркера, обязан привести ещё к одному циклу: иначе обновление
+     * ждёт периодики (15 минут). Самопостановка изнутри воркера этого не даёт —
+     * пока он RUNNING, его же запрос под тем же уникальным именем отклоняется.
+     * Поэтому доставку обеспечивает APPEND_OR_REPLACE в планировщике, а
+     * счётчик нужен ровно для обратного — чтобы пачка приложенных звеньев не
+     * выполнила один и тот же цикл N раз.
+     *
+     * Персистентность обязательна: смерть процесса между инкрементом и
+     * постановкой задачи не должна съедать признак «есть незакрытый запрос» —
+     * его подберёт следующий триггер или периодика.
+     */
+    suspend fun bumpSyncRequestGeneration(): Long {
+        var next = 0L
+        context.dataStore.edit { prefs ->
+            next = (prefs[KEY_SYNC_REQUEST_GENERATION] ?: 0L) + 1
+            prefs[KEY_SYNC_REQUEST_GENERATION] = next
+        }
+        return next
+    }
+
+    suspend fun readSyncRequestGeneration(): Long =
+        context.dataStore.data.first()[KEY_SYNC_REQUEST_GENERATION] ?: 0L
+
+    /**
+     * Поколение, которое уже отработал завершившийся цикл. Ставится ПО ЗНАЧЕНИЮ
+     * НА НАЧАЛО цикла: триггер, пришедший во время работы, поднимет requested
+     * выше, и следующее звено цепочки честно отработает его.
+     */
+    suspend fun readSyncProcessedGeneration(): Long =
+        context.dataStore.data.first()[KEY_SYNC_PROCESSED_GENERATION] ?: 0L
+
+    suspend fun setSyncProcessedGeneration(generation: Long) {
+        context.dataStore.edit { it[KEY_SYNC_PROCESSED_GENERATION] = generation }
+    }
+
     suspend fun ensureDeviceId(): String {
         val current = context.dataStore.data.first()[KEY_DEVICE_ID]
         if (!current.isNullOrEmpty()) return current
@@ -148,5 +187,7 @@ class DeviceSettings(private val context: Context) {
         private val KEY_WIPE_PENDING = booleanPreferencesKey("wipe_pending")
         private val KEY_PREFERS_LANDSCAPE = booleanPreferencesKey("prefers_landscape")
         private val KEY_LAST_EXIT_REPORTED_AT = longPreferencesKey("last_exit_reported_at")
+        private val KEY_SYNC_REQUEST_GENERATION = longPreferencesKey("sync_request_generation")
+        private val KEY_SYNC_PROCESSED_GENERATION = longPreferencesKey("sync_processed_generation")
     }
 }

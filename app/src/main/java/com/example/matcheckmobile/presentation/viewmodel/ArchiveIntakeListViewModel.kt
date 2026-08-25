@@ -2,7 +2,6 @@ package com.example.matcheckmobile.presentation.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.work.WorkInfo
 import com.example.matcheckmobile.data.local.entity.RemoteDeliveryEntity
 import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.di.AppContainer
@@ -74,12 +73,16 @@ class ArchiveIntakeListViewModel(private val container: AppContainer) : ViewMode
         if (_refreshState.value.isRefreshing) return
         _refreshState.value = ArchiveRefreshState(isRefreshing = true)
         viewModelScope.launch {
-            val state = runCatching {
+            // Судим по исходу цикла, а не по статусу задачи: логическая ошибка
+            // синка возвращается технически успешной задачей (иначе FAILED-звено
+            // увело бы в FAILED все приложенные за ним запросы), и по state
+            // «синхронизировались» от «сервер отказал» не отличить.
+            val result = runCatching {
                 MatcheckSyncScheduler.requestImmediateSyncAndAwait(container.appContext)
             }.getOrNull()
             _refreshState.value = ArchiveRefreshState(
                 isRefreshing = false,
-                error = if (state == WorkInfo.State.SUCCEEDED) null else SYNC_FAILED_MESSAGE,
+                error = if (result?.ok == true) null else SYNC_FAILED_MESSAGE,
             )
         }
     }
