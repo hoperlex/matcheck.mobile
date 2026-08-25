@@ -472,6 +472,20 @@ class DispatchStage1FormViewModel(
 
                 val shipmentId = container.shipmentRepository.upsert(
                     ShipmentRepository.UpsertInput(
+                        // Симметрично Stage1FormViewModel: empty-draft (выезд
+                        // без УПД) обязан передавать стабильный id. Natural-key
+                        // dedup для него не работает — он требует непустого
+                        // sourceDocumentIds, — поэтому без этого повтор
+                        // финализации после ошибки фото, process-kill или
+                        // double-tap заводил ВТОРУЮ отгрузку с новым UUID.
+                        //
+                        // Для отгрузок это не теоретический случай, а основной:
+                        // на бою shipment_sources пуст целиком (0 строк на 2350
+                        // выездов), то есть выезд по карточке не оформляют
+                        // вовсе, и через эту ветку идут все 100 % отгрузок.
+                        // У приёмок дыру закрыли раньше, у отгрузок она
+                        // осталась — классическая расстыковка зеркальных путей.
+                        id = if (sourceDocIds.isEmpty()) draftLocalId else null,
                         statusCode = "shipped",
                         kind = "contractor",
                         siteId = siteId,
