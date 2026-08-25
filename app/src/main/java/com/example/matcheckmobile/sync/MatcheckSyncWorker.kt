@@ -80,6 +80,7 @@ class MatcheckSyncWorker(
             return Result.success(MatcheckSyncScheduler.outputOf(ok = true, coalesced = true))
         }
 
+        Log.i(TAG, "sync[$trigger]: старт цикла, поколение $requested (обработано $processed)")
         val outcome = container.syncRepository.syncOnce()
         return outcome.fold(
             onSuccess = {

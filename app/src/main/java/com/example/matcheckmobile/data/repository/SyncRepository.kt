@@ -181,22 +181,56 @@ class SyncRepository(
      */
     private suspend fun runCycle(initialWindowDays: Int): Result<SyncSummary> {
         return runCatching {
+            // Длительность фаз пишем всегда, а не под флагом отладки.
+            //
+            // Полевой прогон 25.08 показал, зачем: между «Завершить 1 Этап» и
+            // появлением приёмки на сервере прошло 45 секунд при нуле фотографий,
+            // и по логу нельзя было сказать, где они потрачены — цикл не сообщал
+            // о себе ничего, кроме reconcile. Без этих строк любой разбор
+            // задержки превращается в гадание.
+            val cycleStartedAt = System.currentTimeMillis()
+            fun since(mark: Long) = System.currentTimeMillis() - mark
+
             // Незавершённый сброс после смены объекта — до всего остального:
             // он чистит курсор, и следующий pull должен пойти уже как initial.
             runCatching { onBeforeSync?.invoke() }
-            mutationProcessor.processAll()
+
+            val pushMark = System.currentTimeMillis()
+            val push = mutationProcessor.processAll()
+            Log.i(
+                TAG,
+                "cycle push: ${since(pushMark)}мс pushed=${push.pushed} conflicts=${push.conflicts} " +
+                    "dropped=${push.dropped} retried=${push.retried}",
+            )
+
             // Снять терминальные конфликты БЕЗ сети (ветка B / накопленное
             // равно-версионное состояние) — до pull, чтобы отрабатывало даже
             // когда /sync недоступен. Best-effort: сбой не ломает основной sync.
             runCatching { terminalConflictResolver.sweepLocalTerminal() }
+
+            val pullMark = System.currentTimeMillis()
             val summary = pullAllPages(initialWindowDays)
+            Log.i(
+                TAG,
+                "cycle pull: ${since(pullMark)}мс pages=${summary.pages} initial=${summary.isInitial} " +
+                    "del=${summary.deliveries} ship=${summary.shipments} sd=${summary.sourceDocuments}",
+            )
+
             // Best-effort обновление siteId инспектора — СРАЗУ после pull.
             // Раньше вызов стоял после загрузки фото, и её падение (S3 5xx,
             // обрыв сети) прерывало syncOnce до обновления siteId: планшет
             // продолжал жить со старым объектом — неверный штамп на фото и
             // фильтры списков. Лямбда сама обязана глотать исключения.
             runCatching { onAfterPullRefresh?.invoke() }
-            photoUploadProcessor.processAll()
+
+            val photoMark = System.currentTimeMillis()
+            val photos = photoUploadProcessor.processAll()
+            Log.i(
+                TAG,
+                "cycle photos: ${since(photoMark)}мс uploaded=${photos.uploaded} failed=${photos.failed} " +
+                    "skipped=${photos.skipped} quarantined=${photos.quarantined}",
+            )
+
             // Тяжёлые последствия смены объекта (сброс snapshot) — только
             // после того, как незалитые фото ушли: reset удаляет приёмки и
             // отгрузки вместе с их фото-очередью.
@@ -204,6 +238,8 @@ class SyncRepository(
             // Фоновая сверка с сервером (throttled внутри). Best-effort: любая
             // её ошибка не должна влиять на результат основного sync.
             runCatching { reconcileOnce() }
+
+            Log.i(TAG, "cycle done: ${since(cycleStartedAt)}мс")
             summary
         }
     }
