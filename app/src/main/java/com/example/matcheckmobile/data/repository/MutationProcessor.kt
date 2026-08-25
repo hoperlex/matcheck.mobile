@@ -369,8 +369,10 @@ class MutationProcessor(
      * трактовать конфликт. Флаг `conflictPending` ставится только когда правку
      * НЕ отпускаем (`markConflict`): не для idempotent-create и не для терминала.
      *
-     * Terminal server-win — ТОЛЬКО для delivery (scope). Для shipment поведение
-     * прежнее: idempotent-create → чистое применение, иначе → заморозка.
+     * Terminal server-win работает для ОБЕИХ сущностей. Комментарий про
+     * «только delivery» устарел вместе с областью той правки: ветка shipment
+     * ниже считает терминал так же, и расходиться им нельзя — иначе выезд
+     * замирал бы на 2 Этапе там, где приёмка разрешается сама.
      */
     private suspend fun tryApplyOccSnapshot(
         m: MutationEntity,
