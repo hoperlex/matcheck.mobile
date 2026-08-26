@@ -10,6 +10,7 @@ import com.example.matcheckmobile.data.remote.auth.ApiErrorBody
 import com.example.matcheckmobile.data.remote.auth.AuthApi
 import com.example.matcheckmobile.data.remote.auth.LoginRequest
 import com.example.matcheckmobile.data.remote.auth.UserDto
+import com.example.matcheckmobile.data.remote.net.TokenRefreshCoordinator
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -27,6 +28,12 @@ class AuthRepository(
     private val authApi: AuthApi,
     private val tokenStorage: TokenStorage,
     private val logoutAuditLog: LogoutAuditLog,
+    /**
+     * Общий координатор обновления токена. Через него же ходят
+     * `TokenAuthenticator` и SSE — три точки обязаны делить один замок, иначе
+     * ротируют refresh-токен наперегонки (см. [TokenRefreshCoordinator]).
+     */
+    private val coordinator: TokenRefreshCoordinator,
 ) {
 
     val session: StateFlow<TokenStorage.Snapshot> = tokenStorage.state
@@ -138,7 +145,8 @@ class AuthRepository(
      * Принудительный refresh access-token до выполнения бизнес-запросов.
      * Используется на сплеше: если refresh ещё валиден — пользователь
      * не увидит flicker LOGIN-MAIN при истёкшем access. Если сервер
-     * вернёт 401 — стираем токены и фиксируем в audit log.
+     * вернёт 401 — координатор стирает токены и фиксирует в audit log
+     * (ровно один раз на погашенную сессию, см. onSessionInvalidated).
      *
      * @return true — если refresh успешен и сессия живая;
      *         false — если refresh-token нет в storage, либо сервер
@@ -147,41 +155,30 @@ class AuthRepository(
      *         оживёт при первом удачном запросе).
      */
     suspend fun refreshNow(): RefreshOutcome {
-        val refresh = tokenStorage.refreshToken ?: return RefreshOutcome.NoRefresh
-        // Access ещё живой → проактивный refresh не нужен. Это убирает лишнюю
-        // ротацию refresh-токена на каждый cold start и гонку со стартующими
-        // в onCreate sync-worker'ом и SSE, из-за которой сервер ловил reuse
-        // одного refresh-токена двумя одновременными запросами и отвечал 401
-        // (= ложный разлогин при простом закрытии-открытии приложения).
-        if (tokenStorage.isAccessTokenValid()) return RefreshOutcome.Ok
-        return try {
-            val r = authApi.refresh("Bearer $refresh")
-            tokenStorage.saveRefreshedTokens(
-                accessToken = r.accessToken,
-                accessExpiresInSec = r.expiresIn,
-                refreshToken = r.refreshToken,
-                refreshExpiresInSec = r.refreshExpiresIn,
-            )
-            RefreshOutcome.Ok
-        } catch (e: HttpException) {
-            if (e.code() == 401) {
-                tokenStorage.clear()
-                logoutAuditLog.record(
-                    reason = "REFRESH_INVALID_AT_STARTUP",
-                    lastPath = "/api/v1/auth/refresh",
-                    lastCode = 401,
-                )
-                _sessionEvents.tryEmit(
-                    SessionEvent.LoggedOut(reason = SessionEvent.LogoutReason.REFRESH_INVALID),
-                )
-                RefreshOutcome.Invalid
-            } else {
-                RefreshOutcome.NetworkError
-            }
-        } catch (_: IOException) {
-            RefreshOutcome.NetworkError
-        } catch (_: Throwable) {
-            RefreshOutcome.NetworkError
+        // Через общий координатор, а не своим запросом: раньше здесь не было
+        // замка вовсе, и от гонки со стартующими в onCreate sync-воркером и SSE
+        // спасала только проверка «access ещё жив». Спасала не всегда — сервер
+        // ловил reuse одного refresh-токена двумя одновременными запросами и
+        // отвечал 401, то есть ложным разлогином при обычном закрытии-открытии
+        // приложения. Быстрый путь «access валиден» переехал внутрь координатора.
+        return when (coordinator.obtainFresh(staleToken = null, path = REFRESH_PATH)) {
+            is TokenRefreshCoordinator.Outcome.Fresh -> RefreshOutcome.Ok
+
+            // Сессию сменили, пока шло обновление: вошли заново или под другой
+            // учёткой. Для сплеша это «сессия есть» — работаем дальше, гасить
+            // и уводить на логин нечего.
+            TokenRefreshCoordinator.Outcome.SessionChanged -> RefreshOutcome.Ok
+
+            // Обновляться нечем. НЕ разлогин: сессии нет, значит и события
+            // REFRESH_INVALID быть не должно — иначе обычный выход попадёт в
+            // журнал как протухший refresh.
+            TokenRefreshCoordinator.Outcome.NoSession -> RefreshOutcome.NoRefresh
+
+            TokenRefreshCoordinator.Outcome.Invalid -> RefreshOutcome.Invalid
+
+            // Сеть недоступна — сессия не считается мёртвой, оживёт при первом
+            // удачном запросе. Сплеш по этому исходу продолжает работу.
+            TokenRefreshCoordinator.Outcome.NetworkError -> RefreshOutcome.NetworkError
         }
     }
 
@@ -245,6 +242,9 @@ class AuthRepository(
 
     private companion object {
         val json = Json { ignoreUnknownKeys = true }
+
+        /** Для журнала: по нему видно, что сессию погасил проактивный refresh со сплеша. */
+        const val REFRESH_PATH = "/api/v1/auth/refresh"
     }
 }
 

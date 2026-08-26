@@ -9,13 +9,36 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
+ * То, что нужно [com.example.matcheckmobile.data.remote.net.TokenRefreshCoordinator]
+ * от хранилища, — и ничего сверх.
+ *
+ * Отдельный интерфейс не ради абстракции как таковой: [TokenStorage] тянет за собой
+ * Android-контекст и EncryptedSharedPreferences, то есть проверяться может только на
+ * устройстве. Логика обновления токена — самая гоночная часть правки, и её тесты обязаны
+ * быть быстрыми, иначе их перестанут гонять.
+ */
+interface SessionTokens {
+    val accessToken: String?
+    fun isAccessTokenValid(marginMillis: Long = TokenStorage.ACCESS_VALID_MARGIN_MS): Boolean
+    fun sessionKey(): TokenStorage.SessionKey
+    fun saveRefreshedTokensIfSessionMatches(
+        expected: TokenStorage.SessionKey,
+        accessToken: String,
+        accessExpiresInSec: Long,
+        refreshToken: String?,
+        refreshExpiresInSec: Long?,
+    ): Boolean
+    fun clearIfSessionMatches(expected: TokenStorage.SessionKey): Boolean
+}
+
+/**
  * Хранит токены и профиль текущего сеанса. Refresh-token обязан лежать
  * в EncryptedSharedPreferences (Jetpack Security), access-token достаточно
  * хранить там же — пережить рестарт процесса проще.
  *
  * Жизненный цикл: при логине пишем всё, при logout / invalid_refresh — clear().
  */
-class TokenStorage(context: Context) {
+class TokenStorage(context: Context) : SessionTokens {
 
     private val prefs: SharedPreferences = EncryptedSharedPreferences.create(
         context.applicationContext,
@@ -30,7 +53,7 @@ class TokenStorage(context: Context) {
     private val _state = MutableStateFlow(readSnapshot())
     val state: StateFlow<Snapshot> = _state.asStateFlow()
 
-    val accessToken: String? get() = _state.value.accessToken
+    override val accessToken: String? get() = _state.value.accessToken
     val refreshToken: String? get() = _state.value.refreshToken
 
     fun isAuthenticated(): Boolean = _state.value.refreshToken != null
@@ -42,7 +65,7 @@ class TokenStorage(context: Context) {
      * гонке с фоновым sync/SSE и reuse-detection 401 → ложный разлогин при
      * простом закрытии-открытии приложения.
      */
-    fun isAccessTokenValid(marginMillis: Long = ACCESS_VALID_MARGIN_MS): Boolean {
+    override fun isAccessTokenValid(marginMillis: Long): Boolean {
         val expiresAt = _state.value.accessExpiresAt ?: return false
         return expiresAt - marginMillis > System.currentTimeMillis()
     }
@@ -126,11 +149,63 @@ class TokenStorage(context: Context) {
         _state.value = readSnapshot()
     }
 
+    /**
+     * Снимок «какая сессия сейчас» — берётся ДО сетевого запроса и предъявляется
+     * при записи результата (см. [saveRefreshedTokensIfSessionMatches]).
+     */
+    override fun sessionKey(): SessionKey = _state.value.let { SessionKey(it.refreshToken, it.userId) }
+
+    /**
+     * Записать обновлённые токены, только если сессия не сменилась.
+     *
+     * Зачем отдельный метод, а не проверка на стороне вызывающего. Пока идёт
+     * `/auth/refresh`, пользователь успевает выйти или войти под другой учёткой,
+     * и поздний ответ записал бы токены поверх ЧУЖОЙ сессии. Сравнить снаружи и
+     * потом вызвать [saveRefreshedTokens] недостаточно: между сравнением и
+     * записью остаётся зазор, в который и попадает login/logout. Здесь проверка
+     * и запись идут под одним замком, поэтому зазора нет.
+     *
+     * @return false — сессия сменилась, ничего не записано.
+     */
+    @Synchronized
+    override fun saveRefreshedTokensIfSessionMatches(
+        expected: SessionKey,
+        accessToken: String,
+        accessExpiresInSec: Long,
+        refreshToken: String?,
+        refreshExpiresInSec: Long?,
+    ): Boolean {
+        if (sessionKey() != expected) return false
+        saveRefreshedTokens(accessToken, accessExpiresInSec, refreshToken, refreshExpiresInSec)
+        return true
+    }
+
+    /**
+     * Погасить сессию, только если она не сменилась, — зеркало
+     * [saveRefreshedTokensIfSessionMatches]. Без этого отказ по СТАРОМУ
+     * refresh-токену выкидывал бы пользователя из уже начатой НОВОЙ сессии.
+     *
+     * @return false — сессия сменилась, ничего не стёрто.
+     */
+    @Synchronized
+    override fun clearIfSessionMatches(expected: SessionKey): Boolean {
+        if (sessionKey() != expected) return false
+        clear()
+        return true
+    }
+
     @Synchronized
     fun clear() {
         prefs.edit().clear().apply()
         _state.value = readSnapshot()
     }
+
+    /**
+     * Что считаем «той же сессией»: пара «действующий refresh-token + пользователь».
+     * Refresh-token меняется при каждой ротации, userId — при смене учётки;
+     * вместе они ловят оба способа увести сессию из-под незавершённого запроса.
+     */
+    data class SessionKey(val refreshToken: String?, val userId: String?)
 
     private fun readSnapshot(): Snapshot = Snapshot(
         accessToken = prefs.getString(KEY_ACCESS_TOKEN, null),
@@ -164,7 +239,7 @@ class TokenStorage(context: Context) {
         val effectiveSiteId: String? get() = siteId?.ifBlank { null } ?: lastKnownGoodSiteId
     }
 
-    private companion object {
+    companion object {
         // 60 сек запаса: если access истекает в ближайшую минуту — лучше
         // обновить заранее, чем словить 401 на первом же бизнес-запросе.
         const val ACCESS_VALID_MARGIN_MS = 60_000L

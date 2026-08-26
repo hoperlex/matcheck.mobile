@@ -17,10 +17,10 @@ import java.util.concurrent.TimeUnit
 /**
  * Собирает Retrofit поверх OkHttp с авторизационными interceptor-ами.
  *
- * AuthApi отдаётся через [authApiLazy] потому, что [TokenAuthenticator]
- * сам делает запрос на /auth/refresh через ту же сеть — и должен иметь
- * клиент, чтобы вызывать его. Если бы AuthApi создавался напрямую,
- * получился бы циклический init.
+ * Клиентов два. Бизнес-клиент несёт [TokenAuthenticator] и обслуживает всё
+ * остальное; тонкий [refreshClient] существует только ради `/auth/refresh` и
+ * авторизационного перехватчика не имеет — иначе обновление токена уходило бы
+ * через клиент, поток которого в этот момент им же и заблокирован.
  */
 class NetworkFactory(
     baseUrl: String,
@@ -34,12 +34,50 @@ class NetworkFactory(
         explicitNulls = false
     }
 
-    private val userAgent: String = buildUserAgent()
+    /** Публичный: тот же UA обязан ставить SSE-клиент, иначе планшеты не видны в логах сервера. */
+    val userAgent: String = buildUserAgent()
+
+    /**
+     * Отдельный клиент ТОЛЬКО под `/auth/refresh`.
+     *
+     * Пины, таймауты и служебные заголовки те же, что у бизнес-клиента, а вот
+     * [TokenAuthenticator] здесь намеренно отсутствует. Причина в том, что
+     * `Authenticator.authenticate` блокирует поток OkHttp (`runBlocking`), и если
+     * обновление уходит через ТОТ ЖЕ клиент, пачка одновременных 401 упирается в
+     * его же пул потоков и соединений. Отдельный клиент снимает и это, и саму
+     * возможность реентерабельности: не по соглашению «маршруты входа исключены
+     * из перехватчика», а по построению.
+     */
+    private val refreshClient: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .certificatePinner(CertificatePins.build())
+        .eventListener(SentryOkHttpEventListener())
+        .addInterceptor(AuthHeaderInterceptor(tokenStorage, userAgent))
+        .addInterceptor(SentryOkHttpInterceptor())
+        .build()
+
+    private val refreshApi: AuthApi = Retrofit.Builder()
+        .baseUrl(baseUrl)
+        .client(refreshClient)
+        .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
+        .build()
+        .create(AuthApi::class.java)
+
+    /**
+     * Общий координатор обновления токена — один на приложение. Его же получают
+     * `AuthRepository.refreshNow` и SSE, чтобы три точки обновления не ротировали
+     * refresh-токен наперегонки (см. [TokenRefreshCoordinator]).
+     */
+    val tokenRefreshCoordinator = TokenRefreshCoordinator(
+        tokenStorage = tokenStorage,
+        refreshApiProvider = { refreshApi },
+        onSessionInvalidated = onSessionInvalidated,
+    )
 
     private val tokenAuthenticator = TokenAuthenticator(
-        tokenStorage = tokenStorage,
-        authApiProvider = { authApi },
-        onSessionInvalidated = onSessionInvalidated,
+        coordinator = tokenRefreshCoordinator,
     )
 
     private val client: OkHttpClient = OkHttpClient.Builder()

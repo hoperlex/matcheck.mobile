@@ -1,43 +1,28 @@
 package com.example.matcheckmobile.data.remote.net
 
-import com.example.matcheckmobile.data.auth.TokenStorage
-import com.example.matcheckmobile.data.remote.auth.AuthApi
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import okhttp3.Authenticator
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.Route
-import retrofit2.HttpException
 
 /**
- * Перехватывает 401 на бизнес-эндпоинтах и пытается обновить access-token
- * через /auth/refresh. Параллельные 401 не должны вызывать гонку: refresh
- * сериализуется через [refreshMutex]; запросы, словившие 401 после успешного
- * refresh-а, повторяются с новым access-токеном.
+ * Перехватывает 401 на бизнес-эндпоинтах и повторяет запрос с обновлённым
+ * access-токеном.
  *
- * /auth/login и /auth/refresh из этого механизма исключены: их 401 — это
- * "плохие учётные данные" / "refresh уже использован", их обрабатывает
- * вызывающий код.
+ * Само обновление живёт не здесь, а в общем [TokenRefreshCoordinator]: раньше у
+ * этого класса был приватный мьютекс, невидимый для `AuthRepository.refreshNow`
+ * и SSE, и три точки обновления могли ротировать один refresh-токен наперегонки.
+ * Сервер считает такой повтор атакой и гасит сессию — то есть ложный разлогин.
  *
- * При неудаче refresh-а: чистим TokenStorage и пробрасываем событие,
- * чтобы UI ушёл на login.
+ * /auth/login, /auth/refresh и /auth/logout из механизма исключены: их 401 — это
+ * «плохие учётные данные» либо «refresh уже использован», их разбирает вызывающий.
+ * Дополнительно refresh теперь уходит через отдельный клиент (см. NetworkFactory),
+ * поэтому попасть сюда рекурсивно он не может в принципе.
  */
 class TokenAuthenticator(
-    private val tokenStorage: TokenStorage,
-    private val authApiProvider: () -> AuthApi,
-    /**
-     * Вызывается когда refresh упал с 401 (сервер сказал invalid_refresh /
-     * no_refresh / reuse detection). `triggeredByPath` — путь бизнес-запроса,
-     * который инициировал цепочку (полезно для audit log: «нас выкинуло на
-     * /api/v1/sync» vs «нас выкинуло на /api/v1/photos/presign»).
-     * `httpCode` — код HttpException, обычно 401.
-     */
-    private val onSessionInvalidated: (triggeredByPath: String, httpCode: Int) -> Unit,
+    private val coordinator: TokenRefreshCoordinator,
 ) : Authenticator {
-
-    private val refreshMutex = Mutex()
 
     override fun authenticate(route: Route?, response: Response): Request? {
         val request = response.request
@@ -56,42 +41,25 @@ class TokenAuthenticator(
             ?.removePrefix("Bearer ")
 
         return runBlocking {
-            refreshMutex.withLock {
-                val current = tokenStorage.accessToken
-                if (current != null && current != storedAccessAtFailure) {
-                    // Параллельный поток уже обновил токен — берём его.
-                    return@withLock request.newBuilder()
-                        .header("Authorization", "Bearer $current")
-                        .build()
-                }
-
-                val refresh = tokenStorage.refreshToken ?: run {
-                    onSessionInvalidated(path, 401)
-                    return@withLock null
-                }
-
-                try {
-                    val r = authApiProvider().refresh("Bearer $refresh")
-                    tokenStorage.saveRefreshedTokens(
-                        accessToken = r.accessToken,
-                        accessExpiresInSec = r.expiresIn,
-                        refreshToken = r.refreshToken,
-                        refreshExpiresInSec = r.refreshExpiresIn,
-                    )
+            when (val outcome = coordinator.obtainFresh(storedAccessAtFailure, path)) {
+                is TokenRefreshCoordinator.Outcome.Fresh ->
                     request.newBuilder()
-                        .header("Authorization", "Bearer ${r.accessToken}")
+                        .header("Authorization", "Bearer ${outcome.accessToken}")
                         .build()
-                } catch (e: HttpException) {
-                    // 401 invalid_refresh / no_refresh — сессия мертва.
-                    if (e.code() == 401) {
-                        tokenStorage.clear()
-                        onSessionInvalidated(path, 401)
-                    }
-                    null
-                } catch (_: Throwable) {
-                    // Сеть — оставляем 401, UI пусть повторит позже.
-                    null
-                }
+
+                // Сессию сменили, пока мы ждали обновления. Повторять НЕЛЬЗЯ:
+                // запрос принадлежит прежнему пользователю, и отправить его с
+                // новым токеном значило бы выполнить действие одного человека
+                // от имени другого.
+                TokenRefreshCoordinator.Outcome.SessionChanged -> null
+
+                // Сессия мертва либо обновляться нечем — координатор уже погасил
+                // её и уведомил ровно один раз. Отдаём 401 наверх.
+                TokenRefreshCoordinator.Outcome.Invalid,
+                TokenRefreshCoordinator.Outcome.NoSession -> null
+
+                // Сеть: оставляем 401, вызывающий повторит позже. Сессию не трогаем.
+                TokenRefreshCoordinator.Outcome.NetworkError -> null
             }
         }
     }

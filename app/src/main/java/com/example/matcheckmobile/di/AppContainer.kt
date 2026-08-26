@@ -96,6 +96,7 @@ class AppContainer(val appContext: Context) {
         authApi = networkFactory.authApi,
         tokenStorage = tokenStorage,
         logoutAuditLog = logoutAuditLog,
+        coordinator = networkFactory.tokenRefreshCoordinator,
     ).also { _authRepository = it }
 
     val syncApi: SyncApi = networkFactory.create(SyncApi::class.java)
@@ -270,11 +271,12 @@ class AppContainer(val appContext: Context) {
 
     val sseConnectionManager: SseConnectionManager = SseConnectionManager(
         baseUrl = BuildConfig.API_BASE_URL,
-        tokenStorage = tokenStorage,
         deliveryDao = database.remoteDeliveryDao(),
         shipmentDao = database.remoteShipmentDao(),
         sourceDocumentDao = database.remoteSourceDocumentDao(),
         appContext = appContext,
+        coordinator = networkFactory.tokenRefreshCoordinator,
+        userAgent = networkFactory.userAgent,
     )
 
     /**
