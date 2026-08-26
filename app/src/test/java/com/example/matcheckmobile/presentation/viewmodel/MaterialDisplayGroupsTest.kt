@@ -3,6 +3,7 @@ package com.example.matcheckmobile.presentation.viewmodel
 import com.example.matcheckmobile.data.local.entity.RemoteSourceDocumentItemEntity
 import com.example.matcheckmobile.presentation.components.MaterialDraft
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -213,5 +214,100 @@ class MaterialDisplayGroupsTest {
 
         assertEquals(materials.size, groups.sumOf { it.materials.size })
         assertEquals(materials.toSet(), groups.flatMap { it.materials }.toSet())
+    }
+
+    @Test
+    fun `индексная разбивка указывает на позиции исходного списка`() {
+        val materials = listOf(
+            draft("Цемент", "upd-1"),
+            draft("Песок", "upd-1"),
+            draft("Щебень", "upd-2"),
+            draft("Арматура", "upd-2"),
+        )
+
+        val blocks = buildMaterialDisplayIndexGroups(materials, docs)
+
+        assertEquals(2, blocks.size)
+        assertEquals(listOf(0, 1), blocks[0].indexes)
+        assertEquals(listOf(2, 3), blocks[1].indexes)
+    }
+
+    @Test
+    fun `правка второй строки второго блока попадает в свою позицию, а не в чужую`() {
+        // Ради этого разбивка и отдаёт индексы. EditableMaterialsInlineList
+        // сообщает о правке позицией в ПЕРЕДАННОМ ему списке; отдай мы
+        // подсписок — вторая строка второго блока правила бы вторую строку
+        // общего списка, то есть «Песок» вместо «Арматуры». Молча: ни ошибки,
+        // ни расхождения на экране, а на финализации к позиции подмешиваются
+        // цена и НДС по номеру строки.
+        val materials = listOf(
+            draft("Цемент", "upd-1"),
+            draft("Песок", "upd-1"),
+            draft("Щебень", "upd-2"),
+            draft("Арматура", "upd-2"),
+        )
+
+        val secondBlock = buildMaterialDisplayIndexGroups(materials, docs)[1]
+        // Инспектор тапнул вторую строку второго блока.
+        val globalIndex = secondBlock.indexes[1]
+
+        assertEquals(3, globalIndex)
+        assertEquals("Арматура", materials[globalIndex].name)
+        // Наивная реализация (подсписок вместо индексов) попала бы сюда.
+        assertNotEquals("Песок", materials[globalIndex].name)
+    }
+
+    @Test
+    fun `строки инспектора и позиции ушедшего документа собираются в последний блок`() {
+        val materials = listOf(
+            draft("Цемент", "upd-1"),
+            draft("Своя строка", null),
+            draft("Из ушедшего документа", "upd-удалён"),
+        )
+
+        val blocks = buildMaterialDisplayIndexGroups(materials, docs)
+
+        assertEquals("Материалы", blocks.last().label)
+        assertEquals(listOf(1, 2), blocks.last().indexes)
+    }
+
+    @Test
+    fun `обе версии разбивки согласованы — одна построена на другой`() {
+        // Если они разойдутся, 1 и 2 Этап покажут у одной машины разный состав
+        // блоков. Проверяем на наборе со всеми ветками: два документа, чужая
+        // строка и позиция ушедшего документа.
+        val materials = listOf(
+            draft("Арматура", "upd-2"),
+            draft("Цемент", "upd-1"),
+            draft("Своя строка", null),
+            draft("Из ушедшего документа", "upd-удалён"),
+        )
+
+        val byValue = buildMaterialDisplayGroups(materials, docs)
+        val byIndex = buildMaterialDisplayIndexGroups(materials, docs)
+
+        assertEquals(byValue.map { it.label }, byIndex.map { it.label })
+        assertEquals(byValue.map { it.documentId }, byIndex.map { it.documentId })
+        assertEquals(
+            byValue.map { group -> group.materials },
+            byIndex.map { group -> group.indexes.map { materials[it] } },
+        )
+    }
+
+    @Test
+    fun `одиночный документ даёт один блок со всеми индексами подряд`() {
+        val materials = listOf(draft("Цемент", "upd-1"), draft("Песок", "upd-1"))
+
+        val blocks = buildMaterialDisplayIndexGroups(materials, docs.take(1))
+
+        assertEquals(1, blocks.size)
+        assertEquals("Материалы", blocks[0].label)
+        assertEquals(listOf(0, 1), blocks[0].indexes)
+    }
+
+    @Test
+    fun `пустой список материалов не даёт ни одного блока`() {
+        // Экран в этом случае рисует «Список пуст» сам — см. Stage2FormScreen.
+        assertTrue(buildMaterialDisplayIndexGroups(emptyList(), docs).isEmpty())
     }
 }

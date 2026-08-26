@@ -3,10 +3,13 @@ package com.example.matcheckmobile.presentation.viewmodel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.matcheckmobile.data.local.entity.RemoteSourceDocumentEntity
 import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.data.repository.ShipmentRepository
 import com.example.matcheckmobile.data.repository.ShipmentStage2DraftState
 import com.example.matcheckmobile.di.AppContainer
+import com.example.matcheckmobile.domain.model.attachedDocsGroupTitle
+import com.example.matcheckmobile.domain.model.sortGroupDocs
 import com.example.matcheckmobile.media.PhotoSourceInvalidException
 import com.example.matcheckmobile.media.photoTakenAtIso
 import com.example.matcheckmobile.presentation.components.MaterialDraft
@@ -123,7 +126,12 @@ class DispatchStage2FormViewModel(
         val stage1VehiclePhotos = stage1RawPhotos
             .filterNot { it.kind == "document" }
             .map { it.toStage1Item(captionLabel = "Груз/машина") }
-        val updDisplay = resolveUpdDisplay(sourceDocIds, shipment.comment)
+        // Зеркало Stage2FormViewModel: документы читаются один раз, из них же
+        // берутся заголовок машины и подписи блоков «Материалы …».
+        // sortGroupDocs даёт тот же порядок, что на 1 Этапе.
+        val attachedDocs = sortGroupDocs(loadAttachedDocs(sourceDocIds))
+        val updDisplay = attachedDocsGroupTitle(attachedDocs, extractManualUpd(shipment.comment))
+        val groupDocLabels = attachedDocs.map { GroupDocumentLabel(it.id, it.docNumber) }
         val siteName = resolveSiteName(shipment.siteId)
         val originalComment = shipment.comment.orEmpty()
         val parsed = parseShipmentComment(originalComment)
@@ -137,6 +145,7 @@ class DispatchStage2FormViewModel(
                 siteId = shipment.siteId,
                 siteName = siteName,
                 sourceDocumentIds = sourceDocIds,
+                groupDocLabels = groupDocLabels,
                 materials = materials,
                 originalMaterials = materials,
                 originalCommentText = parsed.stage2.orEmpty(),
@@ -230,16 +239,17 @@ class DispatchStage2FormViewModel(
         )
     }
 
-    private suspend fun resolveUpdDisplay(sourceDocIds: List<String>, comment: String?): String? {
-        val docs = sourceDocIds.mapNotNull {
-            runCatching { container.database.remoteSourceDocumentDao().findById(it) }.getOrNull()
-        }
-        val numbers = docs.mapNotNull { it.docNumber?.takeIf { n -> n.isNotBlank() } }
-        if (numbers.isNotEmpty()) return numbers.joinToString(", ")
-        return comment
-            ?.let { Regex("(?m)^(?:УПД|Примечание):\\s*(.+)$").find(it)?.groupValues?.getOrNull(1)?.trim() }
-            ?.takeIf { it.isNotBlank() }
+    /** См. Stage2FormViewModel.loadAttachedDocs — часть документов может не найтись. */
+    private suspend fun loadAttachedDocs(
+        sourceDocIds: List<String>,
+    ): List<RemoteSourceDocumentEntity> = sourceDocIds.mapNotNull {
+        runCatching { container.database.remoteSourceDocumentDao().findById(it) }.getOrNull()
     }
+
+    /** Ручная метка «УПД: …» из multiline-комментария отгрузки. */
+    private fun extractManualUpd(comment: String?): String? = comment
+        ?.let { MANUAL_UPD_REGEX.find(it)?.groupValues?.getOrNull(1)?.trim() }
+        ?.takeIf { it.isNotBlank() }
 
     private suspend fun resolveSiteName(siteId: String): String? {
         if (siteId.isBlank()) return null
@@ -471,6 +481,12 @@ class DispatchStage2FormViewModel(
     private data class ParsedComment(val stage1: String?, val stage2: String?, val note: String?)
 
     private companion object {
+        /**
+         * Строка «УПД: …» либо «Примечание: …» в комментарии отгрузки — ручная
+         * метка, введённая инспектором на 1 Этапе, когда документа не было.
+         * Тот же шаблон, что в списках 2 Этапа и Архива.
+         */
+        val MANUAL_UPD_REGEX = Regex("(?m)^(?:УПД|Примечание):\\s*(.+)$")
         val STAGE1_REGEX = Regex("^1 Этап:\\s*\"(.*)\"$")
         val STAGE2_REGEX = Regex("^2 Этап:\\s*\"(.*)\"$")
         val NOTE_REGEX = Regex("^Примечание:\\s*(.+)$")
@@ -515,6 +531,8 @@ data class DispatchStage2FormUiState(
     /** Фото 1-го Этапа с любым `kind` кроме 'document'. */
     val stage1VehiclePhotos: List<com.example.matcheckmobile.presentation.components.Stage1PhotoItem> = emptyList(),
     val driverName: String? = null,
+    /** Зеркало `Stage2FormUiState.groupDocLabels` — заголовки блоков материалов. */
+    val groupDocLabels: List<GroupDocumentLabel> = emptyList(),
     val updDisplay: String? = null,
     val loaded: Boolean = false,
     val isSaving: Boolean = false,

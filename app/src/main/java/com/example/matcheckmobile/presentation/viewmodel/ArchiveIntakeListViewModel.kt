@@ -6,7 +6,7 @@ import com.example.matcheckmobile.data.local.entity.RemoteDeliveryEntity
 import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.di.AppContainer
 import com.example.matcheckmobile.domain.BusinessTime
-import com.example.matcheckmobile.domain.model.sourceDocTitlePrefix
+import com.example.matcheckmobile.domain.model.attachedDocsGroupTitle
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -107,15 +107,12 @@ class ArchiveIntakeListViewModel(private val container: AppContainer) : ViewMode
 
             val attachedIds = RemoteMappers.decodeIdList(d.sourceDocumentIdsJson)
             val attachedDocs = attachedIds.mapNotNull { docById[it] }
-            val updNumbers = attachedDocs.mapNotNull { it.docNumber?.takeIf { n -> n.isNotBlank() } }
-            val updFromComment = extractManualUpd(d.comment)?.takeIf { it.isNotBlank() }
-            val updText = when {
-                updNumbers.isNotEmpty() -> buildUpdSummary(updNumbers)
-                updFromComment != null -> updFromComment
-                else -> "—"
-            }
-            val prefix = attachedDocs.firstOrNull()?.kind?.let(::sourceDocTitlePrefix) ?: "УПД"
-            val title = "$prefix $updText"
+            // Один заголовок на все экраны — см. attachedDocsGroupTitle. Архив
+            // особенно чувствителен к обрезке: инспектор возвращается сюда
+            // именно затем, чтобы найти поставку по номеру, а прежний код
+            // показывал только первые два и прятал остальные под «+N».
+            val title = attachedDocsGroupTitle(attachedDocs, extractManualUpd(d.comment))
+                ?: "УПД —"
 
             val plate = d.vehiclePlate?.takeIf { it.isNotBlank() } ?: "—"
 
@@ -155,7 +152,6 @@ class ArchiveIntakeListViewModel(private val container: AppContainer) : ViewMode
     )
 
     private companion object {
-        const val UPD_SUMMARY_MAX_INLINE = 2
         val ARCHIVE_STATUSES = listOf("confirmed_mol")
         /** Семь календарных дат: сегодня и шесть предыдущих. Зона — [BusinessTime.ZONE]. */
         const val ARCHIVE_WINDOW_DAYS = 7L
@@ -172,12 +168,6 @@ class ArchiveIntakeListViewModel(private val container: AppContainer) : ViewMode
         fun extractManualUpd(comment: String?): String? {
             if (comment.isNullOrBlank()) return null
             return MANUAL_UPD_REGEX.find(comment)?.groupValues?.getOrNull(1)?.trim()
-        }
-
-        fun buildUpdSummary(numbers: List<String>): String {
-            if (numbers.size <= UPD_SUMMARY_MAX_INLINE) return numbers.joinToString(", ")
-            val head = numbers.take(UPD_SUMMARY_MAX_INLINE).joinToString(", ")
-            return "$head +${numbers.size - UPD_SUMMARY_MAX_INLINE}"
         }
     }
 }

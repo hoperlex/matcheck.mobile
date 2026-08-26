@@ -228,4 +228,76 @@ class SourceDocGroupTest {
         assertEquals("Грузополучатель: —", partyLabel(null, null))
         assertEquals("Грузополучатель: —", partyLabel("", "  "))
     }
+
+    @Test
+    fun `смешанная машина не подписывает накладные как УПД`() {
+        // Боевая приёмка 94060cff…: одна УПД и две транспортные накладные.
+        // Прежний код брал ОДИН префикс по первому привязанному документу и
+        // выдавал «УПД 14040/19, 19-19684-1 +1», то есть называл накладные УПД
+        // и прятал третий документ. Комментарий в коде утверждал, что таких
+        // приёмок не бывает; за 30 дней их 16.
+        val docs = listOf(
+            testDoc("wb-2", kind = "transport_waybill", docNumber = "01-06-2026/50"),
+            testDoc("upd-1", kind = "upd", docNumber = "14040/19"),
+            testDoc("wb-1", kind = "transport_waybill", docNumber = "19-19684-1"),
+        )
+
+        assertEquals(
+            "УПД 14040/19 · Накладная 01-06-2026/50, 19-19684-1",
+            attachedDocsGroupTitle(docs, manualUpd = null),
+        )
+    }
+
+    @Test
+    fun `перечисляются все номера, а не первые два`() {
+        // Регрессия на UPD_SUMMARY_MAX_INLINE = 2: списки 2 Этапа и Архива
+        // схлопывали хвост в «+N», и инспектор не мог найти поставку по номеру
+        // третьего документа.
+        val docs = (1..5).map { testDoc("upd-$it", kind = "upd", docNumber = "$it") }
+
+        assertEquals("УПД 1, 2, 3, 4, 5", attachedDocsGroupTitle(docs, manualUpd = null))
+    }
+
+    @Test
+    fun `документ без номера виден и в привязанной машине`() {
+        val docs = listOf(
+            testDoc("a", kind = "upd", docNumber = "1403"),
+            testDoc("b", kind = "upd", docNumber = null),
+        )
+
+        assertEquals("УПД 1403, —", attachedDocsGroupTitle(docs, manualUpd = null))
+    }
+
+    @Test
+    fun `ручная метка проигрывает реальным номерам документов`() {
+        // Иначе приёмка с распознанной УПД подписалась бы текстом, который
+        // инспектор набрал руками ещё до привязки документа.
+        val docs = listOf(testDoc("a", kind = "upd", docNumber = "1403"))
+
+        assertEquals("УПД 1403", attachedDocsGroupTitle(docs, manualUpd = "999"))
+    }
+
+    @Test
+    fun `ручная метка идёт в ход, когда документов нет вовсе`() {
+        assertEquals("УПД 999", attachedDocsGroupTitle(emptyList(), manualUpd = "999"))
+        // Пустая строка меткой не считается — иначе заголовок стал бы «УПД ».
+        assertNull(attachedDocsGroupTitle(emptyList(), manualUpd = "   "))
+    }
+
+    @Test
+    fun `документы есть, номеров нет — показываем документы, а не метку из комментария`() {
+        // Прежний код в этом месте падал на комментарий и терял тот факт, что
+        // бумаг в машине две. Экран решает сам, как назвать пустоту.
+        val docs = listOf(
+            testDoc("a", kind = "transport_waybill", docNumber = null),
+            testDoc("b", kind = "transport_waybill", docNumber = null),
+        )
+
+        assertEquals("Накладная —, —", attachedDocsGroupTitle(docs, manualUpd = null))
+    }
+
+    @Test
+    fun `сказать нечего — null, а не пустая подпись`() {
+        assertNull(attachedDocsGroupTitle(emptyList(), manualUpd = null))
+    }
 }

@@ -3,10 +3,13 @@ package com.example.matcheckmobile.presentation.viewmodel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.matcheckmobile.data.local.entity.RemoteSourceDocumentEntity
 import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.data.repository.DeliveryRepository
 import com.example.matcheckmobile.data.repository.Stage2DraftState
 import com.example.matcheckmobile.di.AppContainer
+import com.example.matcheckmobile.domain.model.attachedDocsGroupTitle
+import com.example.matcheckmobile.domain.model.sortGroupDocs
 import com.example.matcheckmobile.media.PhotoSourceInvalidException
 import com.example.matcheckmobile.media.photoTakenAtIso
 import com.example.matcheckmobile.presentation.components.MaterialDraft
@@ -130,9 +133,14 @@ class Stage2FormViewModel(
             .map { it.toStage1Item(captionLabel = "Груз/машина") }
         val sourceDocIds = RemoteMappers.decodeIdList(delivery.sourceDocumentIdsJson)
         // УПД, привязанные к приёмке, /sync не отдаёт — дотягиваем индивидуально,
-        // чтобы [resolveUpdDisplay] увидел реальный docNumber в локальной БД.
+        // чтобы заголовок машины и подписи блоков увидели реальный docNumber.
         container.sourceDocumentBackfillService.ensureCached(sourceDocIds)
-        val updDisplay = resolveUpdDisplay(sourceDocIds, delivery.comment)
+        // sortGroupDocs — тот же порядок, что на 1 Этапе (см. preloadFromSourceDocuments).
+        // Порядок блоков материалов обязан совпадать между этапами, иначе одна
+        // и та же машина выглядит по-разному до и после подтверждения.
+        val attachedDocs = sortGroupDocs(loadAttachedDocs(sourceDocIds))
+        val updDisplay = attachedDocsGroupTitle(attachedDocs, extractManualUpd(delivery.comment))
+        val groupDocLabels = attachedDocs.map { GroupDocumentLabel(it.id, it.docNumber) }
         val siteName = resolveSiteName(delivery.siteId)
         val originalComment = delivery.comment.orEmpty()
         val parsed = parseDeliveryComment(originalComment)
@@ -142,6 +150,7 @@ class Stage2FormViewModel(
                 siteId = delivery.siteId,
                 siteName = siteName,
                 sourceDocumentIds = sourceDocIds,
+                groupDocLabels = groupDocLabels,
                 materials = materials,
                 // Снимаем «снимок» серверного состояния — UI сравнивает текущие
                 // materials с originalMaterials и подсвечивает изменения:
@@ -258,23 +267,22 @@ class Stage2FormViewModel(
     }
 
     /**
-     * Та же логика, что в [Stage2ListViewModel]: сначала ищем номера привязанных
-     * УПД в `remote_source_documents`, иначе вытаскиваем «УПД: …» из multiline-
-     * комментария приёмки.
+     * Документы машины, привязанные к приёмке.
+     *
+     * Часть может не найтись: сервер не отдаёт документ, уже привязанный к
+     * операции, и до дотяжки backfill'ом его в Room нет. Пропуск не считаем
+     * ошибкой — заголовок и блоки строятся по тому, что есть.
      */
-    private suspend fun resolveUpdDisplay(
+    private suspend fun loadAttachedDocs(
         sourceDocIds: List<String>,
-        comment: String?,
-    ): String? {
-        val docs = sourceDocIds.mapNotNull {
-            runCatching { container.database.remoteSourceDocumentDao().findById(it) }.getOrNull()
-        }
-        val numbers = docs.mapNotNull { it.docNumber?.takeIf { n -> n.isNotBlank() } }
-        if (numbers.isNotEmpty()) return numbers.joinToString(", ")
-        return comment
-            ?.let { MANUAL_UPD_REGEX.find(it)?.groupValues?.getOrNull(1)?.trim() }
-            ?.takeIf { it.isNotBlank() }
+    ): List<RemoteSourceDocumentEntity> = sourceDocIds.mapNotNull {
+        runCatching { container.database.remoteSourceDocumentDao().findById(it) }.getOrNull()
     }
+
+    /** Ручная метка «УПД: …» из multiline-комментария приёмки. */
+    private fun extractManualUpd(comment: String?): String? = comment
+        ?.let { MANUAL_UPD_REGEX.find(it)?.groupValues?.getOrNull(1)?.trim() }
+        ?.takeIf { it.isNotBlank() }
 
     /** Имя объекта для штампа фото машины. Если не нашли — штамп напишет «Объект: —». */
     private suspend fun resolveSiteName(siteId: String): String? {
@@ -580,6 +588,11 @@ data class Stage2FormUiState(
     val siteId: String? = null,
     val siteName: String? = null,
     val sourceDocumentIds: List<String> = emptyList(),
+    /**
+     * Документы машины с номерами — заголовки блоков «Материалы …».
+     * Порядок [sortGroupDocs], тот же, что в `Stage1FormUiState.groupDocLabels`.
+     */
+    val groupDocLabels: List<GroupDocumentLabel> = emptyList(),
     val documentPhotoPaths: List<String> = emptyList(),
     val vehiclePhotoPaths: List<String> = emptyList(),
     val vehicleTypeCode: String? = null,

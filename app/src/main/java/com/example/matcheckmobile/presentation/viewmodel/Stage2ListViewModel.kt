@@ -5,7 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.matcheckmobile.data.local.entity.RemoteDeliveryEntity
 import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.di.AppContainer
-import com.example.matcheckmobile.domain.model.sourceDocTitlePrefix
+import com.example.matcheckmobile.domain.model.attachedDocsGroupTitle
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -112,24 +112,19 @@ class Stage2ListViewModel(container: AppContainer) : ViewModel() {
             val attachedIds = RemoteMappers.decodeIdList(d.sourceDocumentIdsJson)
             val attachedDocs = attachedIds.mapNotNull { docById[it] }
 
-            val updNumbers = attachedDocs.mapNotNull { it.docNumber?.takeIf { n -> n.isNotBlank() } }
-            // Fallback: УПД могла исчезнуть из remote_source_documents после
-            // привязки (сервер фильтрует «непривязанные»). Тогда тянем номер
-            // из комментария — Stage1FormViewModel пишет туда «УПД: …»
-            // при ручном вводе или просто как маркер.
-            val updNumberText = when {
-                updNumbers.isNotEmpty() -> buildUpdSummary(updNumbers)
-                else -> extractManualUpd(d.comment)?.takeIf { it.isNotBlank() } ?: "—"
-            }
-            // Префикс по kind первой привязанной — УПД vs Накладная. Если все
-            // привязки одного типа, остальные подтянутся под тот же префикс;
-            // mixed-bundle (УПД + ТН на одной приёмке) на практике не бывает.
-            // Для ручных приёмок без привязки (только текст из комментария)
-            // оставляем «УПД» по умолчанию — Stage1 пишет ручную метку как
-            // «УПД: …», kind неизвестен, но семантически это УПД-реквизит.
-            val prefix = attachedDocs.firstOrNull()?.kind
-                ?.let(::sourceDocTitlePrefix) ?: "УПД"
-            val titleText = "$prefix $updNumberText"
+            // Тот же заголовок, что инспектор видел на 1 Этапе: номера
+            // сгруппированы по видам («УПД 1403, 1404 · Накладная 192»), ничего
+            // не обрезано, документ без номера показан как «—».
+            //
+            // Прежний код брал ОДИН префикс по первому привязанному документу,
+            // обосновывая это тем, что «mixed-bundle (УПД + ТН на одной приёмке)
+            // на практике не бывает». На боевых данных такие приёмки есть, и
+            // накладные в них подписывались как «УПД»; вдобавок префикс зависел
+            // от порядка id в sourceDocumentIdsJson, а не от вида документа.
+            // «Без УПД» здесь не бывает — приёмка со статусом filled всегда
+            // оформлена, поэтому null отдаём как «УПД —».
+            val titleText = attachedDocsGroupTitle(attachedDocs, extractManualUpd(d.comment))
+                ?: "УПД —"
 
             // Подзаголовок — госномер авто, введённый инспектором на 1 Этапе.
             // На этом экране он уже точно известен (без госномера 1 Этап не
@@ -167,9 +162,6 @@ class Stage2ListViewModel(container: AppContainer) : ViewModel() {
     )
 
     private companion object {
-        /** Лимит на «явные» номера в сводке, остальное прячем под «+N». */
-        const val UPD_SUMMARY_MAX_INLINE = 2
-
         /** Статусы приёмки, попадающие в список 2-го Этапа. */
         val STAGE2_STATUSES = listOf("filled")
 
@@ -179,12 +171,6 @@ class Stage2ListViewModel(container: AppContainer) : ViewModel() {
          * заголовок карточки приёмки без УПД был бы пустым («УПД —»).
          */
         val MANUAL_UPD_REGEX = Regex("(?m)^(?:УПД|Примечание):\\s*(.+)$")
-
-        fun buildUpdSummary(numbers: List<String>): String {
-            if (numbers.size <= UPD_SUMMARY_MAX_INLINE) return numbers.joinToString(", ")
-            val head = numbers.take(UPD_SUMMARY_MAX_INLINE).joinToString(", ")
-            return "$head +${numbers.size - UPD_SUMMARY_MAX_INLINE}"
-        }
 
         fun extractManualUpd(comment: String?): String? {
             if (comment.isNullOrBlank()) return null

@@ -5,7 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.matcheckmobile.data.local.entity.RemoteShipmentEntity
 import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.di.AppContainer
-import com.example.matcheckmobile.domain.model.sourceDocTitlePrefix
+import com.example.matcheckmobile.domain.model.attachedDocsGroupTitle
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -92,16 +92,13 @@ class DispatchStage2ListViewModel(container: AppContainer) : ViewModel() {
             val attachedIds = RemoteMappers.decodeIdList(s.sourceDocumentIdsJson)
             val attachedDocs = attachedIds.mapNotNull { docById[it] }
 
-            val updNumbers = attachedDocs.mapNotNull { it.docNumber?.takeIf { n -> n.isNotBlank() } }
-            val updNumberText = when {
-                updNumbers.isNotEmpty() -> buildUpdSummary(updNumbers)
-                else -> extractManualUpd(s.comment)?.takeIf { it.isNotBlank() } ?: "—"
-            }
-            // Префикс по kind — для отгрузки чаще «Накладная» (ТН-2116/ОС-2),
-            // но для ручных без привязки оставляем «УПД» (см. Stage2ListViewModel).
-            val prefix = attachedDocs.firstOrNull()?.kind
-                ?.let(::sourceDocTitlePrefix) ?: "УПД"
-            val titleText = "$prefix $updNumberText"
+            // Зеркало приёмки: заголовок собирает attachedDocsGroupTitle, и для
+            // отгрузки это особенно заметно — в машине обычно накладная
+            // (ТН-2116/ОС-2), а прежний общий префикс по первому документу
+            // подписывал её как «УПД». Для отгрузок без привязки прежнее
+            // умолчание «УПД» сохраняется (см. Stage2ListViewModel).
+            val titleText = attachedDocsGroupTitle(attachedDocs, extractManualUpd(s.comment))
+                ?: "УПД —"
 
             // Подзаголовок — госномер авто, введённый инспектором на 1 Этапе.
             // На этом экране он точно известен (без госномера 1 Этап не
@@ -137,15 +134,8 @@ class DispatchStage2ListViewModel(container: AppContainer) : ViewModel() {
     )
 
     private companion object {
-        const val UPD_SUMMARY_MAX_INLINE = 2
         val STAGE2_STATUSES = listOf("shipped")
         val MANUAL_UPD_REGEX = Regex("(?m)^(?:УПД|Примечание):\\s*(.+)$")
-
-        fun buildUpdSummary(numbers: List<String>): String {
-            if (numbers.size <= UPD_SUMMARY_MAX_INLINE) return numbers.joinToString(", ")
-            val head = numbers.take(UPD_SUMMARY_MAX_INLINE).joinToString(", ")
-            return "$head +${numbers.size - UPD_SUMMARY_MAX_INLINE}"
-        }
 
         fun extractManualUpd(comment: String?): String? {
             if (comment.isNullOrBlank()) return null

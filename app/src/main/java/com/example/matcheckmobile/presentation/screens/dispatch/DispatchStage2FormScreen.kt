@@ -39,6 +39,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -65,6 +66,7 @@ import com.example.matcheckmobile.presentation.components.RemotePhotoRef
 import com.example.matcheckmobile.presentation.components.Stage1PhotosSection
 import com.example.matcheckmobile.presentation.components.rememberPhotoCapture
 import com.example.matcheckmobile.presentation.util.formatLocalTime
+import com.example.matcheckmobile.presentation.viewmodel.buildMaterialDisplayIndexGroups
 import com.example.matcheckmobile.presentation.viewmodel.DispatchStage2FormViewModel
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
 import kotlinx.coroutines.launch
@@ -290,16 +292,76 @@ fun DispatchStage2FormScreen(
                         // с внешним и мешает автоскроллу к сфокусированному
                         // текстовому полю при открытии клавиатуры.
                         Column(modifier = Modifier.fillMaxWidth()) {
-                            EditableMaterialsInlineList(
-                                value = state.materials,
-                                editedIndexes = state.editedIndexes,
-                                onEdit = vm::updateMaterial,
-                                onDelete = vm::deleteMaterial,
-                                showHeader = false,
-                                originalMaterials = state.originalMaterials,
-                                editingShowUnitField = false,
-                                availableUnits = unitCodes,
+                            // Блок на КАЖДЫЙ документ машины — тот же вид, что на 1 Этапе
+                            // (см. Stage1FormScreen). Инспектор подтверждает операцию по
+                            // документам, и в одном списке «Материалы (7)» не видно, какая
+                            // позиция из какой накладной: 1 и 2 Этап показывали одну и ту же
+                            // машину по-разному.
+                            //
+                            // Разбивка визуальная: state.materials не переупорядочивается и не
+                            // фильтруется, а правки возвращаются в ЕГО координаты через
+                            // block.indexes. Без этого правка второй строки второго блока ушла
+                            // бы во вторую строку общего списка — молча и с чужими ценами
+                            // (см. MaterialDisplayIndexGroup).
+                            val materialBlocks = buildMaterialDisplayIndexGroups(
+                                state.materials,
+                                state.groupDocLabels,
                             )
+                            // Пустой список материалов даёт ноль блоков, а инспектору нужно
+                            // увидеть «Список пуст», а не молчащий экран.
+                            if (materialBlocks.isEmpty()) {
+                                EditableMaterialsInlineList(
+                                    value = emptyList(),
+                                    editedIndexes = emptySet(),
+                                    onEdit = vm::updateMaterial,
+                                    onDelete = vm::deleteMaterial,
+                                    showHeader = false,
+                                    editingShowUnitField = false,
+                                    availableUnits = unitCodes,
+                                )
+                            }
+                            materialBlocks.forEach { block ->
+                                // key по документу: у EditableMaterialsInlineList есть свой
+                                // remember (открытая строка правки), а блоки — соседи в цикле,
+                                // и Compose различал бы их по позиции. Опустей один блок после
+                                // удаления строки — остальные сдвинулись бы и забрали чужое.
+                                key(block.documentId ?: "manual") {
+                                    // Заголовок только когда блоков больше одного: у машины из
+                                    // одной УПД её номер уже в шапке формы. Счётчик в скобках —
+                                    // как у MaterialsField на 1 Этапе.
+                                    if (materialBlocks.size > 1) {
+                                        Text(
+                                            text = "${block.label} (${block.indexes.size})",
+                                            style = if (isTablet)
+                                                MaterialTheme.typography.titleMedium
+                                            else
+                                                MaterialTheme.typography.titleSmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(top = 8.dp, bottom = 2.dp),
+                                        )
+                                    }
+                                    EditableMaterialsInlineList(
+                                        value = block.indexes.map { state.materials[it] },
+                                        editedIndexes = block.indexes
+                                            .withIndex()
+                                            .filter { (_, orig) -> orig in state.editedIndexes }
+                                            .map { (local, _) -> local }
+                                            .toSet(),
+                                        onEdit = { local, draft ->
+                                            vm.updateMaterial(block.indexes[local], draft)
+                                        },
+                                        onDelete = { local -> vm.deleteMaterial(block.indexes[local]) },
+                                        showHeader = false,
+                                        originalMaterials = block.indexes.map {
+                                            state.originalMaterials.getOrNull(it)
+                                        },
+                                        editingShowUnitField = false,
+                                        availableUnits = unitCodes,
+                                    )
+                                }
+                            }
                         }
 
                         Column(modifier = Modifier.fillMaxWidth()) {
