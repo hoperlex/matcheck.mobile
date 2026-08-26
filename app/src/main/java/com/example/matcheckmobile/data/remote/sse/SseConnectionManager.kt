@@ -19,6 +19,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -130,6 +132,19 @@ class SseConnectionManager(
     @Volatile
     private var refreshJob: Job? = null
 
+    /**
+     * Сериализует установку соединения.
+     *
+     * Без него `wake()` от двух независимых источников — возврата приложения и
+     * восстановления сети — запускал ДВА подключения: при выходе из авиарежима
+     * оба вызова приходят с разницей в десятки миллисекунд, обе проверки
+     * проходят. Второе соединение перезаписывало ссылку на первое, и отменить
+     * его становилось нечем: поток к серверу оставался жить, поддерживаемый
+     * пингами. Клиенту он невиден (колбэки осиротели по поколению), а сервер
+     * держал лишний открытый стрим на каждый такой случай.
+     */
+    private val connectMutex = Mutex()
+
     private var reconnectJob: Job? = null
     private var watchdogJob: Job? = null
     // Дебаунс SSE-триггера: всплеск *_updated коалесцируем в один sync.
@@ -174,8 +189,11 @@ class SseConnectionManager(
      * когда канал и нужен. Открывать соединение заведомо истёкшим токеном
      * означало бы подарить серверу гарантированный отказ и потратить попытку.
      */
-    private suspend fun openSource() {
-        if (!running.get()) return
+    private suspend fun openSource() = connectMutex.withLock {
+        if (!running.get()) return@withLock
+        // Повторная проверка ВНУТРИ замка: пока мы стояли в очереди, соседний
+        // вызов мог уже поднять канал — второе соединение было бы лишним.
+        if (_state.value == ConnectionState.Connected) return@withLock
         val token = when (val outcome = coordinator.obtainFresh(staleToken = null, path = EVENTS_PATH)) {
             is TokenRefreshCoordinator.Outcome.Fresh -> outcome.accessToken
 
@@ -185,23 +203,23 @@ class SseConnectionManager(
             TokenRefreshCoordinator.Outcome.NoSession,
             TokenRefreshCoordinator.Outcome.Invalid -> {
                 halt()
-                return
+                return@withLock
             }
 
             // Сессию сменили, пока мы собирались. Не гадаем, чья она теперь, —
             // обычный reconnect подхватит актуальную.
             TokenRefreshCoordinator.Outcome.SessionChanged -> {
                 scheduleReconnect()
-                return
+                return@withLock
             }
 
             // Сеть недоступна — ведём себя как раньше, ждём и пробуем снова.
             TokenRefreshCoordinator.Outcome.NetworkError -> {
                 scheduleReconnect()
-                return
+                return@withLock
             }
         }
-        if (!running.get()) return
+        if (!running.get()) return@withLock
         val request = Request.Builder()
             .url("${baseUrl.trimEnd('/')}/api/v1/events")
             .header("Authorization", "Bearer $token")
@@ -211,6 +229,9 @@ class SseConnectionManager(
         _state.value = ConnectionState.Connecting
         // Поколение и слушатель заводятся ДО newEventSource: соединение стартует
         // внутри вызова, и колбэк может прийти раньше, чем вызов вернётся.
+        // Предыдущий источник гасим здесь, под тем же замком: иначе он остался бы
+        // жить бесхозным потоком к серверу.
+        currentSource?.cancel()
         val generation = generationSeq.incrementAndGet()
         currentGeneration = generation
         currentSource = EventSources.createFactory(client)
