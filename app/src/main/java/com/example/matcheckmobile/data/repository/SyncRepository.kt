@@ -301,15 +301,11 @@ class SyncRepository(
                 "sd m=${resp.sourceDocuments.missingOnClient.size} s=${resp.sourceDocuments.staleOnClient.size}",
         )
 
-        reconcileDeliveries(
-            resp.deliveries.missingOnClient.map { it.id } + resp.deliveries.staleOnClient.map { it.id },
-        )
-        reconcileShipments(
-            resp.shipments.missingOnClient.map { it.id } + resp.shipments.staleOnClient.map { it.id },
-        )
-        reconcileSourceDocs(
-            resp.sourceDocuments.missingOnClient.map { it.id } + resp.sourceDocuments.staleOnClient.map { it.id },
-        )
+        // Объединение «нет вовсе» и «устарело» — см. reconcileRefetchIds: там же
+        // объяснено, почему второе слагаемое нельзя потерять при рефакторинге.
+        reconcileDeliveries(reconcileRefetchIds(resp.deliveries))
+        reconcileShipments(reconcileRefetchIds(resp.shipments))
+        reconcileSourceDocs(reconcileRefetchIds(resp.sourceDocuments))
     }
 
     private suspend fun reconcileDeliveries(ids: List<String>) {
