@@ -9,6 +9,7 @@ import com.example.matcheckmobile.data.repository.DeliveryRepository
 import com.example.matcheckmobile.data.repository.Stage2DraftState
 import com.example.matcheckmobile.di.AppContainer
 import com.example.matcheckmobile.domain.model.attachedDocsGroupTitle
+import com.example.matcheckmobile.domain.model.lateGroupDocuments
 import com.example.matcheckmobile.domain.model.sortGroupDocs
 import com.example.matcheckmobile.media.PhotoSourceInvalidException
 import com.example.matcheckmobile.media.photoTakenAtIso
@@ -141,6 +142,10 @@ class Stage2FormViewModel(
         val attachedDocs = sortGroupDocs(loadAttachedDocs(sourceDocIds))
         val updDisplay = attachedDocsGroupTitle(attachedDocs, extractManualUpd(delivery.comment))
         val groupDocLabels = attachedDocs.map { GroupDocumentLabel(it.id, it.docNumber) }
+        // Документы, доехавшие в машину уже ПОСЛЕ оформления приёмки. Состав
+        // приёмки на 2 Этапе не меняется, поэтому здесь только предупреждение:
+        // молча дописать материалы в подтверждаемую приёмку нельзя.
+        val lateDocs = findLateDocuments(attachedDocs, sourceDocIds)
         val siteName = resolveSiteName(delivery.siteId)
         val originalComment = delivery.comment.orEmpty()
         val parsed = parseDeliveryComment(originalComment)
@@ -151,6 +156,7 @@ class Stage2FormViewModel(
                 siteName = siteName,
                 sourceDocumentIds = sourceDocIds,
                 groupDocLabels = groupDocLabels,
+                lateDocLabels = lateDocs,
                 materials = materials,
                 // Снимаем «снимок» серверного состояния — UI сравнивает текущие
                 // materials с originalMaterials и подсвечивает изменения:
@@ -277,6 +283,30 @@ class Stage2FormViewModel(
         sourceDocIds: List<String>,
     ): List<RemoteSourceDocumentEntity> = sourceDocIds.mapNotNull {
         runCatching { container.database.remoteSourceDocumentDao().findById(it) }.getOrNull()
+    }
+
+    /**
+     * Документы машины, которых нет в этой приёмке.
+     *
+     * Машину берём у документов самой приёмки: у неё общий groupId, и второго
+     * источника нет — приёмка хранит только список документов. Документ без
+     * группы (почта, ЭДО, ручной внос) сверять не с чем, там машины нет.
+     *
+     * Ошибку чтения базы гасим: сверка — подсказка, а не условие работы, и
+     * ронять из-за неё форму подтверждения, когда МОЛ стоит у машины, нельзя.
+     */
+    private suspend fun findLateDocuments(
+        attachedDocs: List<RemoteSourceDocumentEntity>,
+        sourceDocIds: List<String>,
+    ): List<GroupDocumentLabel> {
+        val groupId = attachedDocs.firstNotNullOfOrNull { doc ->
+            doc.groupId?.takeIf(String::isNotBlank)
+        } ?: return emptyList()
+        val groupDocs = runCatching {
+            container.database.remoteSourceDocumentDao().findByGroupId(groupId)
+        }.getOrNull() ?: return emptyList()
+        return lateGroupDocuments(sourceDocIds, groupDocs)
+            .map { GroupDocumentLabel(it.id, it.docNumber) }
     }
 
     /** Ручная метка «УПД: …» из multiline-комментария приёмки. */
@@ -593,6 +623,11 @@ data class Stage2FormUiState(
      * Порядок [sortGroupDocs], тот же, что в `Stage1FormUiState.groupDocLabels`.
      */
     val groupDocLabels: List<GroupDocumentLabel> = emptyList(),
+    /**
+     * Документы машины, доехавшие после оформления приёмки, — их материалов в
+     * приёмке нет. Пустой список — расхождения нет либо сверять не с чем.
+     */
+    val lateDocLabels: List<GroupDocumentLabel> = emptyList(),
     val documentPhotoPaths: List<String> = emptyList(),
     val vehiclePhotoPaths: List<String> = emptyList(),
     val vehicleTypeCode: String? = null,

@@ -300,4 +300,75 @@ class SourceDocGroupTest {
     fun `сказать нечего — null, а не пустая подпись`() {
         assertNull(attachedDocsGroupTitle(emptyList(), manualUpd = null))
     }
+
+    // ── Документы, доехавшие после оформления приёмки ────────────────────────
+
+    @Test
+    fun `документ доехал после оформления — виден как не вошедший в приёмку`() {
+        // Живой случай: разбор сорвался, менеджер разобрал бумагу позже, и
+        // третий документ появился в машине уже после 1 Этапа.
+        val late = lateGroupDocuments(
+            acceptedIds = listOf("a", "b"),
+            groupDocs = listOf(
+                testDoc("a", groupId = "m1", docNumber = "1"),
+                testDoc("b", groupId = "m1", docNumber = "2"),
+                testDoc("c", groupId = "m1", docNumber = "3"),
+            ),
+        )
+
+        assertEquals(listOf("c"), late.map { it.id })
+    }
+
+    @Test
+    fun `состав совпал — расхождения нет`() {
+        val late = lateGroupDocuments(
+            acceptedIds = listOf("a", "b"),
+            groupDocs = listOf(testDoc("a", groupId = "m1"), testDoc("b", groupId = "m1")),
+        )
+
+        assertTrue(late.isEmpty())
+    }
+
+    @Test
+    fun `документ приёмки пропал из машины — молчим, это не повод тревожить МОЛ`() {
+        // Обратное направление намеренно не возвращается: на планшете документ
+        // мог исчезнуть по безобидной причине, а приёмка остаётся корректной.
+        val late = lateGroupDocuments(
+            acceptedIds = listOf("a", "b", "исчез"),
+            groupDocs = listOf(testDoc("a", groupId = "m1"), testDoc("b", groupId = "m1")),
+        )
+
+        assertTrue(late.isEmpty())
+    }
+
+    @Test
+    fun `локальная копия машины не доехала — не выдаём это за пропажу`() {
+        assertTrue(lateGroupDocuments(acceptedIds = listOf("a"), groupDocs = emptyList()).isEmpty())
+    }
+
+    @Test
+    fun `приёмка без документов — сверять нечего`() {
+        assertTrue(
+            lateGroupDocuments(
+                acceptedIds = emptyList(),
+                groupDocs = listOf(testDoc("a", groupId = "m1")),
+            ).isEmpty(),
+        )
+    }
+
+    @Test
+    fun `поздние документы идут в том же порядке, что и в форме`() {
+        // Порядок обязан совпадать с sortGroupDocs: МОЛ видит документы там же,
+        // где привык, и УПД впереди накладной.
+        val late = lateGroupDocuments(
+            acceptedIds = listOf("a"),
+            groupDocs = listOf(
+                testDoc("a", groupId = "m1", docNumber = "1"),
+                testDoc("w", groupId = "m1", kind = "transport_waybill", docNumber = "192"),
+                testDoc("u", groupId = "m1", kind = "upd", docNumber = "1404"),
+            ),
+        )
+
+        assertEquals(listOf("u", "w"), late.map { it.id })
+    }
 }

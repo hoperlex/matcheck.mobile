@@ -58,6 +58,7 @@ import com.example.matcheckmobile.presentation.components.EditableMaterialsInlin
 import com.example.matcheckmobile.presentation.components.FinalizeConfirmDialog
 import com.example.matcheckmobile.presentation.components.MaterialDraft
 import com.example.matcheckmobile.presentation.components.MaterialEditDialog
+import com.example.matcheckmobile.presentation.components.LateDocumentsNotice
 import com.example.matcheckmobile.presentation.components.MaterialsTableHeader
 import com.example.matcheckmobile.presentation.components.PhotoCaptureSection
 import com.example.matcheckmobile.presentation.components.PhotoPreviewDialog
@@ -278,6 +279,14 @@ fun DispatchStage2FormScreen(
                                 modifier = Modifier.fillMaxWidth(),
                             )
                         }
+
+                        // Документ доехал в машину после оформления отгрузки —
+                        // его материалов здесь нет: состав зафиксирован на 1 Этапе.
+                        LateDocumentsNotice(
+                            docs = state.lateDocLabels,
+                            operationWord = "отгрузке",
+                            modifier = Modifier.padding(bottom = 8.dp),
+                        )
 
                         MaterialsTableHeader(
                             headerStyle = if (isTablet) MaterialTheme.typography.titleMedium
