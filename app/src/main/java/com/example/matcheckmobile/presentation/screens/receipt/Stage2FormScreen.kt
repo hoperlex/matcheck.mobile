@@ -51,7 +51,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.matcheckmobile.MatcheckApplication
-import com.example.matcheckmobile.presentation.components.LateDocumentsNotice
 import com.example.matcheckmobile.presentation.components.EditableMaterialsInlineList
 import com.example.matcheckmobile.presentation.components.FinalizeConfirmDialog
 import com.example.matcheckmobile.presentation.components.MaterialDraft
@@ -318,16 +317,6 @@ fun Stage2FormScreen(
                                     disabledTextColor = MaterialTheme.colorScheme.onSurface,
                                     disabledContainerColor = MaterialTheme.colorScheme.surface,
                                 ),
-                            )
-
-                            // Документ доехал в машину уже после оформления приёмки —
-                            // его материалов здесь нет и не будет: состав приёмки
-                            // зафиксирован на 1 Этапе. Молча дописать их нельзя, это
-                            // изменило бы принятое количество задним числом.
-                            LateDocumentsNotice(
-                                docs = state.lateDocLabels,
-                                operationWord = "приёмке",
-                                modifier = Modifier.padding(bottom = 8.dp),
                             )
 
                             // Шапка таблицы со встроенной кнопкой «+ Добавить»

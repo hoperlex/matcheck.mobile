@@ -9,7 +9,6 @@ import com.example.matcheckmobile.data.repository.ShipmentRepository
 import com.example.matcheckmobile.data.repository.ShipmentStage2DraftState
 import com.example.matcheckmobile.di.AppContainer
 import com.example.matcheckmobile.domain.model.attachedDocsGroupTitle
-import com.example.matcheckmobile.domain.model.lateGroupDocuments
 import com.example.matcheckmobile.domain.model.sortGroupDocs
 import com.example.matcheckmobile.media.PhotoSourceInvalidException
 import com.example.matcheckmobile.media.photoTakenAtIso
@@ -133,9 +132,6 @@ class DispatchStage2FormViewModel(
         val attachedDocs = sortGroupDocs(loadAttachedDocs(sourceDocIds))
         val updDisplay = attachedDocsGroupTitle(attachedDocs, extractManualUpd(shipment.comment))
         val groupDocLabels = attachedDocs.map { GroupDocumentLabel(it.id, it.docNumber) }
-        // Документы, доехавшие в машину после оформления отгрузки. Зеркало
-        // Stage2FormViewModel: состав операции на 2 Этапе не меняется.
-        val lateDocs = findLateDocuments(attachedDocs, sourceDocIds)
         val siteName = resolveSiteName(shipment.siteId)
         val originalComment = shipment.comment.orEmpty()
         val parsed = parseShipmentComment(originalComment)
@@ -150,7 +146,6 @@ class DispatchStage2FormViewModel(
                 siteName = siteName,
                 sourceDocumentIds = sourceDocIds,
                 groupDocLabels = groupDocLabels,
-                lateDocLabels = lateDocs,
                 materials = materials,
                 originalMaterials = materials,
                 originalCommentText = parsed.stage2.orEmpty(),
@@ -242,21 +237,6 @@ class DispatchStage2FormViewModel(
             createdAt = now,
             updatedAt = now,
         )
-    }
-
-    /** См. Stage2FormViewModel.findLateDocuments — правило то же. */
-    private suspend fun findLateDocuments(
-        attachedDocs: List<RemoteSourceDocumentEntity>,
-        sourceDocIds: List<String>,
-    ): List<GroupDocumentLabel> {
-        val groupId = attachedDocs.firstNotNullOfOrNull { doc ->
-            doc.groupId?.takeIf(String::isNotBlank)
-        } ?: return emptyList()
-        val groupDocs = runCatching {
-            container.database.remoteSourceDocumentDao().findByGroupId(groupId)
-        }.getOrNull() ?: return emptyList()
-        return lateGroupDocuments(sourceDocIds, groupDocs)
-            .map { GroupDocumentLabel(it.id, it.docNumber) }
     }
 
     /** См. Stage2FormViewModel.loadAttachedDocs — часть документов может не найтись. */
@@ -553,8 +533,6 @@ data class DispatchStage2FormUiState(
     val driverName: String? = null,
     /** Зеркало `Stage2FormUiState.groupDocLabels` — заголовки блоков материалов. */
     val groupDocLabels: List<GroupDocumentLabel> = emptyList(),
-    /** Зеркало `Stage2FormUiState.lateDocLabels` — документы, доехавшие позже. */
-    val lateDocLabels: List<GroupDocumentLabel> = emptyList(),
     val updDisplay: String? = null,
     val loaded: Boolean = false,
     val isSaving: Boolean = false,
