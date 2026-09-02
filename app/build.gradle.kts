@@ -21,12 +21,13 @@ android {
         applicationId = "com.example.matcheckmobile"
         minSdk = 24
         targetSdk = 35
-        // Прод — 1.0.36 (versionCode 37). Номер обязан строго расти: in-app
-        // updater сравнивает manifest.versionCode с BuildConfig.VERSION_CODE и
-        // предлагает обновление только когда первый больше. Непрерывность не
+        // Прод — 1.0.37 (versionCode 38): именно он стоит на планшетах, судя по
+        // user-agent'ам в unauthorized_access_log. Номер обязан строго расти:
+        // in-app updater сравнивает manifest.versionCode с BuildConfig.VERSION_CODE
+        // и предлагает обновление только когда первый больше. Непрерывность не
         // требуется — пропуски допустимы.
-        versionCode = 38
-        versionName = "1.0.37"
+        versionCode = 39
+        versionName = "1.0.38"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

@@ -1,5 +1,6 @@
 package com.example.matcheckmobile.data.repository
 
+import android.util.Log
 import com.example.matcheckmobile.data.local.dao.MutationDao
 import com.example.matcheckmobile.data.local.dao.RemoteDeliveryDao
 import com.example.matcheckmobile.data.local.dao.RemoteShipmentDao
@@ -33,7 +34,8 @@ import java.io.IOException
  *   через GET /:id (приходит актуальный pendingDeletionAt), drop mutation
  * - must_mark_first / cannot_mark_status → drop (клиентская логика разошлась
  *   с сервером; inspector_kpp такое инициировать не должен)
- * - 5xx / IOException → backoff: attempts++, оставляем в очереди
+ * - 401 / 5xx / IOException → backoff: attempts++, оставляем в очереди
+ *   (401 — протухший токен, сервер payload не читал; см. [httpDisposition])
  * - другие 4xx → drop (state локально сломан, retry бесполезен)
  *
  * Порядок: одна мутация блокирует следующие на той же entityId (FIFO).
@@ -74,6 +76,17 @@ class MutationProcessor(
         // Разбираем их до основного цикла; после первого прохода запрос
         // ничего не находит — sweep идемпотентен.
         dropped += sweepLegacyForeignSiteFailures()
+
+        // Наследие сборок до 1.0.38: 401 (протухший токен) классифицировался как
+        // неисправимая ошибка и замораживал операцию навсегда. Возвращаем такие
+        // мутации в очередь ДО основного цикла, чтобы они уехали этим же проходом
+        // и в правильном порядке (listPending сортирует по createdAt).
+        //
+        // Обёрнут целиком: processAll вызывается из syncOnce БЕЗ runCatching
+        // (SyncRepository), поэтому исключение отсюда оборвало бы весь цикл —
+        // вместе с pull и загрузкой фото. Разбор наследия такой цены не стоит:
+        // упавший sweep должен молча уступить место обычной синхронизации.
+        dropped += runCatching { sweep401Failures() }.getOrDefault(0)
 
         val pending = mutationDao.listPending(System.currentTimeMillis())
         // FIFO в рамках одной сущности — если предыдущая мутация осталась
@@ -222,6 +235,104 @@ class MutationProcessor(
         return byEntity.size
     }
 
+    /** Что sweep делает с конкретной замороженной 401-мутацией. */
+    private enum class Sweep401Action { UNFREEZE, DISCARD, KEEP_FROZEN }
+
+    /**
+     * Возвращает в очередь мутации, отброшенные из-за 401 сборками до 1.0.38.
+     *
+     * Выборка ([MutationDao.listFrozen401]) строго по `conflictPending = 1`:
+     * после правки [httpDisposition] свежий 401 уходит в `Backoff` и остаётся
+     * рабочей мутацией с таким же `lastError`. Трогать её нельзя — иначе sweep
+     * сбрасывал бы `attempts` и ломал экспоненту. По той же причине он
+     * одноразовый по построению: разморозив мутацию, он выводит её из выборки
+     * навсегда, а вернуть `conflictPending` с тем же `lastError` больше некому.
+     *
+     * Разморозка — условным UPDATE, а не записью объекта: пока идём по
+     * прочитанному списку, пользователь мог выполнить новое действие, и
+     * `DeliveryRepository.upsert` снял прежнюю мутацию через `deleteFor`.
+     *
+     * @return сколько мутаций удалено (разморожённые считает основной цикл).
+     */
+    private suspend fun sweep401Failures(): Int {
+        val frozen = runCatching { mutationDao.listFrozen401() }.getOrDefault(emptyList())
+        if (frozen.isEmpty()) return 0
+
+        var unfrozen = 0
+        var discarded = 0
+        var kept = 0
+        for (m in frozen) {
+            when (sweep401Action(m)) {
+                Sweep401Action.UNFREEZE -> {
+                    // 0 строк = мутацию уже заменило действие пользователя. Это
+                    // штатный исход гонки, а не ошибка: свежая операция актуальнее.
+                    val touched = runCatching { mutationDao.unfreezeIfFrozen(m.id) }.getOrDefault(0)
+                    if (touched > 0) {
+                        unfrozen++
+                        Log.w(SWEEP_TAG, "unfrozen: ${m.entityType} ${m.operation} ${m.entityId}")
+                    }
+                }
+                Sweep401Action.DISCARD -> {
+                    runCatching { mutationDao.deleteById(m.id) }
+                    discarded++
+                    Log.w(SWEEP_TAG, "discarded orphan: ${m.entityType} ${m.operation} ${m.entityId}")
+                }
+                Sweep401Action.KEEP_FROZEN -> kept++
+            }
+        }
+
+        // Отчитываемся только когда что-то изменилось. Иначе мутация, оставленная
+        // замороженной (незнакомая операция), попадала бы в выборку на каждом
+        // цикле синка и шумела в логе вечно.
+        if (unfrozen > 0 || discarded > 0) {
+            Log.w(SWEEP_TAG, "swept: unfrozen=$unfrozen discarded=$discarded kept=$kept")
+            Sentry.withScope { scope ->
+                scope.setLevel(SentryLevel.WARNING)
+                scope.setTag("unfrozen", unfrozen.toString())
+                scope.setTag("discarded", discarded.toString())
+                scope.setTag("kept", kept.toString())
+                Sentry.captureMessage("legacy http 401 mutations swept")
+            }
+        }
+        return discarded
+    }
+
+    /**
+     * Политика зависит от операции, а не только от наличия локальной записи.
+     *
+     * `delete` размораживается всегда: hard-delete СНАЧАЛА сносит локальную
+     * строку и только потом ставит мутацию в очередь (`DeliveryRepository.delete`,
+     * симметрично `ShipmentRepository`). Замороженный `delete` поэтому всегда
+     * выглядит осиротевшим, и выброс такой мутации оставил бы запись на сервере
+     * навсегда — ровно та потеря, от которой лечимся.
+     *
+     * Для остальных операций отсутствие родителя означает, что сервер прислал
+     * tombstone и `SyncRepository` снёс локальную строку, не тронув мутацию.
+     * Разморозка воскресила бы удалённую запись, поэтому мутацию убираем.
+     *
+     * Незнакомые тип/операция остаются замороженными: молча удалять то, чего
+     * не понимаем, нельзя.
+     */
+    private suspend fun sweep401Action(m: MutationEntity): Sweep401Action {
+        if (m.entityType != ForeignSiteQuarantine.ENTITY_DELIVERY &&
+            m.entityType != ForeignSiteQuarantine.ENTITY_SHIPMENT
+        ) {
+            return Sweep401Action.KEEP_FROZEN
+        }
+        return when (m.operation) {
+            "delete" -> Sweep401Action.UNFREEZE
+            "upsert", "mark_deletion", "unmark_deletion" ->
+                if (hasLocalParent(m)) Sweep401Action.UNFREEZE else Sweep401Action.DISCARD
+            else -> Sweep401Action.KEEP_FROZEN
+        }
+    }
+
+    private suspend fun hasLocalParent(m: MutationEntity): Boolean = when (m.entityType) {
+        ForeignSiteQuarantine.ENTITY_DELIVERY -> deliveryDao.findById(m.entityId) != null
+        ForeignSiteQuarantine.ENTITY_SHIPMENT -> shipmentDao.findById(m.entityId) != null
+        else -> false
+    }
+
     private suspend fun dispatch(m: MutationEntity): Outcome {
         return when (m.entityType) {
             "delivery" -> dispatchDelivery(m)
@@ -355,9 +466,9 @@ class MutationProcessor(
                 Outcome.Drop("http $code · ${failure}")
             }
             MutationFailure.ForeignSite -> Outcome.PurgeForeign
-            is MutationFailure.Other -> {
-                if (code in 500..599) Outcome.Backoff("http $code · $rawSnippet")
-                else Outcome.Drop("http $code · $rawSnippet")
+            is MutationFailure.Other -> when (httpDisposition(code)) {
+                HttpDisposition.RETRY -> Outcome.Backoff("http $code · $rawSnippet")
+                HttpDisposition.DROP -> Outcome.Drop("http $code · $rawSnippet")
             }
         }
     }
@@ -557,4 +668,13 @@ class MutationProcessor(
         val dropped: Int,
         val retried: Int,
     )
+
+    private companion object {
+        /**
+         * Логи разбора наследия 401. Sentry в проде выключен (пустой DSN), поэтому
+         * logcat — единственный след на устройстве; на канареечном планшете
+         * читается через `adb logcat -s Sweep401`.
+         */
+        const val SWEEP_TAG = "Sweep401"
+    }
 }

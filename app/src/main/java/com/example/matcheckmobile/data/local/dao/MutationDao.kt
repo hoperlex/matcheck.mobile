@@ -48,6 +48,43 @@ interface MutationDao {
     @Query("SELECT * FROM mutations WHERE lastError LIKE '%foreign_site%'")
     suspend fun listForeignSiteFailures(): List<MutationEntity>
 
+    /**
+     * Замороженные мутации, отбитые 401 (наследие бага, чинившегося в 1.0.38:
+     * протухший токен трактовался как неисправимая ошибка и терял операцию).
+     *
+     * `conflictPending = 1` в условии ОБЯЗАТЕЛЕН и не является перестраховкой:
+     * ветка `Outcome.Backoff` пишет ровно такой же `lastError`, но оставляет
+     * мутацию рабочей. Фильтр только по тексту ошибки сбрасывал бы `attempts`
+     * здоровым мутациям в backoff-паузе — то есть ломал бы экспоненту и делал
+     * sweep не одноразовым. Соседний [listForeignSiteFailures] написан без этого
+     * условия; там не стреляет только потому, что ветка PurgeForeign очередь
+     * удаляет, и таких мутаций не остаётся.
+     */
+    @Query(
+        "SELECT * FROM mutations WHERE conflictPending = 1 " +
+            "AND lastError LIKE 'http 401%' ORDER BY createdAt ASC",
+    )
+    suspend fun listFrozen401(): List<MutationEntity>
+
+    /**
+     * Разморозка одной мутации. Возвращает число затронутых строк.
+     *
+     * Условие `conflictPending = 1` закрывает гонку: пока sweep идёт по ранее
+     * прочитанному списку, пользователь может выполнить новое действие, а
+     * `DeliveryRepository.upsert` снимает прежнюю мутацию через `deleteFor`.
+     * Запись объектом (`upsert(m.copy(...))`) воскресила бы удалённую строку из
+     * устаревшего снимка — условный UPDATE в такой ситуации просто затронет 0 строк.
+     *
+     * Меняет ровно три поля. `id`, `entityId`, `payloadJson`, `baseVersion` и
+     * `createdAt` остаются прежними: повториться должна ТА ЖЕ операция, а FIFO
+     * держится сортировкой [listPending] по `createdAt`.
+     */
+    @Query(
+        "UPDATE mutations SET conflictPending = 0, attempts = 0, nextAttemptAt = NULL " +
+            "WHERE id = :id AND conflictPending = 1",
+    )
+    suspend fun unfreezeIfFrozen(id: String): Int
+
     @Query("SELECT COUNT(*) FROM mutations WHERE conflictPending = 0")
     suspend fun countPending(): Int
 

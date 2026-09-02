@@ -120,4 +120,45 @@ class MutationFailureClassifierTest {
 
         assertEquals(MutationFailure.PendingDeletion, classifyMutationFailure(409, body))
     }
+
+    // --- httpDisposition: судьба нераспознанной ошибки ---
+    //
+    // Регрессия инцидента 28.08.2026: 401 трактовался как Drop, и завершённый
+    // инспектором 2 Этап терялся навсегда (приёмка 12652).
+
+    @Test
+    fun `реальный глобальный 401 доходит до httpDisposition как Other`() {
+        // Тело именно такое: global_auth_required — строка причины в
+        // unauthorized_access_log, а не поле ответа (apps/api plugins/auth.ts).
+        val result = classifyMutationFailure(401, """{"error":"unauthorized"}""")
+
+        assertEquals(MutationFailure.Other(httpCode = 401, errorCode = "unauthorized"), result)
+        assertEquals("http 401 (unauthorized)", result.tag)
+    }
+
+    @Test
+    fun `401 повторяется, а не выбрасывается`() {
+        assertEquals(HttpDisposition.RETRY, httpDisposition(401))
+    }
+
+    @Test
+    fun `5xx повторяется как и раньше`() {
+        assertEquals(HttpDisposition.RETRY, httpDisposition(500))
+        assertEquals(HttpDisposition.RETRY, httpDisposition(502))
+        assertEquals(HttpDisposition.RETRY, httpDisposition(599))
+    }
+
+    @Test
+    fun `прочие 4xx по-прежнему выбрасываются`() {
+        assertEquals(HttpDisposition.DROP, httpDisposition(400))
+        assertEquals(HttpDisposition.DROP, httpDisposition(403))
+        assertEquals(HttpDisposition.DROP, httpDisposition(404))
+        assertEquals(HttpDisposition.DROP, httpDisposition(409))
+    }
+
+    @Test
+    fun `408 и 429 намеренно не входят в этот фикс`() {
+        assertEquals(HttpDisposition.DROP, httpDisposition(408))
+        assertEquals(HttpDisposition.DROP, httpDisposition(429))
+    }
 }
