@@ -196,17 +196,21 @@ class MutationProcessorConflictTest {
     }
 
     @Test
-    fun shipmentTerminal409_frozen_scopeUnchanged() = runBlocking {
+    fun shipmentTerminal409_serverWin_mutationDeleted() = runBlocking {
+        // Зеркало delivery-кейса. Ожидание «отгрузки замораживаются» устарело
+        // с 79b12e2, где авто-разрешение терминального конфликта распространили
+        // на отгрузки: иначе выезд замирал бы на 2 Этапе там, где приёмка
+        // разрешается сама (см. доксстроку tryApplyOccSnapshot).
         val id = "s1"
         mutationDao.upsert(mut("ms1", id, entityType = "shipment", baseVersion = 1, payload = shipmentUpsertPayload(id, 1)))
         shipmentsApi.onUpsert = { throw shipmentConflict409("confirmed_mol", 2, id) }
 
         processor.processAll()
 
-        val muts = mutationDao.findFor("shipment", id)
-        assertEquals("отгрузки не трогаем — терминал замораживается как раньше", 1, muts.size)
-        assertTrue(muts.first().conflictPending)
-        assertTrue(shipmentDao.findById(id)!!.conflictPending)
+        assertTrue("конфликтная мутация удалена (server-win)", mutationDao.findFor("shipment", id).isEmpty())
+        val row = shipmentDao.findById(id)!!
+        assertEquals("confirmed_mol", row.statusCode)
+        assertFalse("терминал не требует ручного разрешения", row.conflictPending)
     }
 
     @Test
