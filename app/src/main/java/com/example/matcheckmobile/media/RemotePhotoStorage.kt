@@ -39,6 +39,31 @@ internal fun chooseSampleSize(width: Int, height: Int, maxSide: Int): Int {
 }
 
 /**
+ * Доводит длинную сторону до [maxSide] точно — [chooseSampleSize] сам этого не делает,
+ * он оставляет результат декода в диапазоне `[maxSide, 2 * maxSide)`.
+ *
+ * **Владение битмапом:** если масштабирование нужно, исходный [bitmap] освобождается
+ * здесь же, и наружу уходит новый объект; если не нужно — возвращается тот же самый.
+ * Поэтому вызывающий не должен освобождать [bitmap] сам: двойной `recycle()` уронит
+ * следующего, кто им пользуется (ровно эти грабли описаны в `prepareFromUri`).
+ *
+ * Вынесено верхнеуровневой функцией рядом с [chooseSampleSize] — обе нужны и
+ * подготовке фото к загрузке, и распознаванию госномера (media/PlateRecognizer.kt).
+ */
+internal fun scaleToMaxSide(bitmap: Bitmap, maxSide: Int): Bitmap {
+    val w = bitmap.width
+    val h = bitmap.height
+    val longest = maxOf(w, h)
+    if (longest <= maxSide) return bitmap
+    val scale = maxSide.toFloat() / longest
+    val newW = (w * scale).toInt().coerceAtLeast(1)
+    val newH = (h * scale).toInt().coerceAtLeast(1)
+    val scaled = Bitmap.createScaledBitmap(bitmap, newW, newH, true)
+    if (scaled !== bitmap) bitmap.recycle()
+    return scaled
+}
+
+/**
  * Готовит фото к загрузке в matcheck API. Сжимает main (max 2048 px,
  * ~1.5 МБ цель) и thumb (max 320 px, ~100 КБ) — компромисс между качеством
  * и трафиком на полевом 4G. Считает SHA-256 для дедупликации на сервере.
@@ -150,19 +175,6 @@ class RemotePhotoStorage(private val context: Context) {
         val rotated = applyExifOrientation(bitmap, orientation)
         if (rotated !== bitmap) bitmap.recycle()
         return rotated
-    }
-
-    private fun scaleToMaxSide(bitmap: Bitmap, maxSide: Int): Bitmap {
-        val w = bitmap.width
-        val h = bitmap.height
-        val longest = maxOf(w, h)
-        if (longest <= maxSide) return bitmap
-        val scale = maxSide.toFloat() / longest
-        val newW = (w * scale).toInt().coerceAtLeast(1)
-        val newH = (h * scale).toInt().coerceAtLeast(1)
-        val scaled = Bitmap.createScaledBitmap(bitmap, newW, newH, true)
-        if (scaled !== bitmap) bitmap.recycle()
-        return scaled
     }
 
     private fun writeJpeg(bitmap: Bitmap, file: File, quality: Int): ByteArray {

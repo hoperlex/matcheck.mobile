@@ -33,6 +33,13 @@
         <meta-data
             android:name="io.sentry.auto-init"
             android:value="false" />
+        <!-- Просим Google Play services заранее подтянуть OCR-модуль для распознавания
+             госномера. Гарантию даёт только установка из Play Store, а мы раздаём APK
+             сайдлоадом, поэтому дополнительно зовём ModuleInstall.deferredInstall в
+             AppContainer. Пока модуль не приехал, распознавания просто нет — ввод ручной. -->
+        <meta-data
+            android:name="com.google.mlkit.vision.DEPENDENCIES"
+            android:value="ocr" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

@@ -8,6 +8,7 @@ import com.example.matcheckmobile.data.local.entity.RemoteSourceDocumentEntity
 import com.example.matcheckmobile.data.local.entity.RemoteSourceDocumentItemEntity
 import com.example.matcheckmobile.data.repository.Stage1DraftState
 import com.example.matcheckmobile.di.AppContainer
+import com.example.matcheckmobile.domain.validation.plateAfterOcr
 import com.example.matcheckmobile.domain.model.mergeGroupParty
 import com.example.matcheckmobile.domain.model.sortGroupDocs
 import com.example.matcheckmobile.media.PhotoSourceInvalidException
@@ -19,6 +20,7 @@ import com.example.matcheckmobile.sync.MatcheckSyncScheduler
 import com.example.matcheckmobile.sync.PhotoPrepareScheduler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,6 +29,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
@@ -322,8 +325,37 @@ class Stage1FormViewModel(
 
     fun onCargoPhotoTaken(path: String) {
         viewModelScope.launch {
-            stampWatermark(path)
-            _state.update { it.copy(cargoPhotoPaths = it.cargoPhotoPaths + path) }
+            supervisorScope {
+                // Декодируем ДО штампа: MetadataWatermark перезаписывает файл и подмешал
+                // бы распознавателю собственный текст (GPS / время / объект).
+                // decodeForOcr по контракту не бросает — битый кадр не сорвёт добавление фото.
+                val frame = container.plateOcr.decodeForOcr(File(path))
+                // Под supervisorScope: обычный дочерний async унаследовал бы job этой
+                // корутины, и падение распознавания отменило бы и штамп, и добавление пути.
+                val ocr = frame?.let { async { container.plateOcr.recognise(it) } }
+
+                // Основной путь идёт вперёд, не дожидаясь OCR: медленное распознавание не
+                // должно задерживать появление снимка в списке.
+                stampWatermark(path)
+                _state.update { it.copy(cargoPhotoPaths = it.cargoPhotoPaths + path) }
+
+                ocr?.await()?.let { applyRecognisedPlate(it) }
+            }
+        }
+    }
+
+    /**
+     * Подставляет распознанный номер, если поле ещё «ничьё».
+     *
+     * Проверка живёт внутри `update`, а не перед ним: пока крутился OCR, инспектор мог
+     * успеть напечатать номер или, наоборот, стереть его — и второе фото не должно
+     * вернуть значение в намеренно очищенное поле.
+     */
+    private fun applyRecognisedPlate(plate: String) {
+        _state.update { state ->
+            val next = plateAfterOcr(state.licensePlate, state.plateEditedByUser, plate)
+                ?: return@update state
+            state.copy(licensePlate = next, showPlateError = false, plateAutoFilled = true)
         }
     }
 
@@ -360,7 +392,16 @@ class Stage1FormViewModel(
     }
 
     fun setLicensePlate(text: String) {
-        _state.update { it.copy(licensePlate = text, showPlateError = false) }
+        // plateEditedByUser ставим всегда, даже когда номер стёрли в пустую строку:
+        // иначе следующее фото вписало бы распознанный номер обратно.
+        _state.update {
+            it.copy(
+                licensePlate = text,
+                showPlateError = false,
+                plateAutoFilled = false,
+                plateEditedByUser = true,
+            )
+        }
     }
 
     /** Чекбокс «Транзит» — см. Stage1FormUiState.inTransit. */
@@ -712,6 +753,15 @@ data class Stage1FormUiState(
     val commentText: String = "",
     val licensePlate: String = "",
     val showPlateError: Boolean = false,
+    /** Номер подставлен распознаванием — под полем показываем «проверьте». */
+    val plateAutoFilled: Boolean = false,
+    /**
+     * Инспектор правил поле руками на этом экране. Живёт только в UI-состоянии и в
+     * черновик не сохраняется: хранить его — это колонка и Room-миграция ради редкого
+     * края («стёр номер → закрыл приложение → вернулся → снял фото»), а последствие
+     * безобидно — в пустое поле повторно предложат номер, который тут же правится.
+     */
+    val plateEditedByUser: Boolean = false,
     val manualUpdText: String = "",
     /**
      * Транзит — чекбокс инспектора на 1 этапе. Default false.

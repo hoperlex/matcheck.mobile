@@ -189,6 +189,8 @@ dependencies {
     implementation(libs.okhttp.sse)
 
     implementation(libs.play.services.location)
+    implementation(libs.play.services.base)
+    implementation(libs.play.services.mlkit.text.recognition)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

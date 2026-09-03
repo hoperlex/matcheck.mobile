@@ -20,6 +20,8 @@ okhttp = "4.12.0"
 kotlinxSerialization = "1.7.3"
 securityCrypto = "1.1.0-alpha06"
 playServicesLocation = "21.3.0"
+playServicesBase = "18.5.0"
+mlkitTextRecognition = "19.0.1"
 sentry = "8.47.0"
 
 [libraries]
@@ -60,6 +62,14 @@ okhttp-logging = { group = "com.squareup.okhttp3", name = "logging-interceptor",
 okhttp-sse = { group = "com.squareup.okhttp3", name = "okhttp-sse", version.ref = "okhttp" }
 androidx-security-crypto = { group = "androidx.security", name = "security-crypto-ktx", version.ref = "securityCrypto" }
 play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
+# play-services-base приезжал бы и транзитивно, но ModuleInstall API мы дёргаем напрямую,
+# поэтому объявляем явно. На вес APK не влияет — версия та же, что резолвилась и раньше.
+play-services-base = { group = "com.google.android.gms", name = "play-services-base", version.ref = "playServicesBase" }
+# ВАЖНО: unbundled-вариант распознавания текста — модель живёт в Google Play services.
+# Bundled (com.google.mlkit:text-recognition) подключать нельзя: он тащит нативку
+# libmlkit_google_ocr_pipeline.so, 11 МБ на arm64 + 6.8 МБ на armeabi-v7a, то есть
+# удваивает APK, который раздаётся сайдлоадом и качается планшетами целиком.
+play-services-mlkit-text-recognition = { group = "com.google.android.gms", name = "play-services-mlkit-text-recognition", version.ref = "mlkitTextRecognition" }
 # Sentry: SDK ядро (io.sentry:sentry-android) + OkHttp-интеграция. В v8 OkHttp-модуль
 # переименован в io.sentry:sentry-okhttp (пакет io.sentry.okhttp), не sentry-android-okhttp.
 sentry-android = { group = "io.sentry", name = "sentry-android", version.ref = "sentry" }

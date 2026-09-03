@@ -237,6 +237,14 @@ fun DispatchStage1FormScreen(
                             onValueChange = { vm.setLicensePlate(it.uppercase()) },
                             label = { Text("Введите Госномер", style = inputLabelStyle) },
                             isError = state.showPlateError,
+                            // Номер мог приехать с фото — говорим об этом прямо, чтобы
+                            // инспектор его проверил, а не принял за свой ввод. Поле при
+                            // этом остаётся обычным: правится руками в любой момент.
+                            supportingText = if (state.plateAutoFilled) {
+                                { Text("Распознано с фото — проверьте") }
+                            } else {
+                                null
+                            },
                             singleLine = true,
                             textStyle = inputTextStyle,
                             modifier = Modifier.fillMaxWidth(),

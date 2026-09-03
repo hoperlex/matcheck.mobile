@@ -1,6 +1,7 @@
 package com.example.matcheckmobile.di
 
 import android.content.Context
+import android.util.Log
 import com.example.matcheckmobile.BuildConfig
 import com.example.matcheckmobile.data.auth.AccountSwitchCoordinator
 import com.example.matcheckmobile.data.auth.TokenStorage
@@ -49,13 +50,18 @@ import com.example.matcheckmobile.data.settings.DeviceSettings
 import com.example.matcheckmobile.monitoring.IncidentJournal
 import com.example.matcheckmobile.presentation.components.FinalizeFeedbackController
 import com.example.matcheckmobile.sync.MatcheckSyncScheduler
+import com.example.matcheckmobile.domain.ocr.PlateOcr
 import com.example.matcheckmobile.media.LocationProvider
 import com.example.matcheckmobile.media.MetadataWatermark
 import com.example.matcheckmobile.media.PhotoStorage
+import com.example.matcheckmobile.media.PlateRecognizer
 import com.example.matcheckmobile.media.RemotePhotoStorage
+import com.google.android.gms.common.moduleinstall.ModuleInstall
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+
+private const val TAG = "AppContainer"
 
 class AppContainer(val appContext: Context) {
     val database: MatcheckDatabase = MatcheckDatabase.get(appContext)
@@ -344,6 +350,30 @@ class AppContainer(val appContext: Context) {
     val locationProvider: LocationProvider = LocationProvider(appContext)
 
     val metadataWatermark: MetadataWatermark = MetadataWatermark()
+
+    /**
+     * Распознавание госномера с фото машины. Отдаём под типом интерфейса: наружу нужен
+     * только контракт «не бросает, кроме отмены», а не конкретная реализация на ML Kit.
+     */
+    val plateOcr: PlateOcr = PlateRecognizer().also { recognizer ->
+        // Модель распознавания живёт в Google Play services и качается отдельным модулем.
+        // Метаданные `com.google.mlkit.vision.DEPENDENCIES` в манифесте гарантируют
+        // автозагрузку только при установке из Play Store, а мы раздаём APK сайдлоадом,
+        // поэтому просим модуль явно. Best-effort: не приедет — распознавания просто нет.
+        val moduleInstall = ModuleInstall.getClient(appContext)
+        runCatching {
+            moduleInstall.deferredInstall(recognizer.recognizer)
+                // runCatching поймал бы только синхронный сбой, асинхронный приходит сюда.
+                .addOnFailureListener { Log.w(TAG, "не удалось заказать OCR-модуль", it) }
+        }
+        // Без этой строки на планшете не отличить «модуль не приехал» от «номер не
+        // распознался»: оба случая выглядят одинаково — тишиной и пустым полем.
+        runCatching {
+            moduleInstall.areModulesAvailable(recognizer.recognizer)
+                .addOnSuccessListener { Log.i(TAG, "OCR-модуль на устройстве: ${it.areModulesAvailable()}") }
+                .addOnFailureListener { Log.w(TAG, "не удалось узнать статус OCR-модуля", it) }
+        }
+    }
 
     val operationRepository: OperationRepository = OperationRepository(
         operationDao = database.materialOperationDao(),
