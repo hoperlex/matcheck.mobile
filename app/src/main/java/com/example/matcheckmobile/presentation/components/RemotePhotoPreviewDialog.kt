@@ -20,7 +20,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -54,6 +53,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.matcheckmobile.MatcheckApplication
 import com.example.matcheckmobile.data.repository.PhotoFetcher
+import com.example.matcheckmobile.ui.icons.LocalIcons
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -199,7 +199,7 @@ fun RemotePhotoPreviewDialog(
                             )
                         }
                         loaded -> Icon(
-                            imageVector = Icons.Default.BrokenImage,
+                            imageVector = LocalIcons.BrokenImage,
                             contentDescription = "Фото недоступно",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(64.dp),

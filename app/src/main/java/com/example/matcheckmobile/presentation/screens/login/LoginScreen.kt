@@ -9,9 +9,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -40,6 +37,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.matcheckmobile.MatcheckApplication
 import com.example.matcheckmobile.data.repository.LoginError
 import com.example.matcheckmobile.presentation.viewmodel.LoginViewModel
+import com.example.matcheckmobile.ui.icons.LocalIcons
 
 @Composable
 fun LoginScreen(onLoggedIn: () -> Unit) {
@@ -93,7 +91,7 @@ fun LoginScreen(onLoggedIn: () -> Unit) {
                 trailingIcon = {
                     IconButton(onClick = { passwordVisible = !passwordVisible }) {
                         Icon(
-                            imageVector = if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                            imageVector = if (passwordVisible) LocalIcons.VisibilityOff else LocalIcons.Visibility,
                             contentDescription = if (passwordVisible) "Скрыть пароль" else "Показать пароль",
                         )
                     }

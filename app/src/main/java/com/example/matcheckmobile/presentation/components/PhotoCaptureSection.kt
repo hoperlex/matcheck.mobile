@@ -8,8 +8,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -20,6 +18,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.example.matcheckmobile.ui.icons.LocalIcons
 
 /**
  * Секция «кнопка съёмки + лента превью». Используется на 1 Этапе и 2 Этапе:
@@ -61,7 +60,7 @@ fun PhotoCaptureSection(
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Icon(
-                    imageVector = Icons.Default.PhotoCamera,
+                    imageVector = LocalIcons.PhotoCamera,
                     contentDescription = null,
                     modifier = Modifier.size(if (isTablet) 40.dp else 32.dp),
                 )

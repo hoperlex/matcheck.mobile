@@ -18,7 +18,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -52,6 +51,7 @@ import com.example.matcheckmobile.data.local.entity.SourceDocumentEntity
 import com.example.matcheckmobile.presentation.components.rememberPhotoCapture
 import com.example.matcheckmobile.presentation.viewmodel.DispatchSessionViewModel
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
+import com.example.matcheckmobile.ui.icons.LocalIcons
 
 private val FormMaxWidth = 720.dp
 
@@ -178,7 +178,7 @@ fun DispatchScreen(onBack: () -> Unit, onSaved: () -> Unit) {
                             .fillMaxWidth()
                             .height(64.dp),
                     ) {
-                        Icon(Icons.Default.PhotoCamera, contentDescription = null)
+                        Icon(LocalIcons.PhotoCamera, contentDescription = null)
                         Text("  Добавить фото", style = MaterialTheme.typography.titleMedium)
                     }
                     if (state.pendingPhotoPaths.isNotEmpty()) {

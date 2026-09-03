@@ -18,9 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -52,6 +50,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.example.matcheckmobile.ui.icons.LocalIcons
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -161,7 +160,7 @@ fun PhotoPreviewDialog(
                         }
                         loaded -> {
                             Icon(
-                                imageVector = Icons.Default.BrokenImage,
+                                imageVector = LocalIcons.BrokenImage,
                                 contentDescription = "Файл фото не найден",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(64.dp),
@@ -211,7 +210,7 @@ fun PhotoPreviewDialog(
                             ),
                         ) {
                             Icon(
-                                imageVector = Icons.Default.DeleteOutline,
+                                imageVector = LocalIcons.DeleteOutline,
                                 contentDescription = null,
                                 modifier = Modifier.size(24.dp),
                             )

@@ -10,7 +10,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -33,6 +32,7 @@ import com.example.matcheckmobile.presentation.screens.journal.statusLabel
 import com.example.matcheckmobile.presentation.screens.journal.typeLabel
 import com.example.matcheckmobile.presentation.viewmodel.OperationDetailsViewModel
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
+import com.example.matcheckmobile.ui.icons.LocalIcons
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -101,7 +101,7 @@ fun OperationDetailsScreen(onBack: () -> Unit) {
                 onClick = takePhoto,
                 modifier = Modifier.fillMaxWidth().height(64.dp),
             ) {
-                Icon(Icons.Default.PhotoCamera, contentDescription = null)
+                Icon(LocalIcons.PhotoCamera, contentDescription = null)
                 Text("  Добавить фото", style = MaterialTheme.typography.titleMedium)
             }
             Text("Фото (${attachments.size})", style = MaterialTheme.typography.titleMedium)

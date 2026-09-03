@@ -8,8 +8,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -30,6 +28,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.matcheckmobile.MatcheckApplication
 import com.example.matcheckmobile.data.repository.PhotoFetcher
+import com.example.matcheckmobile.ui.icons.LocalIcons
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -116,7 +115,7 @@ fun RemoteS3PhotoThumb(
                 strokeWidth = 2.dp,
             )
             else -> Icon(
-                imageVector = Icons.Default.BrokenImage,
+                imageVector = LocalIcons.BrokenImage,
                 contentDescription = "Фото недоступно",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )

@@ -9,9 +9,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CloudOff
-import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.ElevatedAssistChip
 import androidx.compose.material3.Icon
@@ -22,6 +19,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.unit.dp
+import com.example.matcheckmobile.ui.icons.LocalIcons
 
 /**
  * Индикатор очереди синхронизации в шапке main-экрана.
@@ -50,9 +48,9 @@ fun SyncStatusChip(
     if (pending <= 0 && !isSyncing) return
 
     val (icon, contentDesc) = if (isOnline) {
-        Icons.Default.Sync to "Синхронизировать сейчас"
+        LocalIcons.Sync to "Синхронизировать сейчас"
     } else {
-        Icons.Default.CloudOff to "Ожидает сети"
+        LocalIcons.CloudOff to "Ожидает сети"
     }
 
     // Бесконечное вращение иконки во время активного sync — спинить против

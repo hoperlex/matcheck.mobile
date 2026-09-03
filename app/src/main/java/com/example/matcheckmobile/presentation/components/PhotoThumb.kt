@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -33,6 +32,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.exifinterface.media.ExifInterface
 import com.example.matcheckmobile.media.applyExifOrientation
+import com.example.matcheckmobile.ui.icons.LocalIcons
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -82,7 +82,7 @@ fun PhotoThumb(
                 )
             } else if (loaded) {
                 Icon(
-                    imageVector = Icons.Default.BrokenImage,
+                    imageVector = LocalIcons.BrokenImage,
                     contentDescription = "Файл фото не найден",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

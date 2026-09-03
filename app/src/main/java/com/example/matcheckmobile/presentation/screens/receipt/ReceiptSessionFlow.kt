@@ -25,9 +25,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.PhotoCamera
-import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -76,6 +73,7 @@ import com.example.matcheckmobile.presentation.components.rememberPhotoCapture
 import com.example.matcheckmobile.presentation.viewmodel.ReceiptSessionViewModel
 import com.example.matcheckmobile.presentation.viewmodel.ReceiptStep
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
+import com.example.matcheckmobile.ui.icons.LocalIcons
 
 private val FormMaxWidth = 720.dp
 
@@ -235,7 +233,7 @@ private fun MainStep(vm: ReceiptSessionViewModel, onBack: () -> Unit) {
                     .fillMaxWidth()
                     .height(64.dp),
             ) {
-                Icon(Icons.Default.PhotoCamera, contentDescription = null)
+                Icon(LocalIcons.PhotoCamera, contentDescription = null)
                 Text("  Добавить фото", style = MaterialTheme.typography.titleMedium)
             }
             if (photosCount > 0) {
@@ -489,7 +487,7 @@ private fun MaterialsCard(
                         }
                         IconButton(onClick = { onRemove(item.localId) }) {
                             Icon(
-                                imageVector = Icons.Default.DeleteOutline,
+                                imageVector = LocalIcons.DeleteOutline,
                                 contentDescription = "Удалить позицию",
                                 tint = MaterialTheme.colorScheme.error,
                             )
@@ -520,7 +518,7 @@ private fun MolConfirmButton(
                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
             ),
         ) {
-            Icon(Icons.Default.Verified, contentDescription = null)
+            Icon(LocalIcons.Verified, contentDescription = null)
             Text("  $label", style = MaterialTheme.typography.titleMedium)
         }
     } else {
@@ -610,7 +608,7 @@ private fun ItemFormStep(vm: ReceiptSessionViewModel) {
                     .fillMaxWidth()
                     .height(64.dp),
             ) {
-                Icon(Icons.Default.PhotoCamera, contentDescription = null)
+                Icon(LocalIcons.PhotoCamera, contentDescription = null)
                 Text("  Добавить фото", style = MaterialTheme.typography.titleMedium)
             }
             if (form.photoPaths.isNotEmpty()) {

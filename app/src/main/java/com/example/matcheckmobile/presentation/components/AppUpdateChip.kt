@@ -3,8 +3,6 @@ package com.example.matcheckmobile.presentation.components
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.ElevatedAssistChip
 import androidx.compose.material3.Icon
@@ -18,6 +16,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.example.matcheckmobile.MatcheckApplication
 import com.example.matcheckmobile.data.repository.AppUpdateState
+import com.example.matcheckmobile.ui.icons.LocalIcons
 
 /**
  * Постоянный индикатор «Установить обновление» в шапке main-экрана.
@@ -46,7 +45,7 @@ fun AppUpdateChip(modifier: Modifier = Modifier) {
         shape = RoundedCornerShape(16.dp),
         leadingIcon = {
             Icon(
-                imageVector = Icons.Default.SystemUpdate,
+                imageVector = LocalIcons.SystemUpdate,
                 contentDescription = "Установить обновление приложения",
                 modifier = Modifier.size(18.dp),
             )

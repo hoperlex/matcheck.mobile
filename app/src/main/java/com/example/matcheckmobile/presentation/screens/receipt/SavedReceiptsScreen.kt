@@ -19,7 +19,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -38,6 +37,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.matcheckmobile.presentation.viewmodel.SavedReceiptRow
 import com.example.matcheckmobile.presentation.viewmodel.SavedReceiptsViewModel
 import com.example.matcheckmobile.presentation.viewmodel.matcheckViewModel
+import com.example.matcheckmobile.ui.icons.LocalIcons
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -152,7 +152,7 @@ private fun MolBadge() {
             .padding(horizontal = 8.dp),
     ) {
         Icon(
-            imageVector = Icons.Default.Verified,
+            imageVector = LocalIcons.Verified,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onPrimaryContainer,
             modifier = Modifier.size(14.dp),
