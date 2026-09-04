@@ -14,11 +14,27 @@ package com.example.matcheckmobile.domain.validation
  * инспектор руками, и так лежит в БД (9 525 из 9 551 записей).
  */
 
-/** Слово в распознанном тексте. [height] — высота его рамки в пикселях кадра. */
-data class OcrElement(val text: String, val height: Int)
+/**
+ * Рамка в координатах кадра. Своя, а не из Android или ML Kit: вся логика ниже
+ * обязана оставаться чистой, чтобы покрываться обычным JVM-тестом.
+ */
+data class OcrRect(val left: Int, val top: Int, val right: Int, val bottom: Int) {
+    val width: Int get() = right - left
+    val height: Int get() = bottom - top
+
+    fun union(other: OcrRect): OcrRect = OcrRect(
+        left = minOf(left, other.left),
+        top = minOf(top, other.top),
+        right = maxOf(right, other.right),
+        bottom = maxOf(bottom, other.bottom),
+    )
+}
+
+/** Слово в распознанном тексте. */
+data class OcrElement(val text: String, val bounds: OcrRect)
 
 /** Строка распознанного текста со своими словами. */
-data class OcrLine(val text: String, val height: Int, val elements: List<OcrElement>)
+data class OcrLine(val text: String, val bounds: OcrRect, val elements: List<OcrElement>)
 
 /** Блок распознанного текста (у ML Kit — абзац). */
 data class OcrBlock(val lines: List<OcrLine>)
@@ -26,9 +42,13 @@ data class OcrBlock(val lines: List<OcrLine>)
 /**
  * Кандидат в номера. [weight] — насколько крупно текст написан на кадре: номер на борту
  * обычно крупнее случайных надписей, и это единственный признак, по которому мы
- * различаем два ТС в кадре.
+ * различаем два ТС в кадре. Для многострочного кандидата вес считается по средней
+ * высоте строк, а не по высоте всей рамки, иначе блок текста побеждал бы номер.
  */
-data class PlateCandidate(val text: String, val weight: Int)
+data class PlateCandidate(val text: String, val bounds: OcrRect, val weight: Int)
+
+/** Победивший кандидат вместе с рамкой — по ней делается второй проход. */
+data class SelectedPlate(val canonical: String, val bounds: OcrRect, val weight: Int)
 
 private const val LATIN_PLATE_LETTERS = "ABEKMHOPCTYX"
 private const val CYRILLIC_PLATE_LETTERS = "АВЕКМНОРСТУХ"
@@ -94,13 +114,56 @@ internal fun canonicalisePlate(raw: String): String? {
 }
 
 /**
- * Собирает кандидатов из распознанного текста. Номер приезжает по-разному, поэтому
- * пробуем все разумные склейки:
- *  - отдельное слово — обычный случай, номер целиком;
- *  - соседние слова внутри строки — номер и регион часто разъезжаются на два слова;
- *  - строка целиком;
- *  - соседние строки блока — двухстрочная табличка «A123BC» / «77 RUS»;
- *  - блок целиком.
+ * Зазор между рамками по горизонтали. Отрицательный — рамки перекрываются.
+ */
+private fun horizontalGap(a: OcrRect, b: OcrRect): Int =
+    maxOf(a.left, b.left) - minOf(a.right, b.right)
+
+/** Зазор между рамками по вертикали. Отрицательный — рамки перекрываются. */
+private fun verticalGap(a: OcrRect, b: OcrRect): Int =
+    maxOf(a.top, b.top) - minOf(a.bottom, b.bottom)
+
+/** Доля перекрытия по горизонтали относительно более узкой рамки. */
+private fun horizontalOverlapRatio(a: OcrRect, b: OcrRect): Double {
+    val narrower = minOf(a.width, b.width)
+    if (narrower <= 0) return 0.0
+    val overlap = minOf(a.right, b.right) - maxOf(a.left, b.left)
+    return overlap.toDouble() / narrower
+}
+
+/**
+ * Два фрагмента стоят рядом в одной строке — их можно склеивать.
+ *
+ * Без этой проверки к «М583МУ79» приваривалась далёкая двойка с борта машины, и
+ * получался несуществующий регион. Порог — примерно ширина символа: номер и код
+ * региона разделены узким зазором, а посторонняя надпись стоит заметно дальше.
+ */
+private fun sameLineAdjacent(a: OcrRect, b: OcrRect): Boolean {
+    val charHeight = maxOf(a.height, b.height)
+    if (charHeight <= 0) return false
+    return horizontalGap(a, b) <= charHeight && verticalGap(a, b) <= charHeight / 2
+}
+
+/**
+ * Две строки стоят одна под другой — это может быть двухстрочная табличка
+ * «A123BC» / «77 RUS». Требуем и малый вертикальный зазор, и существенное
+ * перекрытие по горизонтали: иначе склеятся строки из разных концов кадра.
+ */
+private fun stackedAdjacent(a: OcrRect, b: OcrRect): Boolean {
+    val lineHeight = maxOf(a.height, b.height)
+    if (lineHeight <= 0) return false
+    return verticalGap(a, b) <= lineHeight && horizontalOverlapRatio(a, b) >= MIN_STACK_OVERLAP
+}
+
+private const val MIN_STACK_OVERLAP = 0.3
+
+/**
+ * Собирает кандидатов из распознанного текста.
+ *
+ * Номер приезжает по-разному, поэтому пробуем все разумные склейки. Но **любая**
+ * составная склейка требует геометрической связности: проверять зазор только у
+ * окон слов бесполезно, потому что строка целиком, соседние строки и блок целиком
+ * собрали бы тот же ложный номер другим путём.
  *
  * Дубликаты не страшны: [pickPlate] группирует кандидатов по распознанному номеру.
  */
@@ -108,31 +171,51 @@ internal fun buildCandidates(blocks: List<OcrBlock>): List<PlateCandidate> {
     val out = mutableListOf<PlateCandidate>()
     for (block in blocks) {
         for (line in block.lines) {
-            out += PlateCandidate(line.text, line.height)
-            line.elements.forEach { out += PlateCandidate(it.text, it.height) }
+            line.elements.forEach { out += PlateCandidate(it.text, it.bounds, it.bounds.height) }
+
             // Окна соседних слов: вес окна — по самому мелкому слову в нём, чтобы
             // склейка не получила вес крупной надписи из-за одного большого слова.
             for (size in 2..3) {
-                line.elements.windowed(size) { window ->
-                    out += PlateCandidate(
-                        window.joinToString("") { it.text },
-                        window.minOf { it.height },
-                    )
+                line.elements.windowed(size).forEach { window ->
+                    if (window.zipWithNext().all { (a, b) -> sameLineAdjacent(a.bounds, b.bounds) }) {
+                        out += PlateCandidate(
+                            text = window.joinToString("") { it.text },
+                            bounds = window.map { it.bounds }.reduce(OcrRect::union),
+                            weight = window.minOf { it.bounds.height },
+                        )
+                    }
                 }
             }
+
+            // Строка целиком — только если её собственные слова связны.
+            val lineIsCoherent = line.elements.size <= 1 ||
+                line.elements.zipWithNext().all { (a, b) -> sameLineAdjacent(a.bounds, b.bounds) }
+            if (lineIsCoherent) {
+                out += PlateCandidate(line.text, line.bounds, line.bounds.height)
+            }
         }
-        block.lines.windowed(2) { window ->
-            out += PlateCandidate(
-                window.joinToString("") { it.text },
-                window.minOf { it.height },
-            )
+
+        // Соседние строки блока — двухстрочный номер.
+        block.lines.windowed(2).forEach { window ->
+            if (stackedAdjacent(window[0].bounds, window[1].bounds)) {
+                out += PlateCandidate(
+                    text = window.joinToString("") { it.text },
+                    bounds = window[0].bounds.union(window[1].bounds),
+                    weight = window.sumOf { it.bounds.height } / window.size,
+                )
+            }
         }
-        if (block.lines.size > 1) {
+
+        // Блок целиком — только когда все строки связны по вертикали.
+        if (block.lines.size > 1 &&
+            block.lines.zipWithNext().all { (a, b) -> stackedAdjacent(a.bounds, b.bounds) }
+        ) {
             out += PlateCandidate(
-                block.lines.joinToString("") { it.text },
-                // Средняя высота строк, а не высота блока: многострочный блок иначе
-                // получил бы завышенный вес и выиграл бы у настоящего номера.
-                block.lines.sumOf { it.height } / block.lines.size,
+                text = block.lines.joinToString("") { it.text },
+                bounds = block.lines.map { it.bounds }.reduce(OcrRect::union),
+                // Средняя высота строк, а не высота блока: иначе многострочный
+                // блок получил бы завышенный вес и выиграл бы у настоящего номера.
+                weight = block.lines.sumOf { it.bounds.height } / block.lines.size,
             )
         }
     }
@@ -150,24 +233,60 @@ private const val AMBIGUITY_RATIO = 1.3
  * порог [AMBIGUITY_RATIO] отвергал бы правильный результат почти всегда — сравнивались
  * бы два вхождения одного номера.
  *
- * Порог сравнивает только РАЗНЫЕ номера: это защита от кадра, где видно два ТС. Лучше
- * не подставить ничего, чем подставить номер соседней машины.
+ * Порог сравнивает только РАЗНЫЕ номера: это защита от кадра, где видно два ТС.
  */
-internal fun pickPlate(candidates: List<PlateCandidate>): String? {
-    val byPlate = mutableMapOf<String, Int>()
+internal fun pickPlate(candidates: List<PlateCandidate>): SelectedPlate? {
+    val bestByPlate = mutableMapOf<String, PlateCandidate>()
     for (candidate in candidates) {
         val plate = canonicalisePlate(candidate.text) ?: continue
-        byPlate[plate] = maxOf(byPlate[plate] ?: Int.MIN_VALUE, candidate.weight)
+        val known = bestByPlate[plate]
+        if (known == null || candidate.weight > known.weight) bestByPlate[plate] = candidate
     }
-    val ranked = byPlate.entries.sortedByDescending { it.value }
+    val ranked = bestByPlate.entries.sortedByDescending { it.value.weight }
+    fun Map.Entry<String, PlateCandidate>.selected() =
+        SelectedPlate(key, value.bounds, value.weight)
     return when {
         ranked.isEmpty() -> null
-        ranked.size == 1 -> ranked[0].key
-        // Вес 0 (рамки не было) не может выиграть сравнение: 0 >= 0 * 1.3 верно
-        // арифметически, но означает «мы ничего не знаем о размере».
-        ranked[0].value > 0 && ranked[0].value >= ranked[1].value * AMBIGUITY_RATIO -> ranked[0].key
+        ranked.size == 1 -> ranked[0].selected()
+        // Вес 0 (рамки не было) не может выиграть спор: арифметически 0 >= 0 * 1.3
+        // верно, но означает «мы ничего не знаем о размере».
+        ranked[0].value.weight > 0 &&
+            ranked[0].value.weight >= ranked[1].value.weight * AMBIGUITY_RATIO -> ranked[0].selected()
         else -> null
     }
+}
+
+/**
+ * Рамка кандидата, пересчитанная в координаты оригинального кадра, расширенная
+ * и обрезанная по его границам.
+ *
+ * Раздельные scaleX и scaleY нужны потому, что после inSampleSize и
+ * scaleToMaxSide пропорции могут не совпасть до пикселя. Clamp обязателен:
+ * BitmapRegionDecoder бросает на выходе за границы изображения.
+ */
+internal fun cropRect(
+    bounds: OcrRect,
+    decodedWidth: Int,
+    decodedHeight: Int,
+    originalWidth: Int,
+    originalHeight: Int,
+    expandRatio: Double = 0.2,
+): OcrRect? {
+    if (decodedWidth <= 0 || decodedHeight <= 0) return null
+    if (originalWidth <= 0 || originalHeight <= 0) return null
+
+    val scaleX = originalWidth.toDouble() / decodedWidth
+    val scaleY = originalHeight.toDouble() / decodedHeight
+    val padX = bounds.width * scaleX * expandRatio
+    val padY = bounds.height * scaleY * expandRatio
+
+    val left = ((bounds.left * scaleX) - padX).toInt().coerceIn(0, originalWidth - 1)
+    val top = ((bounds.top * scaleY) - padY).toInt().coerceIn(0, originalHeight - 1)
+    val right = ((bounds.right * scaleX) + padX).toInt().coerceIn(left + 1, originalWidth)
+    val bottom = ((bounds.bottom * scaleY) + padY).toInt().coerceIn(top + 1, originalHeight)
+
+    val rect = OcrRect(left, top, right, bottom)
+    return if (rect.width > 0 && rect.height > 0) rect else null
 }
 
 /**

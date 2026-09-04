@@ -33,6 +33,10 @@ class PhotoPrepareWorker(
         if (result.prepared > 0 || result.failed > 0) {
             Log.i(TAG, "prepare: готово ${result.prepared}, ошибок ${result.failed}, пропущено ${result.skipped}")
         }
+        // Уборка живёт здесь, а не в sync-воркере: у того стоит
+        // NetworkType.CONNECTED, а освобождать диск нужно и в долгом офлайне.
+        container.photoStorageJanitor.run()
+
         // Подготовленный кадр обязан сам позвать заливку.
         //
         // Финализация формы дёргает оба воркера сразу, но в тот момент кадры

@@ -12,12 +12,9 @@ import org.junit.Test
 import java.io.File
 import java.io.IOException
 import java.io.InterruptedIOException
-import java.net.ServerSocket
 import java.net.Socket
 import java.time.Duration
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.concurrent.thread
 
 /**
  * Поведение PUT в S3 при зависании и отмене.
@@ -32,10 +29,10 @@ import kotlin.concurrent.thread
  */
 class S3UploaderTest {
 
-    private val servers = mutableListOf<FakeS3>()
+    private val servers = mutableListOf<FakeS3Server>()
 
     @After
-    fun tearDown() = servers.forEach(FakeS3::close)
+    fun tearDown() = servers.forEach(FakeS3Server::close)
 
     /**
      * Главная защита от регрессии: боевой клиент обязан иметь `callTimeout`.
@@ -106,7 +103,7 @@ class S3UploaderTest {
     /** Обычный успешный PUT ничего не ломает — поведение не изменилось. */
     @Test
     fun `успешный ответ завершает загрузку без ошибки`() {
-        val server = fakeS3 { socket -> socket.respond("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n") }
+        val server = fakeS3 { socket -> socket.writeRaw("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n") }
         val uploader = S3Uploader(client(callTimeoutMs = 5_000, perOperationSec = 5))
 
         val error = runBlocking {
@@ -124,7 +121,7 @@ class S3UploaderTest {
     fun `неуспешный ответ отдаёт код и тело в сообщении`() {
         val body = "<Error><Code>AccessDenied</Code></Error>"
         val server = fakeS3 { socket ->
-            socket.respond("HTTP/1.1 403 Forbidden\r\nContent-Length: ${body.length}\r\n\r\n$body")
+            socket.writeRaw("HTTP/1.1 403 Forbidden\r\nContent-Length: ${body.length}\r\n\r\n$body")
         }
         val uploader = S3Uploader(client(callTimeoutMs = 5_000, perOperationSec = 5))
 
@@ -152,39 +149,6 @@ class S3UploaderTest {
         deleteOnExit()
     }
 
-    private fun fakeS3(handler: (Socket) -> Unit): FakeS3 = FakeS3(handler).also { servers += it }
+    private fun fakeS3(handler: (Socket) -> Unit): FakeS3Server = FakeS3Server(handler).also { servers += it }
 
-    private fun Socket.respond(raw: String) {
-        getOutputStream().write(raw.toByteArray())
-        getOutputStream().flush()
-    }
-
-    /**
-     * Минимальный сокет-сервер вместо MockWebServer: нужен именно контроль над
-     * «принимаем соединение и молчим», и лишняя тестовая зависимость ради этого
-     * не нужна.
-     */
-    private class FakeS3(handler: (Socket) -> Unit) {
-        private val server = ServerSocket(0)
-        private val stopped = AtomicBoolean(false)
-        private val accepted = mutableListOf<Socket>()
-
-        val url: String get() = "http://127.0.0.1:${server.localPort}/upload"
-
-        init {
-            thread(isDaemon = true) {
-                while (!stopped.get()) {
-                    val socket = runCatching { server.accept() }.getOrNull() ?: break
-                    synchronized(accepted) { accepted += socket }
-                    thread(isDaemon = true) { runCatching { handler(socket) } }
-                }
-            }
-        }
-
-        fun close() {
-            stopped.set(true)
-            runCatching { server.close() }
-            synchronized(accepted) { accepted.forEach { runCatching { it.close() } } }
-        }
-    }
 }

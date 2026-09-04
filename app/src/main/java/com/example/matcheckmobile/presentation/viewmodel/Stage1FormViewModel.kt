@@ -321,15 +321,19 @@ class Stage1FormViewModel(
 
     fun removeDocumentPhoto(path: String) {
         _state.update { it.copy(documentPhotoPaths = it.documentPhotoPaths - path) }
+        // Файл тоже убираем: раньше путь уходил из стейта, а кадр
+        // оставался в operation_photos до самого logout-wipe.
+        viewModelScope.launch { container.photoPrepareProcessor.deleteSourceIfUnused(path) }
     }
 
     fun onCargoPhotoTaken(path: String) {
         viewModelScope.launch {
             supervisorScope {
-                // Декодируем ДО штампа: MetadataWatermark перезаписывает файл и подмешал
-                // бы распознавателю собственный текст (GPS / время / объект).
-                // decodeForOcr по контракту не бросает — битый кадр не сорвёт добавление фото.
-                val frame = container.plateOcr.decodeForOcr(File(path))
+                // Снимаем байты ДО штампа: MetadataWatermark перезаписывает файл
+                // неатомарно, и второй проход распознавания, перечитав его позже,
+                // мог бы попасть на полузаписанный JPEG. readFrame по контракту не
+                // бросает — битый кадр не сорвёт добавление фото.
+                val frame = container.plateOcr.readFrame(File(path))
                 // Под supervisorScope: обычный дочерний async унаследовал бы job этой
                 // корутины, и падение распознавания отменило бы и штамп, и добавление пути.
                 val ocr = frame?.let { async { container.plateOcr.recognise(it) } }
@@ -361,6 +365,9 @@ class Stage1FormViewModel(
 
     fun removeCargoPhoto(path: String) {
         _state.update { it.copy(cargoPhotoPaths = it.cargoPhotoPaths - path) }
+        // Файл тоже убираем: раньше путь уходил из стейта, а кадр
+        // оставался в operation_photos до самого logout-wipe.
+        viewModelScope.launch { container.photoPrepareProcessor.deleteSourceIfUnused(path) }
     }
 
     /**

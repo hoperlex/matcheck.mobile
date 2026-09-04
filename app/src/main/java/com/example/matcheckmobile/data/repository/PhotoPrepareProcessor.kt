@@ -192,7 +192,11 @@ class PhotoPrepareProcessor(
      * и к приёмке, и к отгрузке), поэтому удаляем, только когда других
      * неподготовленных строк с этим путём не осталось.
      */
-    private suspend fun deleteSourceIfUnused(sourcePath: String) {
+    /**
+     * Открыт для форм: снятый и тут же удалённый инспектором кадр раньше
+     * оставался в operation_photos навсегда — путь уходил из стейта, а файл нет.
+     */
+    suspend fun deleteSourceIfUnused(sourcePath: String) {
         val pending = deliveryDao.countAwaitingPrepareForSource(sourcePath) +
             shipmentDao.countAwaitingPrepareForSource(sourcePath)
         if (pending == 0) {

@@ -2,13 +2,18 @@ package com.example.matcheckmobile.media
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.BitmapRegionDecoder
+import android.graphics.Rect
 import android.util.Log
 import com.example.matcheckmobile.BuildConfig
 import com.example.matcheckmobile.domain.ocr.PlateOcr
 import com.example.matcheckmobile.domain.validation.OcrBlock
 import com.example.matcheckmobile.domain.validation.OcrElement
 import com.example.matcheckmobile.domain.validation.OcrLine
+import com.example.matcheckmobile.domain.validation.OcrRect
+import com.example.matcheckmobile.domain.validation.SelectedPlate
 import com.example.matcheckmobile.domain.validation.buildCandidates
+import com.example.matcheckmobile.domain.validation.cropRect
 import com.example.matcheckmobile.domain.validation.pickPlate
 import com.google.android.gms.tasks.Task
 import com.google.mlkit.vision.common.InputImage
@@ -16,8 +21,8 @@ import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import java.io.ByteArrayInputStream
 import java.io.File
-import java.io.FileInputStream
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.CancellationException
@@ -28,25 +33,31 @@ import kotlinx.coroutines.withContext
 private const val TAG = "PlateRecognizer"
 
 /**
- * Стартовый лимит длинной стороны кадра, который уходит в распознаватель.
- *
- * 2048 взято из аплоад-пайплайна ([RemotePhotoStorage]), где оно подбиралось под трафик,
- * а не под мелкий номер в общем кадре. Если на дальних кадрах номер систематически не
- * читается — поднимать здесь; платим за это памятью и временем распознавания.
+ * Лимит длинной стороны для ПЕРВОГО прохода. Его задача — найти номер на кадре,
+ * а не прочитать его точно; точное чтение делает второй проход по вырезанной
+ * рамке в полном разрешении.
  */
 private const val OCR_MAX_SIDE = 2048
 
 /**
- * Распознавание госномера через ML Kit Text Recognition (unbundled-вариант: модель живёт
- * в Google Play services и качается отдельным модулем `ocr`, в APK её нет).
+ * Распознавание госномера через ML Kit Text Recognition (unbundled: модель живёт
+ * в Google Play services, в APK её нет).
  *
- * Класс делает ровно две вещи — готовит битмап и перекладывает результат ML Kit в модель
- * из PlateParsing.kt. Вся логика, где можно ошибиться, лежит там и покрыта тестами.
+ * **Два прохода.** Первый ищет номер на уменьшенном кадре. Второй перечитывает
+ * найденную рамку в исходном разрешении — цифры кода региона физически мельче
+ * серии, и именно на них ошибался одиночный проход (в бой уехал `М583МУ792`
+ * вместо `М583МУ799`). Номер подставляется, только если оба прохода прочитали
+ * **одно и то же**.
  *
- * **Жизненный цикл [recognizer].** [TextRecognizer] — `Closeable`, но мы его сознательно
- * не закрываем: инстанс один на процесс и живёт до его смерти, как `locationProvider` и
- * `metadataWatermark` в AppContainer. Закрывать его по уходу с экрана значило бы платить
- * переинициализацией за каждое фото.
+ * Это существенно снижает число ложных подстановок, но не гарантирует их
+ * отсутствие: одна и та же модель может дважды ошибиться одинаково. Поэтому
+ * правило и выбрано «лучше не подставить» — при любом расхождении поле остаётся
+ * пустым, а инспектор вводит номер руками.
+ *
+ * **Жизненный цикл [recognizer].** [TextRecognizer] — `Closeable`, но мы его
+ * сознательно не закрываем: инстанс один на процесс и живёт до его смерти, как
+ * `locationProvider` и `metadataWatermark` в AppContainer. Закрывать по уходу с
+ * экрана значило бы платить переинициализацией за каждое фото.
  */
 class PlateRecognizer : PlateOcr {
 
@@ -57,79 +68,128 @@ class PlateRecognizer : PlateOcr {
     val recognizer: TextRecognizer =
         TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
 
-    override suspend fun decodeForOcr(file: File): Bitmap? = withContext(Dispatchers.IO) {
+    override suspend fun readFrame(file: File): ByteArray? = withContext(Dispatchers.IO) {
         try {
-            // Сначала bounds — чтобы не тащить в память полный кадр ради его габаритов.
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            FileInputStream(file).use { BitmapFactory.decodeStream(it, null, bounds) }
-
-            val opts = BitmapFactory.Options().apply {
-                inSampleSize = chooseSampleSize(bounds.outWidth, bounds.outHeight, OCR_MAX_SIDE)
-            }
-            val coarse = FileInputStream(file).use { BitmapFactory.decodeStream(it, null, opts) }
-                ?: return@withContext null
-
-            // chooseSampleSize оставляет длинную сторону в [OCR_MAX_SIDE, 2 * OCR_MAX_SIDE),
-            // точный размер даёт scaleToMaxSide. Она же освобождает coarse, если вернула
-            // новый объект, — освобождать его здесь нельзя, это был бы двойной recycle().
-            scaleToMaxSide(coarse, OCR_MAX_SIDE)
+            file.readBytes().takeIf { it.isNotEmpty() }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.w(TAG, "не удалось декодировать кадр для распознавания", e)
+            Log.w(TAG, "не удалось прочитать кадр", e)
             null
         }
     }
 
-    override suspend fun recognise(bitmap: Bitmap): String? {
-        // Габариты снимаем ДО process(): после него битмапом владеет Task, и к моменту
-        // возврата из await он уже освобождён своим listener'ом.
-        val frameSize = "${bitmap.width}x${bitmap.height}"
+    override suspend fun recognise(frame: ByteArray): String? = withContext(Dispatchers.IO) {
+        try {
+            val (originalWidth, originalHeight) = frameSize(frame) ?: return@withContext null
 
+            // --- проход 1: найти номер на уменьшенном кадре
+            val coarse = decodeDownscaled(frame, originalWidth, originalHeight)
+                ?: return@withContext null
+            val coarseWidth = coarse.width
+            val coarseHeight = coarse.height
+            val firstText = recogniseBitmap(coarse) ?: return@withContext null
+            val first = pickPlate(buildCandidates(firstText.toOcrBlocks()))
+            logPass("1", "${coarseWidth}x$coarseHeight", first)
+            if (first == null) return@withContext null
+
+            // --- проход 2: перечитать рамку номера в исходном разрешении
+            val crop = cropRect(
+                bounds = first.bounds,
+                decodedWidth = coarseWidth,
+                decodedHeight = coarseHeight,
+                originalWidth = originalWidth,
+                originalHeight = originalHeight,
+            ) ?: return@withContext null
+
+            val cropped = decodeRegion(frame, crop) ?: return@withContext null
+            val secondText = recogniseBitmap(cropped) ?: return@withContext null
+            val second = pickPlate(buildCandidates(secondText.toOcrBlocks()))
+            logPass("2", "${crop.width}x${crop.height}", second)
+
+            val agreed = second != null && second.canonical == first.canonical
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, if (agreed) "проходы совпали: ${first.canonical}" else "проходы разошлись — поле не заполняем")
+            }
+            if (agreed) first.canonical else null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Сюда же приходит MlKitException.UNAVAILABLE, когда модуль `ocr` ещё
+            // не приехал из Google Play services: штатная ситуация, не ошибка.
+            Log.w(TAG, "распознавание не удалось", e)
+            null
+        }
+    }
+
+    /** Габариты кадра без его декодирования. */
+    private fun frameSize(frame: ByteArray): Pair<Int, Int>? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(frame, 0, frame.size, bounds)
+        return if (bounds.outWidth > 0 && bounds.outHeight > 0) {
+            bounds.outWidth to bounds.outHeight
+        } else {
+            null
+        }
+    }
+
+    private fun decodeDownscaled(frame: ByteArray, width: Int, height: Int): Bitmap? {
+        val opts = BitmapFactory.Options().apply {
+            inSampleSize = chooseSampleSize(width, height, OCR_MAX_SIDE)
+        }
+        val coarse = BitmapFactory.decodeByteArray(frame, 0, frame.size, opts) ?: return null
+        // chooseSampleSize оставляет длинную сторону в [MAX, 2 * MAX), точный
+        // размер даёт scaleToMaxSide. Она же освобождает исходник, если вернула
+        // новый объект, — освобождать его здесь нельзя, это двойной recycle().
+        return scaleToMaxSide(coarse, OCR_MAX_SIDE)
+    }
+
+    private fun decodeRegion(frame: ByteArray, crop: OcrRect): Bitmap? {
+        @Suppress("DEPRECATION")
+        val decoder = BitmapRegionDecoder.newInstance(ByteArrayInputStream(frame), false)
+            ?: return null
+        return try {
+            decoder.decodeRegion(Rect(crop.left, crop.top, crop.right, crop.bottom), null)
+        } finally {
+            runCatching { decoder.recycle() }
+        }
+    }
+
+    /**
+     * Отдаёт битмап распознавателю. Владение переходит Task: освобождать в
+     * `finally` после await нельзя — при отмене корутины await возвращается
+     * сразу, а Task продолжает читать пиксели и получил бы освобождённую память.
+     */
+    private suspend fun recogniseBitmap(bitmap: Bitmap): Text? {
         val task: Task<Text> = try {
-            // Поворот 0: normalizeExifOrientationInPlace уже выпрямила пиксели в
-            // rememberPhotoCapture, до того как путь дошёл до ViewModel.
+            // Поворот 0: normalizeExifOrientationInPlace уже выпрямила пиксели
+            // в rememberPhotoCapture, до того как путь дошёл до ViewModel.
             val image = InputImage.fromBitmap(bitmap, 0)
             recognizer.process(image).also { started ->
-                // С этого момента кадром владеет Task. Освобождать битмап в finally после
-                // await нельзя: при отмене корутины await вернётся сразу, а Task продолжит
-                // читать пиксели — и получил бы освобождённую память.
                 started.addOnCompleteListener { bitmap.recycle() }
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            // Task не создан, освобождать больше некому.
             bitmap.recycle()
             Log.w(TAG, "не удалось запустить распознавание", e)
             return null
         }
-
-        val text = try {
+        return try {
             task.awaitResult()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            // Битмап освободит listener выше — тут его трогать нельзя.
-            // Сюда же приходит MlKitException.UNAVAILABLE, когда модуль `ocr` ещё не
-            // приехал из Google Play services: это штатная ситуация, не ошибка.
-            Log.w(TAG, "распознавание не удалось", e)
-            return null
+            // Битмап освободит listener выше — трогать его здесь нельзя.
+            Log.w(TAG, "проход распознавания не удался", e)
+            null
         }
+    }
 
-        val blocks = text.toOcrBlocks()
-        val plate = pickPlate(buildCandidates(blocks))
-
-        // Только в debug: по этим строкам на планшете видно, в чём именно промах —
-        // распознаватель вообще не прочитал номер (мал OCR_MAX_SIDE, размытие, темно)
-        // или прочитал, но разбор его отверг. Без них отличить одно от другого нельзя.
-        if (BuildConfig.DEBUG) {
-            Log.d(TAG, "кадр $frameSize, номер: ${plate ?: "не распознан"}")
-            blocks.forEach { block ->
-                block.lines.forEach { line -> Log.d(TAG, "  h=${line.height}: ${line.text}") }
-            }
-        }
-        return plate
+    private fun logPass(pass: String, size: String, selected: SelectedPlate?) {
+        if (!BuildConfig.DEBUG) return
+        Log.d(TAG, "проход $pass · кадр $size · ${selected?.canonical ?: "номер не найден"}" +
+            (selected?.let { " · рамка ${it.bounds} вес ${it.weight}" } ?: ""))
     }
 }
 
@@ -146,25 +206,26 @@ private suspend fun <T> Task<T>.awaitResult(): T = suspendCancellableCoroutine {
 /**
  * Перекладывает результат ML Kit в модель из PlateParsing.kt.
  *
- * `boundingBox` объявлен nullable, и это не теоретическая возможность — вес кандидата
- * тогда берём у родителя (у строки для слова, у блока для строки), а в пределе 0.
- * Кандидат с весом 0 остаётся валидным и может выиграть, если он единственный, но
- * никогда не победит в сравнении двух разных номеров.
+ * `boundingBox` объявлен nullable, и это не теоретическая возможность — рамку
+ * тогда наследуем у родителя (у строки для слова, у блока для строки), а в
+ * пределе она пустая: такой кандидат остаётся валидным и может выиграть, если
+ * он единственный, но никогда не победит в споре двух разных номеров.
  */
 private fun Text.toOcrBlocks(): List<OcrBlock> = textBlocks.map { block ->
-    val blockLineHeight = block.boundingBox
-        ?.let { box -> box.height() / block.lines.size.coerceAtLeast(1) }
-        ?: 0
+    val blockBounds = block.boundingBox.toOcrRect()
     OcrBlock(
         lines = block.lines.map { line ->
-            val lineHeight = line.boundingBox?.height() ?: blockLineHeight
+            val lineBounds = line.boundingBox?.toOcrRect() ?: blockBounds
             OcrLine(
                 text = line.text,
-                height = lineHeight,
+                bounds = lineBounds,
                 elements = line.elements.map { element ->
-                    OcrElement(element.text, element.boundingBox?.height() ?: lineHeight)
+                    OcrElement(element.text, element.boundingBox?.toOcrRect() ?: lineBounds)
                 },
             )
         },
     )
 }
+
+private fun Rect?.toOcrRect(): OcrRect =
+    if (this == null) OcrRect(0, 0, 0, 0) else OcrRect(left, top, right, bottom)

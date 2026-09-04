@@ -57,7 +57,7 @@ class ArchiveIntakeDetailViewModel(
         val dto = runCatching { container.deliveriesApi.get(deliveryId) }.getOrNull() ?: return
         val dao = container.database.remoteDeliveryDao()
         dto.photos.forEach { p ->
-            with(RemoteMappers) { dao.upsertPhoto(p.toEntity(deliveryId)) }
+            with(RemoteMappers) { dao.upsertServerPhoto(p.toEntity(deliveryId)) }
         }
         publishFromRoom(
             vehiclePlate = dto.vehiclePlate,

@@ -53,7 +53,10 @@ import com.example.matcheckmobile.sync.MatcheckSyncScheduler
 import com.example.matcheckmobile.domain.ocr.PlateOcr
 import com.example.matcheckmobile.media.LocationProvider
 import com.example.matcheckmobile.media.MetadataWatermark
+import com.example.matcheckmobile.media.PhotoBytesLoader
+import com.example.matcheckmobile.media.PhotoDiskCache
 import com.example.matcheckmobile.media.PhotoStorage
+import com.example.matcheckmobile.media.PhotoStorageJanitor
 import com.example.matcheckmobile.media.PlateRecognizer
 import com.example.matcheckmobile.media.RemotePhotoStorage
 import com.google.android.gms.common.moduleinstall.ModuleInstall
@@ -274,6 +277,20 @@ class AppContainer(val appContext: Context) {
 
 
     val photoFetcher: PhotoFetcher = PhotoFetcher(photosApi = photosApi)
+
+    /** Кэш скачанных кадров: раз показанное фото не должно пропасть при следующем заходе. */
+    val photoDiskCache: PhotoDiskCache = PhotoDiskCache(java.io.File(appContext.cacheDir, "photo_frames"))
+
+    /** Держит локальные миниатюры и кэш в границах; по возрасту ничего не удаляет. */
+    val photoStorageJanitor: PhotoStorageJanitor by lazy {
+        PhotoStorageJanitor(database = database, diskCache = photoDiskCache)
+    }
+
+    /** Скачивание кадров с таймаутами, повторами и single-flight. */
+    val photoBytesLoader: PhotoBytesLoader = PhotoBytesLoader(
+        photoFetcher = photoFetcher,
+        cache = photoDiskCache,
+    )
 
     val sseConnectionManager: SseConnectionManager = SseConnectionManager(
         baseUrl = BuildConfig.API_BASE_URL,

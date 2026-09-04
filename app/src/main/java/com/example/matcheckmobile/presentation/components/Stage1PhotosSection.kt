@@ -45,6 +45,10 @@ import androidx.compose.ui.unit.dp
 data class Stage1PhotoItem(
     val photoId: String,
     val localBlobPath: String?,
+    /** Сохранённая после отправки миниатюра 320px — основной источник офлайн. */
+    val localThumbPath: String? = null,
+    /** Исходный кадр, пока фото не прошло подготовку: localBlobPath тогда пуст. */
+    val sourcePath: String? = null,
     /** Категория фото для подписи под колонкой ("Документ" / "Груз/машина"). */
     val captionLabel: String,
     /** Момент съёмки в локальной зоне устройства, для tooltip/доп. подписи. */
@@ -206,6 +210,8 @@ private fun Stage1PhotoColumn(
                     RemoteS3PhotoThumb(
                         photoId = p.photoId,
                         localBlobPath = p.localBlobPath,
+                        localThumbPath = p.localThumbPath,
+                        sourcePath = p.sourcePath,
                         size = 96.dp,
                         thumb = true,
                         onClick = { onPhotoClick(p, photos) },

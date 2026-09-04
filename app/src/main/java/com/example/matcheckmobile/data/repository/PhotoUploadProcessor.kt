@@ -141,11 +141,12 @@ class PhotoUploadProcessor(
             // not_found и запись на сервере останется orphan (uploadedAt=null), а через
             // час будет вычищена cleanup-job'ом.
             confirmIfNeeded(presign.photoId, presign)
-            // После успешного UPLOADED локальный blob и thumb больше не нужны:
-            // в UI клиента фото показывается через PhotoFetcher с S3 (presigned
-            // URL), retry уже не пойдёт. Удаляем файлы и зануляем пути в Room,
-            // чтобы за активной работой не накапливались гигабайты «мёртвых»
-            // jpeg в app-private external storage.
+            // После UPLOADED удаляем только main-blob (~1,5 МБ): показывать его
+            // из S3 приемлемо. А вот миниатюру 320px (~100 КБ) ОСТАВЛЯЕМ на диске
+            // и сохраняем localThumbPath — 2 Этап и архив показывают именно её,
+            // и она обязана открываться офлайн и переживать пропажу объекта в S3.
+            // Удаление по возрасту не делаем принципиально, только вытеснение по
+            // лимиту каталога (см. PhotoStorageJanitor).
             val updated = photo.copy(
                 id = presign.photoId,
                 s3Key = presign.s3Key,
@@ -154,14 +155,12 @@ class PhotoUploadProcessor(
                 uploadedAt = java.time.Instant.now().toString(),
                 lastUploadError = null,
                 localBlobPath = null,
-                localThumbPath = null,
             )
-            if (presign.photoId != photo.id) {
-                // Меняем PK — Room не умеет это через upsert, удаляем старую и вставляем новую.
-                deliveryDao.deletePhotoById(photo.id)
-            }
-            deliveryDao.upsertPhoto(updated)
-            deleteLocalBlobsQuietly(photo.localBlobPath, photo.localThumbPath)
+            // Смена PK и вставка — одной транзакцией: раньше между
+            // deletePhotoById и upsertPhoto смерть процесса теряла строку
+            // целиком вместе с сохранённой миниатюрой.
+            deliveryDao.replaceUploadedPhotoId(photo.id, updated)
+            deleteMainBlobQuietly(photo.localBlobPath)
             UploadOutcome.Uploaded
         }.getOrElse { error ->
             // Отмена — не ошибка загрузки. Если пометить её как UPLOAD_ERROR,
@@ -211,8 +210,7 @@ class PhotoUploadProcessor(
             doUpload(blob = blob, thumb = photo.localThumbPath?.let(::File), presign = presign, contentType = photo.contentType)
             // См. комментарий в uploadDeliveryPhoto: confirm идёт по серверному photoId.
             confirmIfNeeded(presign.photoId, presign)
-            // См. uploadDeliveryPhoto — после UPLOADED локальный blob/thumb
-            // не нужны, чистим, чтобы не накапливать гигабайты на устройстве.
+            // См. uploadDeliveryPhoto: main удаляем, миниатюру оставляем офлайн.
             val updated = photo.copy(
                 id = presign.photoId,
                 s3Key = presign.s3Key,
@@ -221,13 +219,9 @@ class PhotoUploadProcessor(
                 uploadedAt = java.time.Instant.now().toString(),
                 lastUploadError = null,
                 localBlobPath = null,
-                localThumbPath = null,
             )
-            if (presign.photoId != photo.id) {
-                shipmentDao.deletePhotoById(photo.id)
-            }
-            shipmentDao.upsertPhoto(updated)
-            deleteLocalBlobsQuietly(photo.localBlobPath, photo.localThumbPath)
+            shipmentDao.replaceUploadedPhotoId(photo.id, updated)
+            deleteMainBlobQuietly(photo.localBlobPath)
             UploadOutcome.Uploaded
         }.getOrElse { error ->
             // См. uploadDeliveryPhoto: отмену не глотаем и не помечаем как сбой.
@@ -252,13 +246,12 @@ class PhotoUploadProcessor(
     }
 
     /**
-     * Удаляет локальные blob/thumb-файлы фотографии после успешного UPLOADED.
-     * runCatching — это best-effort cleanup: если файл уже удалён внешним
-     * процессом или путь невалидный, ничего не падает.
+     * Удаляет main-blob после успешного UPLOADED. Миниатюру НЕ трогаем — она
+     * остаётся локальным источником для 2 Этапа и архива (см. комментарий в
+     * uploadDeliveryPhoto). runCatching — best-effort: файл мог уже исчезнуть.
      */
-    private fun deleteLocalBlobsQuietly(blobPath: String?, thumbPath: String?) {
+    private fun deleteMainBlobQuietly(blobPath: String?) {
         runCatching { blobPath?.let { File(it).delete() } }
-        runCatching { thumbPath?.let { File(it).delete() } }
     }
 
     private suspend fun isParentReady(parentType: String, parentId: String, parentVersion: Int): Boolean {

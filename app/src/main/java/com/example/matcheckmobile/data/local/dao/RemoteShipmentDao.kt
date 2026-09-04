@@ -9,6 +9,7 @@ import androidx.room.Upsert
 import com.example.matcheckmobile.data.local.entity.RemoteShipmentEntity
 import com.example.matcheckmobile.data.local.entity.RemoteShipmentItemEntity
 import com.example.matcheckmobile.data.local.entity.RemoteShipmentPhotoEntity
+import com.example.matcheckmobile.domain.model.RemotePhotoStatus
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -25,9 +26,6 @@ interface RemoteShipmentDao {
 
     @Query("DELETE FROM remote_shipment_items WHERE shipmentId = :shipmentId")
     suspend fun deleteItemsByShipment(shipmentId: String)
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun replacePhotos(photos: List<RemoteShipmentPhotoEntity>)
 
     @Query("DELETE FROM remote_shipment_photos WHERE shipmentId = :shipmentId")
     suspend fun deletePhotosByShipment(shipmentId: String)
@@ -93,6 +91,127 @@ interface RemoteShipmentDao {
     @Query("DELETE FROM remote_shipment_photos WHERE id = :id")
     suspend fun deletePhotoById(id: String)
 
+
+    /**
+     * Наблюдение за фото одной операции. Формы 2 Этапа и архива обязаны быть
+     * реактивными: пока экран открыт, PhotoPrepareWorker успевает удалить
+     * sourcePath, сделать thumb и сменить клиентский id на серверный. Со
+     * снимком, снятым один раз при загрузке формы, UI остался бы с путями,
+     * которых на диске уже нет, и показал бы «фото недоступно».
+     */
+    @Query("SELECT * FROM remote_shipment_photos WHERE shipmentId = :shipmentId ORDER BY takenAt")
+    fun observePhotosByShipment(shipmentId: String): Flow<List<RemoteShipmentPhotoEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertPhotoIfAbsent(photo: RemoteShipmentPhotoEntity)
+
+    /**
+     * Обновляет ТОЛЬКО серверные колонки. Локальные — localBlobPath,
+     * localThumbPath, sourcePath, idempotencyKey, contentType, uploadStatus,
+     * lastUploadError, preparingSince — здесь не перечислены и потому
+     * сохраняются по построению.
+     *
+     * COALESCE, а не присваивание: серверный DTO может не знать того, что
+     * знаем мы (contentHash считается локально при подготовке). Пустое
+     * серверное поле не должно затирать заполненное локальное — только
+     * дополнять.
+     */
+    @Query(
+        """
+        UPDATE remote_shipment_photos
+        SET s3Key = COALESCE(:s3Key, s3Key),
+            thumbS3Key = COALESCE(:thumbS3Key, thumbS3Key),
+            contentHash = COALESCE(:contentHash, contentHash),
+            uploadedAt = COALESCE(:uploadedAt, uploadedAt),
+            takenAt = :takenAt,
+            kind = :kind,
+            stage = :stage
+        WHERE id = :id
+        """,
+    )
+    suspend fun updateServerPhotoColumns(
+        id: String,
+        s3Key: String?,
+        thumbS3Key: String?,
+        contentHash: String?,
+        uploadedAt: String?,
+        takenAt: String,
+        kind: String,
+        stage: String,
+    )
+
+    @Query("UPDATE remote_shipment_photos SET uploadStatus = 'UPLOADED', lastUploadError = NULL WHERE id = :id")
+    suspend fun markPhotoUploaded(id: String)
+
+    /**
+     * Мердж строки, приехавшей с сервера, поверх локальной.
+     *
+     * Нельзя писать серверный DTO целиком: RemoteMappers.toEntity ставит
+     * localBlobPath/localThumbPath = null, и обычный upsert стирал бы указатели
+     * на файлы, которые лежат на диске. Именно из-за этого открытие 2 Этапа
+     * само загоняло показ фото в S3.
+     *
+     * Статус с сервера НЕ применяем: если локально идёт работа (PENDING_PREPARE
+     * с живым sourcePath), сервер о ней не знает, и понижение статуса отправило
+     * бы кадр в UPLOAD_ERROR «blob missing» с последующим удалением строки.
+     * Исключение — heal: локально отправлять уже нечего, а сервер подтверждает
+     * загрузку.
+     */
+    @Transaction
+    suspend fun upsertServerPhoto(photo: RemoteShipmentPhotoEntity) {
+        val existing = findPhotoById(photo.id)
+        if (existing == null) {
+            // uploadedAt = null у серверной строки означает presign без confirm:
+            // объекта в S3 нет, локального blob'а тоже. Заводить такую строку —
+            // значит создать uploadable-запись без файла, которая гарантированно
+            // уедет в UPLOAD_ERROR «blob missing» и будет вычищена.
+            if (photo.uploadedAt == null) return
+            insertPhotoIfAbsent(photo)
+            return
+        }
+        updateServerPhotoColumns(
+            id = photo.id,
+            s3Key = photo.s3Key,
+            thumbS3Key = photo.thumbS3Key,
+            contentHash = photo.contentHash,
+            uploadedAt = photo.uploadedAt,
+            takenAt = photo.takenAt,
+            kind = photo.kind,
+            stage = photo.stage,
+        )
+        val nothingLeftToSend = existing.localBlobPath == null && existing.sourcePath == null
+        if (photo.uploadedAt != null && nothingLeftToSend &&
+            existing.uploadStatus != RemotePhotoStatus.UPLOADED
+        ) {
+            markPhotoUploaded(photo.id)
+        }
+    }
+
+    /**
+     * Смена клиентского PK на серверный одной транзакцией.
+     *
+     * Раньше шли подряд deletePhotoById + upsertPhoto: смерть процесса между
+     * ними теряла строку целиком вместе с сохранённой локальной миниатюрой.
+     */
+    @Transaction
+    suspend fun replaceUploadedPhotoId(oldId: String, row: RemoteShipmentPhotoEntity) {
+        if (oldId != row.id) deletePhotoById(oldId)
+        upsertPhoto(row)
+    }
+
+
+    /**
+     * Сохранённые миниатюры уже отправленных фото — кандидаты на вытеснение,
+     * когда каталог перерос лимит. Только UPLOADED: у неотправленных кадров
+     * миниатюра ещё нужна pipeline'у загрузки.
+     */
+    @Query("SELECT id, localThumbPath FROM remote_shipment_photos WHERE uploadStatus = 'UPLOADED' AND localThumbPath IS NOT NULL")
+    suspend fun findUploadedLocalThumbs(): List<LocalThumbRef>
+
+    /** После вытеснения файла путь обязан исчезнуть: иначе UI сошлётся на несуществующий файл. */
+    @Query("UPDATE remote_shipment_photos SET localThumbPath = NULL WHERE id = :id")
+    suspend fun clearLocalThumb(id: String)
+
     @Transaction
     suspend fun saveAggregate(
         shipment: RemoteShipmentEntity,
@@ -108,7 +227,7 @@ interface RemoteShipmentDao {
         // Photo живут своим pipeline и сервер на upsert их не возвращает —
         // если делать deletePhotos+replace, локальные PENDING_UPLOAD стираются
         // сразу после push мутации (см. комментарий в RemoteDeliveryDao).
-        for (p in photos) upsertPhoto(p)
+        for (p in photos) upsertServerPhoto(p)
     }
 
     @Query("SELECT * FROM remote_shipments WHERE id = :id")

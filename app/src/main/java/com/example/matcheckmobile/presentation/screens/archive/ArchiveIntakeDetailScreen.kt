@@ -111,7 +111,12 @@ fun ArchiveIntakeDetailScreen(
 
                         val openPreview = { photos: List<RemoteDeliveryPhotoEntity>, index: Int ->
                             previewPhotos = photos.map {
-                                RemotePhotoRef(photoId = it.id, localBlobPath = it.localBlobPath)
+                                RemotePhotoRef(
+                                    photoId = it.id,
+                                    localBlobPath = it.localBlobPath,
+                                    localThumbPath = it.localThumbPath,
+                                    sourcePath = it.sourcePath,
+                                )
                             }
                             previewIndex = index
                             showPreview = true
@@ -235,6 +240,8 @@ private fun PhotoColumn(
                     RemoteS3PhotoThumb(
                         photoId = p.id,
                         localBlobPath = p.localBlobPath,
+                        localThumbPath = p.localThumbPath,
+                        sourcePath = p.sourcePath,
                         size = 96.dp,
                         thumb = true,
                         onClick = { onPhotoClick(photos, idx) },

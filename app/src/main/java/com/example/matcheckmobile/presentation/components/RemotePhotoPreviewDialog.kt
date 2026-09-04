@@ -57,12 +57,15 @@ import com.example.matcheckmobile.ui.icons.LocalIcons
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.net.URL
 
 /** Минимальный ref для preview: id фото + опциональный путь к локальному blob'у. */
 data class RemotePhotoRef(
     val photoId: String,
     val localBlobPath: String?,
+    /** Сохранённая миниатюра: мгновенный запасной кадр, когда оригинала нет офлайн. */
+    val localThumbPath: String? = null,
+    /** Исходный кадр, пока фото не прошло подготовку. */
+    val sourcePath: String? = null,
 )
 
 /**
@@ -84,8 +87,8 @@ fun RemotePhotoPreviewDialog(
     val safeInitial = initialIndex.coerceIn(0, photos.lastIndex)
 
     val context = LocalContext.current
-    val photoFetcher = remember {
-        (context.applicationContext as MatcheckApplication).container.photoFetcher
+    val container = remember {
+        (context.applicationContext as MatcheckApplication).container
     }
 
     Dialog(
@@ -102,28 +105,42 @@ fun RemotePhotoPreviewDialog(
 
         var bitmap by remember(current.photoId) { mutableStateOf<ImageBitmap?>(null) }
         var loaded by remember(current.photoId) { mutableStateOf(false) }
-        LaunchedEffect(current.photoId, current.localBlobPath, targetPx) {
-            bitmap = withContext(Dispatchers.IO) {
-                val local = current.localBlobPath?.let(::File)?.takeIf { it.exists() }
-                if (local != null) {
-                    return@withContext decodeOrientedBitmap(local.absolutePath, targetPx)?.asImageBitmap()
+        var retryTick by remember(current.photoId) { mutableIntStateOf(0) }
+        LaunchedEffect(current.photoId, current.localBlobPath, targetPx, retryTick) {
+            loaded = false
+            // 1) Оригинал с диска — лучшее, что есть: полноразмерный blob либо
+            //    ещё не подготовленный исходный кадр.
+            val original = localSourceFor(
+                thumb = false,
+                localThumbPath = null,
+                localBlobPath = current.localBlobPath,
+                sourcePath = current.sourcePath,
+            )
+            if (original != null) {
+                bitmap = withContext(Dispatchers.IO) {
+                    decodeOrientedBitmap(original, targetPx)?.asImageBitmap()
                 }
-                runCatching {
-                    val url = photoFetcher.getDisplayUrl(current.photoId, thumb = false).getOrThrow()
-                    val bytes = URL(url).openStream().use { it.readBytes() }
-                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-                    val w = bounds.outWidth
-                    val h = bounds.outHeight
-                    if (w <= 0 || h <= 0) return@runCatching null
-                    var sample = 1
-                    while (w / (sample * 2) >= targetPx && h / (sample * 2) >= targetPx) sample *= 2
-                    BitmapFactory.decodeByteArray(
-                        bytes, 0, bytes.size,
-                        BitmapFactory.Options().apply { inSampleSize = sample },
-                    )?.asImageBitmap()
-                }.getOrNull()
+                loaded = true
+                return@LaunchedEffect
             }
+            // 2) Оригинала локально нет (после отправки main-blob удаляется).
+            //    Показываем сохранённую миниатюру немедленно — иначе офлайн
+            //    плитка видна, а открыть фото нельзя.
+            val thumbPath = current.localThumbPath?.takeIf { File(it).exists() }
+            if (thumbPath != null) {
+                bitmap = withContext(Dispatchers.IO) {
+                    decodeOrientedBitmap(thumbPath, targetPx)?.asImageBitmap()
+                }
+                loaded = true
+            }
+            // 3) И поверх догружаем оригинал, если сеть есть. Если не вышло —
+            //    остаётся миниатюра из шага 2, а не пустой экран.
+            val full = withContext(Dispatchers.IO) {
+                container.photoBytesLoader.load(current.photoId, thumb = false)
+                    ?.let { decodeBytes(it, targetPx) }
+                    ?.asImageBitmap()
+            }
+            if (full != null) bitmap = full
             loaded = true
         }
 
@@ -200,9 +217,11 @@ fun RemotePhotoPreviewDialog(
                         }
                         loaded -> Icon(
                             imageVector = LocalIcons.BrokenImage,
-                            contentDescription = "Фото недоступно",
+                            contentDescription = "Фото недоступно, нажмите чтобы повторить",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(64.dp),
+                            modifier = Modifier
+                                .size(64.dp)
+                                .clickable { retryTick++ },
                         )
                         else -> CircularProgressIndicator()
                     }

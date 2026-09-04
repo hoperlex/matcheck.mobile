@@ -255,6 +255,8 @@ fun Stage2FormScreen(
                                         RemotePhotoRef(
                                             photoId = it.photoId,
                                             localBlobPath = it.localBlobPath,
+                                            localThumbPath = it.localThumbPath,
+                                            sourcePath = it.sourcePath,
                                         )
                                     }
                                     stage1PreviewIndex = columnPhotos.indexOf(clicked)

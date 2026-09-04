@@ -53,7 +53,7 @@ class ArchiveDispatchDetailViewModel(
         val dto = runCatching { container.shipmentsApi.get(shipmentId) }.getOrNull() ?: return
         val dao = container.database.remoteShipmentDao()
         dto.photos.forEach { p ->
-            with(RemoteMappers) { dao.upsertPhoto(p.toEntity(shipmentId)) }
+            with(RemoteMappers) { dao.upsertServerPhoto(p.toEntity(shipmentId)) }
         }
         publishFromRoom(
             vehiclePlate = dto.vehiclePlate,

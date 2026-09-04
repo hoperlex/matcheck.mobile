@@ -63,6 +63,31 @@ class DispatchStage2FormViewModel(
             backfillStage1PhotosFromServer()
             observeAutoSave()
         }
+        observeStage1Photos()
+    }
+
+    /**
+     * Фото 1 Этапа держим на Flow, а не снимком при загрузке формы.
+     *
+     * Пока экран открыт, PhotoPrepareWorker успевает удалить sourcePath,
+     * собрать миниатюру и сменить клиентский id на серверный. Со снимком UI
+     * оставался бы с путями, которых на диске уже нет, и показывал «фото
+     * недоступно» на кадрах, которые лежат рядом.
+     */
+    private fun observeStage1Photos() {
+        viewModelScope.launch {
+            container.database.remoteShipmentDao().observePhotosByShipment(shipmentId).collect { photos ->
+                val stage1 = photos.filter { it.stage == "before" }
+                _state.update { st ->
+                    st.copy(
+                        stage1DocumentPhotos = stage1.filter { it.kind == "document" }
+                            .map { it.toStage1Item(captionLabel = "Документ") },
+                        stage1VehiclePhotos = stage1.filterNot { it.kind == "document" }
+                            .map { it.toStage1Item(captionLabel = "Груз/машина") },
+                    )
+                }
+            }
+        }
     }
 
     private fun restoreInheritedNoteFromSavedStateIfAny() {
@@ -79,7 +104,7 @@ class DispatchStage2FormViewModel(
         val dto = runCatching { container.shipmentsApi.get(shipmentId) }.getOrNull() ?: return
         val dao = container.database.remoteShipmentDao()
         dto.photos.forEach { p ->
-            with(RemoteMappers) { dao.upsertPhoto(p.toEntity(shipmentId)) }
+            with(RemoteMappers) { dao.upsertServerPhoto(p.toEntity(shipmentId)) }
         }
         val stage1RawPhotos = dao.findPhotosByShipment(shipmentId).filter { it.stage == "before" }
         val docs = stage1RawPhotos.filter { it.kind == "document" }
@@ -183,6 +208,8 @@ class DispatchStage2FormViewModel(
     ): Stage1PhotoItem = Stage1PhotoItem(
         photoId = id,
         localBlobPath = localBlobPath,
+        localThumbPath = localThumbPath,
+        sourcePath = sourcePath,
         captionLabel = captionLabel,
         takenAtMs = parseInstantToMs(takenAt),
     )
@@ -263,6 +290,9 @@ class DispatchStage2FormViewModel(
     }
     fun removeDocumentPhoto(path: String) {
         _state.update { it.copy(documentPhotoPaths = it.documentPhotoPaths - path) }
+        // Файл тоже убираем: раньше путь уходил из стейта, а кадр
+        // оставался в operation_photos до самого logout-wipe.
+        viewModelScope.launch { container.photoPrepareProcessor.deleteSourceIfUnused(path) }
     }
     fun onVehiclePhotoTaken(path: String) {
         viewModelScope.launch {
@@ -272,6 +302,9 @@ class DispatchStage2FormViewModel(
     }
     fun removeVehiclePhoto(path: String) {
         _state.update { it.copy(vehiclePhotoPaths = it.vehiclePhotoPaths - path) }
+        // Файл тоже убираем: раньше путь уходил из стейта, а кадр
+        // оставался в operation_photos до самого logout-wipe.
+        viewModelScope.launch { container.photoPrepareProcessor.deleteSourceIfUnused(path) }
     }
     private suspend fun stampWatermark(path: String) {
         runCatching {

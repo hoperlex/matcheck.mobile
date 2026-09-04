@@ -6,6 +6,7 @@ import com.example.matcheckmobile.data.local.MatcheckDatabase
 import com.example.matcheckmobile.data.remote.sse.SseConnectionManager
 import com.example.matcheckmobile.data.repository.SyncRepository
 import com.example.matcheckmobile.data.settings.DeviceSettings
+import com.example.matcheckmobile.media.PhotoFrameCache
 import com.example.matcheckmobile.sync.MatcheckSyncScheduler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -146,6 +147,11 @@ class AccountSwitchCoordinator(
      */
     private fun deletePhotoDirectories(): Int {
         var failed = 0
+        // Кадры прошлого инспектора не должны пережить выход и в кэшах:
+        // дисковый кэш скачанных фото лежит в cacheDir, декодированные
+        // миниатюры — в памяти процесса.
+        PhotoFrameCache.clear()
+        runCatching { File(appContext.cacheDir, "photo_frames").deleteRecursively() }
         for (name in PHOTO_DIRS) {
             val dir = File(appContext.filesDir, name)
             if (!dir.isDirectory) continue

@@ -152,6 +152,9 @@ class ManualEntryFormViewModel(
         _state.update {
             it.copy(documentPhotoPaths = it.documentPhotoPaths.filter { p -> p != path })
         }
+        // Файл тоже убираем: раньше путь уходил из стейта, а кадр
+        // оставался в operation_photos до самого logout-wipe.
+        viewModelScope.launch { container.photoPrepareProcessor.deleteSourceIfUnused(path) }
     }
 
     fun addCargoPhoto(path: String) {
@@ -162,6 +165,9 @@ class ManualEntryFormViewModel(
         _state.update {
             it.copy(cargoPhotoPaths = it.cargoPhotoPaths.filter { p -> p != path })
         }
+        // Файл тоже убираем: раньше путь уходил из стейта, а кадр
+        // оставался в operation_photos до самого logout-wipe.
+        viewModelScope.launch { container.photoPrepareProcessor.deleteSourceIfUnused(path) }
     }
 
     fun setManualUpd(text: String) {
