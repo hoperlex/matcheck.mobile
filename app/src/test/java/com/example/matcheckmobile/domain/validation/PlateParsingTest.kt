@@ -501,4 +501,71 @@ class PlateParsingTest {
         assertEquals("2971OI4", withPrefix[1].body)
         assertEquals("BY", withPrefix[1].country)
     }
+
+    // --- фильтр региона -----------------------------------------------------
+    //
+    // 1.0.38 записал в прод четыре номера с испорченной последней цифрой ТРЁХЗНАЧНОГО
+    // региона (797→792, 799→792, 977→972). Номера здесь синтетические: настоящие полные
+    // номера, идентификаторы приёмок и почты инспекторов в код не переносим.
+
+    private fun tierOf(text: String): PlateTier? =
+        decideReading(selected(text), selected(text))?.tier
+
+    @Test
+    fun `несуществующий трёхзначный регион не автозаполняется`() {
+        assertEquals(PlateTier.SUGGESTION, tierOf("A111AA792"))
+        assertEquals(PlateTier.SUGGESTION, tierOf("A111AA972"))
+    }
+
+    @Test
+    fun `причина у несуществующего региона своя`() {
+        val r = decideReading(selected("A111AA792"), selected("A111AA792"))
+        assertEquals(PlateReasonCode.RU_REGION_NOT_AUTO, r?.reason)
+        assertNotEquals(
+            "иначе в телеметрии сольётся с «формат не автозаполняемый»",
+            PlateReasonCode.FORMAT_NOT_AUTO,
+            r?.reason,
+        )
+    }
+
+    @Test
+    fun `верные регионы с тех же фото автозаполняются`() {
+        assertEquals(PlateTier.AUTO, tierOf("A111AA797"))
+        assertEquals(PlateTier.AUTO, tierOf("A111AA799"))
+        assertEquals(PlateTier.AUTO, tierOf("A111AA977"))
+    }
+
+    @Test
+    fun `легитимные редкие двузначные регионы фильтр не трогает`() {
+        // Северная Осетия, Калмыкия, Еврейская АО — встречались в той же выборке,
+        // что и четыре ошибки, и все три настоящие.
+        assertEquals(PlateTier.AUTO, tierOf("A111AA15"))
+        assertEquals(PlateTier.AUTO, tierOf("A111AA08"))
+        assertEquals(PlateTier.AUTO, tierOf("A111AA79"))
+    }
+
+    @Test
+    fun `нулевой регион не автозаполняется`() {
+        // Двузначные принимаются как 01-99, нуля среди них нет.
+        assertEquals(PlateTier.SUGGESTION, tierOf("A111AA00"))
+    }
+
+    @Test
+    fun `фильтр не трогает нероссийские форматы`() {
+        // У белорусского регион устроен иначе, и он и так только подсказкой.
+        assertTrue(regionAllowsAutoFill("2971OI-4", "by_1"))
+        assertTrue(regionAllowsAutoFill("067АЛК04", "kz"))
+    }
+
+    @Test
+    fun `Z на цифровой позиции больше не превращается в двойку`() {
+        // Единственный путь, которым разбор мог синтезировать ту самую двойку.
+        assertNull(canonicalisePlate("A111AA79Z"))
+    }
+
+    @Test
+    fun `остальные правки путаницы работают как раньше`() {
+        assertEquals("О123ВС70", canonicalisePlate("O123BC7O")?.canonical)
+        assertEquals("А111АА15", canonicalisePlate("A111AA1S")?.canonical)
+    }
 }
