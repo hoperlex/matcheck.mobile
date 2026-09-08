@@ -88,8 +88,29 @@ private val LETTER_AS_DIGIT = mapOf(
     'S' to '5', 'B' to '8', 'Z' to '2',
 )
 
-/** Хвост «RUS» на номере — в обеих раскладках. */
+/**
+ * Хвост «RUS» на номере — в обеих раскладках. Хвостовой код безобиден: он стоит справа от
+ * номера и его снятие ничего не портит.
+ */
 private val COUNTRY_SUFFIXES = listOf("RUS", "РУС", "PYC")
+
+/**
+ * Коды страны, которые печатают СЛЕВА от номера (белорусская синяя полоса и аналоги).
+ *
+ * Снимать их вслепую нельзя: латинское «BY» транслитерируется в кириллическое «ВУ», а «ВУ» —
+ * допустимая серия российского ru_letters_first. По одной строке код страны от серии
+ * неотличим. Поэтому строка разбирается ДВАЖДЫ — целиком и без префикса, — а выбор делает
+ * обычный арбитраж по числу исправлений.
+ *
+ * «UA» намеренно нет: украинских форматов в каталоге тоже нет, и снятие префикса лишь
+ * породило бы обрывок, способный лечь на чужую маску.
+ */
+private val COUNTRY_PREFIXES: Map<String, String> = mapOf(
+    "BY" to "BY",
+    "KZ" to "KZ",
+    "RUS" to "RU",
+    "RU" to "RU",
+)
 
 /**
  * Описание одного формата номера.
@@ -110,6 +131,8 @@ private val COUNTRY_SUFFIXES = listOf("RUS", "РУС", "PYC")
  */
 private data class PlateFormat(
     val id: String,
+    /** Страна формата — по ней ограничивается разбор, когда на кадре виден код страны. */
+    val country: String,
     val masks: List<String>,
     val letters: Set<Char>,
     val transliterate: Boolean,
@@ -139,6 +162,7 @@ private val PLATE_FORMATS = listOf(
     // ГОСТ Р 50577, легковой/грузовой — 98 % потока.
     PlateFormat(
         id = "ru_car",
+        country = "RU",
         masks = listOf("LDDDLLDD", "LDDDLLDDD"),
         letters = RU_LETTERS,
         transliterate = true,
@@ -147,23 +171,34 @@ private val PLATE_FORMATS = listOf(
     // Прицепы, мото, спецтехника: четыре цифры впереди.
     PlateFormat(
         id = "ru_digits_first",
+        country = "RU",
         masks = listOf("DDDDLLDD", "DDDDLLDDD"),
         letters = RU_LETTERS,
         transliterate = true,
         autoFillable = true,
     ),
-    // Прицепы с буквами впереди.
+    // Прицепы с буквами впереди — ТОЛЬКО подсказкой.
+    //
+    // Маска «две буквы, дальше сплошные цифры» охотнее всех глотает чужие форматы.
+    // Живой пример: белорусский BY2971OI-4 ложится сюда целиком — «B» и «Y» проходят
+    // как буквы серии, потому что «Y» есть в наборе омоглифов, — и после починки
+    // O→0, I→1 выдаёт ВУ2971014. Оба прохода прочли бы одинаково и согласились, то
+    // есть чужой номер уехал бы в базу автозаполнением, без единого тапа.
+    //
+    // Таких номеров два из 10 156 записей за всю историю. Цена ошибки несопоставима.
     PlateFormat(
         id = "ru_letters_first",
+        country = "RU",
         masks = listOf("LLDDDDDD", "LLDDDDDDD"),
         letters = RU_LETTERS,
         transliterate = true,
-        autoFillable = true,
+        autoFillable = false,
     ),
     // Беларусь, легковой: 4633КА-6. Только подсказкой — маска начинается с цифр и
     // потому легче собирается из посторонних надписей на борту.
     PlateFormat(
         id = "by_1",
+        country = "BY",
         masks = listOf("DDDDLLD"),
         letters = BY_LETTERS,
         transliterate = false,
@@ -174,6 +209,7 @@ private val PLATE_FORMATS = listOf(
     // Беларусь, вторая наблюдаемая форма: АМ5351-5.
     PlateFormat(
         id = "by_2",
+        country = "BY",
         masks = listOf("LLDDDDD"),
         letters = BY_LETTERS,
         transliterate = false,
@@ -184,6 +220,7 @@ private val PLATE_FORMATS = listOf(
     // Казахстан: 067АЛК04.
     PlateFormat(
         id = "kz",
+        country = "KZ",
         masks = listOf("DDDLLLDD"),
         letters = KZ_LETTERS,
         transliterate = false,
@@ -205,9 +242,19 @@ data class FormatMatch(
     val formatId: String,
     val corrections: Int,
     val ambiguous: Boolean = false,
+    /**
+     * Разбор потребовал снять код страны В НАЧАЛЕ строки. Значит номер прочитан не
+     * полностью, и автозаполнять его нельзя ни при каком совпадении проходов.
+     *
+     * Хранится отдельно от wideGlue намеренно: в телеметрии это разные причины, и
+     * смешивать работу с белорусским префиксом с «широкой склейкой» нельзя — по журналу
+     * потом не разобраться.
+     */
+    val countryAffixStripped: Boolean = false,
 ) {
     val autoFillable: Boolean
-        get() = !ambiguous && PLATE_FORMATS.first { it.id == formatId }.autoFillable
+        get() = !ambiguous && !countryAffixStripped &&
+            PLATE_FORMATS.first { it.id == formatId }.autoFillable
 }
 
 /**
@@ -221,6 +268,38 @@ internal fun normalizeCandidate(raw: String): String {
     return COUNTRY_SUFFIXES.firstOrNull { compact.endsWith(it) }
         ?.let { compact.dropLast(it.length) }
         ?: compact
+}
+
+/**
+ * Вариант разбора строки: тело и страна, чей начальный код с него сняли.
+ *
+ * @param country null — префикс не снимали, тело разбирается всеми форматами.
+ */
+internal data class NormalizedCandidate(val body: String, val country: String? = null)
+
+/**
+ * Строит варианты разбора одной строки.
+ *
+ * Хвостовой код страны («RUS» справа от номера) снимается всегда и безоговорочно — он
+ * стоит отдельно от знака и ничего не значит для формата.
+ *
+ * Начальный код добавляет ВТОРОЙ вариант, а не заменяет первый. Причина: латинское «BY»
+ * транслитерируется в кириллическое «ВУ», допустимую серию российского ru_letters_first, и
+ * отличить код страны от серии по одной строке невозможно. Поэтому проверяются оба чтения,
+ * а победителя выбирает обычный арбитраж по числу исправлений: для «BY2971OI4» тело
+ * «2971OI4» ложится на by_1 с нулём правок против ru_letters_first с двумя.
+ */
+internal fun candidateVariants(raw: String): List<NormalizedCandidate> {
+    val body = normalizeCandidate(raw)
+    if (body.isEmpty()) return emptyList()
+
+    val variants = mutableListOf(NormalizedCandidate(body))
+    COUNTRY_PREFIXES.entries
+        .filter { body.startsWith(it.key) && body.length > it.key.length }
+        // Самый длинный код вперёд, иначе «RUS» разобрался бы как «RU» + мусорная «S».
+        .maxByOrNull { it.key.length }
+        ?.let { (code, country) -> variants += NormalizedCandidate(body.drop(code.length), country) }
+    return variants
 }
 
 /** Латиница обратно в кириллицу — канонический вид, в котором номер уходит в БД. */
@@ -285,9 +364,20 @@ private fun matchFormat(normalized: String, format: PlateFormat): FormatMatch? {
  * возвращаем помеченный `ambiguous` результат, который автозаполнению не подлежит.
  */
 internal fun canonicalisePlate(raw: String): FormatMatch? {
-    val normalized = normalizeCandidate(raw)
-    if (normalized.isEmpty()) return null
-    return arbitrate(PLATE_FORMATS.mapNotNull { matchFormat(normalized, it) })
+    val matches = candidateVariants(raw).flatMap { variant ->
+        // Снятый код страны сужает выбор до форматов этой страны: обрывок белорусского
+        // номера не должен даже пробоваться на российские маски.
+        val formats = if (variant.country == null) {
+            PLATE_FORMATS
+        } else {
+            PLATE_FORMATS.filter { it.country == variant.country }
+        }
+        formats.mapNotNull { format ->
+            matchFormat(variant.body, format)
+                ?.copy(countryAffixStripped = variant.country != null)
+        }
+    }
+    return arbitrate(matches)
 }
 
 /**
@@ -457,7 +547,14 @@ internal fun pickPlate(candidates: List<PlateCandidate>): SelectedPlate? {
 
 /** Почему прочтение получило свой уровень — уходит в телеметрию, не в UI. */
 enum class PlateReasonCode {
-    AGREED, DISAGREED, SECOND_EMPTY, FORMAT_NOT_AUTO, AMBIGUOUS_FORMAT, WIDE_GLUE
+    AGREED, DISAGREED, SECOND_EMPTY, FORMAT_NOT_AUTO, AMBIGUOUS_FORMAT, WIDE_GLUE,
+
+    /**
+     * Номер собран только после снятия начального кода страны — значит прочитан не
+     * полностью. Отдельно от WIDE_GLUE намеренно: иначе в журнале работа с белорусским
+     * префиксом выглядела бы как широкая склейка.
+     */
+    COUNTRY_AFFIX,
 }
 
 /** Итог распознавания одного кадра. */
@@ -492,6 +589,7 @@ fun decideReading(first: SelectedPlate?, second: SelectedPlate?): PlateReading? 
         // Ложная склейка может совпасть в обоих проходах — модель и парсер одни и те же,
         // поэтому согласие проходов её не отсеивает. Такой кандидат только подсказкой.
         chosen.wideGlue || first?.wideGlue == true -> suggestion(PlateReasonCode.WIDE_GLUE)
+        match.countryAffixStripped -> suggestion(PlateReasonCode.COUNTRY_AFFIX)
         match.ambiguous -> suggestion(PlateReasonCode.AMBIGUOUS_FORMAT)
         !match.autoFillable -> suggestion(PlateReasonCode.FORMAT_NOT_AUTO)
         second == null -> suggestion(PlateReasonCode.SECOND_EMPTY)

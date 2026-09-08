@@ -99,8 +99,9 @@ class PlateRecognizer : PlateOcr {
             val coarseHeight = coarse.height
             val firstText = recogniseBitmap(coarse)
                 ?: return@withContext result(PlateOcrOutcome.RECOGNISE_FAILED)
-            val first = pickPlate(buildCandidates(firstText.toOcrBlocks()))
-            logPass("1", "${coarseWidth}x$coarseHeight", first)
+            val firstBlocks = firstText.toOcrBlocks()
+            val first = pickPlate(buildCandidates(firstBlocks))
+            logPass("1", "${coarseWidth}x$coarseHeight", firstBlocks, first)
             if (first == null) return@withContext result(PlateOcrOutcome.NO_FIRST_CANDIDATE)
 
             val textHeight = first.weight
@@ -117,8 +118,9 @@ class PlateRecognizer : PlateOcr {
             val cropped = decodeRegion(frame, crop)
                 ?: return@withContext result(PlateOcrOutcome.CROP_FAILED, textHeight)
             val secondText = recogniseBitmap(cropped)
-            val second = secondText?.let { pickPlate(buildCandidates(it.toOcrBlocks())) }
-            logPass("2", "${crop.width}x${crop.height}", second)
+            val secondBlocks = secondText?.toOcrBlocks().orEmpty()
+            val second = secondBlocks.takeIf { it.isNotEmpty() }?.let { pickPlate(buildCandidates(it)) }
+            logPass("2", "${crop.width}x${crop.height}", secondBlocks, second)
 
             // Решение принимает чистая функция: таблицу уровней надо уметь тестировать,
             // а на устройстве её не проверить.
@@ -216,10 +218,28 @@ class PlateRecognizer : PlateOcr {
         }
     }
 
-    private fun logPass(pass: String, size: String, selected: SelectedPlate?) {
+    /**
+     * Дамп прохода целиком: что именно прочитал ML Kit и как это сегментировано.
+     *
+     * Без сырых строк причину «номер не найден» установить нельзя — приходится гадать
+     * между «не прочитал», «разорвал на элементы» и «разбор отверг». Именно так был
+     * потерян день на белорусском номере: лог писал только итог.
+     *
+     * Только под BuildConfig.DEBUG. В релизе логов нет, и госномер никуда не пишется.
+     */
+    private fun logPass(pass: String, size: String, blocks: List<OcrBlock>, selected: SelectedPlate?) {
         if (!BuildConfig.DEBUG) return
         Log.d(TAG, "проход $pass · кадр $size · ${selected?.canonical ?: "номер не найден"}" +
-            (selected?.let { " · рамка ${it.bounds} вес ${it.weight}" } ?: ""))
+            (selected?.let { " · рамка ${it.bounds} вес ${it.weight} · ${it.match.formatId}" } ?: ""))
+        blocks.forEachIndexed { bi, block ->
+            Log.d(TAG, "  блок $bi: ${block.lines.size} строк")
+            block.lines.forEachIndexed { li, line ->
+                Log.d(TAG, "    строка $li «${line.text}» ${line.bounds}")
+                line.elements.forEachIndexed { ei, el ->
+                    Log.d(TAG, "      элемент $ei «${el.text}» ${el.bounds}")
+                }
+            }
+        }
     }
 }
 

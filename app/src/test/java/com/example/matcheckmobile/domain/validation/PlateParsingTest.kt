@@ -417,4 +417,88 @@ class PlateParsingTest {
     fun `правка принятой подсказки тоже считается ошибкой распознавания`() {
         assertTrue(shouldReportPlateEdit(alreadyReported = false, origin = PlateOrigin.OCR_SUGGESTED))
     }
+
+    // --- код страны на кадре ------------------------------------------------
+
+    @Test
+    fun `белорусский номер с префиксом BY не становится российским прицепом`() {
+        // Коллизия, ради которой писался весь этот блок: BY2971OI4 ложится на
+        // ru_letters_first — «B» и «Y» есть в наборе омоглифов, — и после починки
+        // O -> 0, I -> 1 дал бы ВУ2971014 с автозаполнением. Тело без префикса
+        // ложится на by_1 вообще без правок и побеждает арбитраж.
+        val m = canonicalisePlate("BY2971OI4")
+        assertEquals("by_1", m?.formatId)
+        assertEquals("2971OI-4", m?.canonical)
+        assertTrue("префикс снят — значит номер прочитан не полностью", m!!.countryAffixStripped)
+        assertFalse("и подставлять его нельзя", m.autoFillable)
+    }
+
+    @Test
+    fun `снятый префикс даёт подсказку даже при совпадении проходов`() {
+        val r = decideReading(selected("BY2971OI4"), selected("BY2971OI4"))
+        assertEquals(PlateTier.SUGGESTION, r?.tier)
+        assertEquals(PlateReasonCode.COUNTRY_AFFIX, r?.reason)
+        assertEquals("2971OI-4", r?.text)
+    }
+
+    @Test
+    fun `причины различимы — префикс страны это не широкая склейка`() {
+        val prefix = decideReading(selected("BY2971OI4"), selected("BY2971OI4"))
+        val wide = decideReading(selected("O123BC77", wide = true), selected("O123BC77", wide = true))
+        assertNotEquals(
+            "иначе по журналу не отличить одну причину от другой",
+            prefix?.reason,
+            wide?.reason,
+        )
+    }
+
+    @Test
+    fun `российская серия ВУ не страдает от разбора префикса`() {
+        // ВУ — допустимая серия ru_letters_first, и латинское BY выглядит так же.
+        // Строка обязана остаться российским номером, а не превратиться в обрывок.
+        val m = canonicalisePlate("ВУ123456")
+        assertEquals("ru_letters_first", m?.formatId)
+        assertEquals("ВУ123456", m?.canonical)
+        assertFalse("но этот формат теперь только подсказкой", m!!.autoFillable)
+    }
+
+    @Test
+    fun `хвостовой RUS не понижает обычный российский номер до подсказки`() {
+        // Суффикс стоит справа от знака и ничего не значит: демотировать из-за него
+        // нельзя, иначе половина потока уедет в подсказки.
+        val m = canonicalisePlate("A 777 AA 99 RUS")
+        assertEquals("ru_car", m?.formatId)
+        assertEquals("А777АА99", m?.canonical)
+        assertFalse("суффикс — не спорный префикс", m!!.countryAffixStripped)
+        assertTrue(m.autoFillable)
+        assertEquals(PlateTier.AUTO, decideReading(selected("A 777 AA 99 RUS"), selected("A 777 AA 99 RUS"))?.tier)
+    }
+
+    @Test
+    fun `префикс страны ограничивает выбор её форматами`() {
+        // KZ + тело казахстанской формы разбирается казахстанским форматом.
+        assertEquals("kz", canonicalisePlate("KZ067ALK04")?.formatId)
+        // А тело без префикса на казахстанские маски не попадает.
+        assertEquals("ru_car", canonicalisePlate("O123BC77")?.formatId)
+    }
+
+    @Test
+    fun `украинский префикс не снимается — форматов нет`() {
+        // Снятие UA породило бы обрывок, способный лечь на чужую маску.
+        val m = canonicalisePlate("UA1234AB5")
+        assertNull("ни один формат такую строку принимать не должен", m)
+    }
+
+    @Test
+    fun `варианты разбора строятся предсказуемо`() {
+        val plain = candidateVariants("O123BC77")
+        assertEquals(1, plain.size)
+        assertNull(plain[0].country)
+
+        val withPrefix = candidateVariants("BY2971OI4")
+        assertEquals("исходная строка и тело без префикса", 2, withPrefix.size)
+        assertEquals("BY2971OI4", withPrefix[0].body)
+        assertEquals("2971OI4", withPrefix[1].body)
+        assertEquals("BY", withPrefix[1].country)
+    }
 }
