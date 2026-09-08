@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import com.example.matcheckmobile.MatcheckApplication
+import com.example.matcheckmobile.presentation.components.plateSupportingText
 import com.example.matcheckmobile.presentation.components.AssetsCheckbox
 import com.example.matcheckmobile.presentation.components.FinalizeConfirmDialog
 import com.example.matcheckmobile.presentation.components.GroupChangedDialog
@@ -304,11 +305,11 @@ fun Stage1FormScreen(
                             // Номер мог приехать с фото — говорим об этом прямо, чтобы
                             // инспектор его проверил, а не принял за свой ввод. Поле при
                             // этом остаётся обычным: правится руками в любой момент.
-                            supportingText = if (state.plateAutoFilled) {
-                                { Text("Распознано с фото — проверьте") }
-                            } else {
-                                null
-                            },
+                            supportingText = plateSupportingText(
+                                origin = state.plateOrigin,
+                                suggestion = state.plateSuggestion,
+                                onApply = vm::applyPlateSuggestion,
+                            ),
                             singleLine = true,
                             textStyle = inputTextStyle,
                             modifier = Modifier.fillMaxWidth(),

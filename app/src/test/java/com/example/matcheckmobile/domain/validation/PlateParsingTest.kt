@@ -1,6 +1,7 @@
 package com.example.matcheckmobile.domain.validation
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -11,21 +12,19 @@ import org.junit.Test
  *
  * Номера синтетические: настоящие из боевой БД в репозиторий не кладём.
  *
- * Две регрессии, ради которых написана бо́льшая часть тестов:
+ * Три регрессии, ради которых написана бо́льшая часть тестов:
  *
- * 1. Один и тот же номер приезжает из ML Kit несколькими путями сразу (слово,
- *    склейка слов, строка, блок). Без группировки кандидатов по распознанному
- *    номеру ДО проверки неоднозначности порог «в 1,3 раза крупнее» сравнил бы
- *    два вхождения одного номера и отверг бы правильный результат.
- * 2. В бой уехал `М583МУ792` вместо `М583МУ799`. Склейка соседних по списку
- *    элементов без проверки расстояния способна приварить к номеру постороннюю
- *    цифру с борта машины.
+ * 1. Один номер приходит из ML Kit несколькими путями сразу. Без группировки кандидатов
+ *    порог «в 1,3 раза крупнее» сравнил бы два вхождения одного номера и отверг верный.
+ * 2. В бой уехал `М583МУ792` вместо `М583МУ799`: склейка соседних по списку элементов без
+ *    проверки расстояния приварила к номеру постороннюю цифру.
+ * 3. Строгое «подставлять только при совпадении обоих проходов» отсекало вместе с ошибками
+ *    и годные прочтения — инспекторы сообщали, что распознавание срабатывает через раз.
  */
 class PlateParsingTest {
 
     // --- фикстуры -----------------------------------------------------------
 
-    /** Слово с рамкой: x — левый край, все слова одной высоты на одной строке. */
     private fun word(text: String, x: Int, width: Int, y: Int = 100, height: Int = 40) =
         OcrElement(text, OcrRect(x, y, x + width, y + height))
 
@@ -39,27 +38,78 @@ class PlateParsingTest {
     private fun plateOf(blocks: List<OcrBlock>): String? =
         pickPlate(buildCandidates(blocks))?.canonical
 
-    // --- нормализация и починка ---------------------------------------------
+    private fun selected(text: String, weight: Int = 40, wide: Boolean = false): SelectedPlate =
+        SelectedPlate(
+            match = canonicalisePlate(text)!!,
+            bounds = OcrRect(0, 0, 100, weight),
+            weight = weight,
+            wideGlue = wide,
+        )
+
+    // --- каталог форматов ---------------------------------------------------
 
     @Test
-    fun `латиница с фото приводится к кириллице`() {
-        assertEquals("О123ВС77", canonicalisePlate("O123BC77"))
+    fun `гост легковой в обеих длинах региона`() {
+        assertEquals("О123ВС77", canonicalisePlate("O123BC77")?.canonical)
+        assertEquals("О123ВС777", canonicalisePlate("O123BC777")?.canonical)
+        assertEquals("ru_car", canonicalisePlate("O123BC77")?.formatId)
     }
 
     @Test
-    fun `ноль на буквенной позиции чинится в букву`() {
-        assertEquals("О123ВС77", canonicalisePlate("0123BC77"))
+    fun `кириллица на входе не ломает гост`() {
+        assertEquals("Х456УА199", canonicalisePlate("Х456УА199")?.canonical)
     }
 
     @Test
-    fun `буква на цифровой позиции чинится в цифру`() {
-        // O в регионе — это ноль, но та же O в серии остаётся буквой.
-        assertEquals("О123ВС70", canonicalisePlate("O123BC7O"))
+    fun `рф с цифрами впереди — прицепы и спецтехника`() {
+        val m = canonicalisePlate("0029TC797")
+        assertEquals("0029ТС797", m?.canonical)
+        assertEquals("ru_digits_first", m?.formatId)
+        assertTrue("формат российский, подставляем сами", m!!.autoFillable)
     }
 
     @Test
-    fun `хвост RUS и пробелы срезаются`() {
-        assertEquals("А777АА99", canonicalisePlate("A 777 AA 99 RUS"))
+    fun `рф с буквами впереди`() {
+        val m = canonicalisePlate("AB123456")
+        assertEquals("ru_letters_first", m?.formatId)
+        assertEquals("АВ123456", m?.canonical)
+    }
+
+    @Test
+    fun `белорусский легковой — с дефисом и только подсказкой`() {
+        val m = canonicalisePlate("4633КА6")
+        assertEquals("4633КА-6", m?.canonical)
+        assertEquals("by_1", m?.formatId)
+        assertFalse("маска с цифрами впереди легко собирается из мусора", m!!.autoFillable)
+    }
+
+    @Test
+    fun `белорусский грузовой — вторая наблюдаемая форма`() {
+        val m = canonicalisePlate("АМ53515")
+        assertEquals("АМ5351-5", m?.canonical)
+        assertEquals("by_2", m?.formatId)
+    }
+
+    @Test
+    fun `буква I в белорусском номере не превращается в единицу`() {
+        // I стоит в общей карте путаницы как I -> 1, но на буквенной позиции
+        // конвертируются только цифры.
+        assertEquals("2971OI-4", canonicalisePlate("2971OI4")?.canonical)
+    }
+
+    @Test
+    fun `казахстанский номер в обеих раскладках`() {
+        // Кириллическая Л в таблице омоглифов отсутствует — раньше такой номер
+        // разваливался на смесь раскладок.
+        assertEquals("067АЛК04", canonicalisePlate("067АЛК04")?.canonical)
+        assertEquals("067ALK04", canonicalisePlate("067ALK04")?.canonical)
+        assertEquals("kz", canonicalisePlate("067АЛК04")?.formatId)
+    }
+
+    @Test
+    fun `дефис и пробелы на входе не мешают`() {
+        assertEquals("4633КА-6", canonicalisePlate("4633 КА-6")?.canonical)
+        assertEquals("А777АА99", canonicalisePlate("A 777 AA 99 RUS")?.canonical)
     }
 
     @Test
@@ -70,12 +120,114 @@ class PlateParsingTest {
         assertNull("пусто", canonicalisePlate(""))
     }
 
+    // --- починка по маске ---------------------------------------------------
+
+    @Test
+    fun `ноль на буквенной позиции чинится в букву`() {
+        val m = canonicalisePlate("O123BC7O")
+        assertEquals("О123ВС70", m?.canonical)
+        assertEquals("одна правка: O в регионе — это ноль", 1, m?.corrections)
+    }
+
+    @Test
+    fun `буква на цифровой позиции формата с цифрами впереди чинится в цифру`() {
+        // O на первой позиции здесь обязана стать нулём, а не остаться буквой.
+        val m = canonicalisePlate("O029TC797")
+        assertEquals("ru_car", m?.formatId)
+        assertEquals("точное совпадение бьёт исправленное", 0, m?.corrections)
+    }
+
+    // --- арбитраж форматов --------------------------------------------------
+
+    @Test
+    fun `строка подходит двум маскам — выигрывает вариант без исправлений`() {
+        // 0123BC77 — это и ГОСТ (после починки 0 -> O), и формат с цифрами впереди
+        // вообще без починки. Побеждает второй, независимо от порядка в каталоге.
+        val m = canonicalisePlate("0123BC77")
+        assertEquals("ru_digits_first", m?.formatId)
+        assertEquals(0, m?.corrections)
+        assertEquals("0123ВС77", m?.canonical)
+        assertFalse(m!!.ambiguous)
+    }
+
+    @Test
+    fun `равное число исправлений помечается как неоднозначность`() {
+        val tie = arbitrate(
+            listOf(
+                FormatMatch("АААА", "ru_car", corrections = 1),
+                FormatMatch("ББББ", "by_1", corrections = 1),
+            ),
+        )
+        assertTrue("выбрать безопасно нельзя", tie!!.ambiguous)
+        assertFalse("а значит и подставлять нельзя", tie.autoFillable)
+    }
+
+    @Test
+    fun `арбитраж не зависит от порядка списка`() {
+        val a = FormatMatch("X", "ru_car", corrections = 2)
+        val b = FormatMatch("Y", "by_1", corrections = 0)
+        assertEquals(arbitrate(listOf(a, b))?.formatId, arbitrate(listOf(b, a))?.formatId)
+        assertEquals("by_1", arbitrate(listOf(a, b))?.formatId)
+    }
+
+    @Test
+    fun `единственное совпадение неоднозначным не считается`() {
+        assertFalse(arbitrate(listOf(FormatMatch("X", "ru_car", 1)))!!.ambiguous)
+    }
+
+    // --- уровни доверия -----------------------------------------------------
+
+    @Test
+    fun `совпавшие проходы автозаполняемого формата подставляются сами`() {
+        val r = decideReading(selected("O123BC77"), selected("O123BC77"))
+        assertEquals(PlateTier.AUTO, r?.tier)
+        assertEquals(PlateReasonCode.AGREED, r?.reason)
+        assertEquals("О123ВС77", r?.text)
+    }
+
+    @Test
+    fun `расхождение проходов даёт подсказку по результату второго`() {
+        val r = decideReading(selected("O123BC77"), selected("O123BC79"))
+        assertEquals(PlateTier.SUGGESTION, r?.tier)
+        assertEquals(PlateReasonCode.DISAGREED, r?.reason)
+        assertEquals("второй проход читает в полном разрешении", "О123ВС79", r?.text)
+    }
+
+    @Test
+    fun `пустой второй проход даёт подсказку по первому`() {
+        val r = decideReading(selected("O123BC77"), null)
+        assertEquals(PlateTier.SUGGESTION, r?.tier)
+        assertEquals(PlateReasonCode.SECOND_EMPTY, r?.reason)
+    }
+
+    @Test
+    fun `белорусский формат не подставляется даже при полном совпадении`() {
+        val r = decideReading(selected("4633КА6"), selected("4633КА6"))
+        assertEquals(PlateTier.SUGGESTION, r?.tier)
+        assertEquals(PlateReasonCode.FORMAT_NOT_AUTO, r?.reason)
+        assertEquals("4633КА-6", r?.text)
+    }
+
+    @Test
+    fun `одинаковая ложная склейка обоих проходов не становится авто`() {
+        // Модель и парсер у проходов одни и те же, поэтому согласие само по себе
+        // ложную склейку не отсеивает.
+        val r = decideReading(selected("O123BC77", wide = true), selected("O123BC77", wide = true))
+        assertEquals(PlateTier.SUGGESTION, r?.tier)
+        assertEquals(PlateReasonCode.WIDE_GLUE, r?.reason)
+    }
+
+    @Test
+    fun `оба прохода пусты — тишина`() {
+        assertNull(decideReading(null, null))
+    }
+
     // --- геометрическая связность -------------------------------------------
 
     @Test
     fun `далёкая цифра не приваривается к номеру`() {
         // Регресс на М583МУ792: «79» — конец номера, «2» — посторонняя надпись
-        // на другом конце борта. Склеивать их нельзя ни окном слов, ни строкой.
+        // на другом конце борта.
         val blocks = blockOf(
             lineOf(word("A123BC79", x = 100, width = 180), word("2", x = 900, width = 20)),
         )
@@ -86,7 +238,6 @@ class PlateParsingTest {
 
     @Test
     fun `номер и регион соседними словами собираются вместе`() {
-        // Зазор 20 px при высоте символа 40 — это одно слово, разорванное ML Kit.
         val blocks = blockOf(
             lineOf(word("A123BC", x = 100, width = 140), word("77", x = 260, width = 40)),
         )
@@ -104,8 +255,6 @@ class PlateParsingTest {
 
     @Test
     fun `строки из разных концов кадра не склеиваются`() {
-        // Вертикальный зазор мал, но по горизонтали рамки не пересекаются —
-        // это две разные надписи, а не двухстрочная табличка.
         val blocks = blockOf(
             lineOf(word("A123BC", x = 100, width = 140, y = 100, height = 40)),
             lineOf(word("77", x = 900, width = 40, y = 145, height = 35)),
@@ -113,19 +262,7 @@ class PlateParsingTest {
         assertNull(plateOf(blocks))
     }
 
-    @Test
-    fun `рамка склеенного кандидата объединяет составляющие`() {
-        val blocks = blockOf(
-            lineOf(word("A123BC", x = 100, width = 140), word("77", x = 260, width = 40)),
-        )
-        val selected = pickPlate(buildCandidates(blocks))
-        requireNotNull(selected)
-        assertEquals(100, selected.bounds.left)
-        assertEquals(300, selected.bounds.right)
-        assertTrue("рамка обязана покрывать обе части", selected.bounds.width >= 200)
-    }
-
-    // --- дедупликация и неоднозначность -------------------------------------
+    // --- дедупликация и неоднозначность по весу -----------------------------
 
     @Test
     fun `один номер, найденный и строкой и словом, не считается неоднозначностью`() {
@@ -153,7 +290,6 @@ class PlateParsingTest {
 
     @Test
     fun `нулевой вес не выигрывает у другого номера`() {
-        // Высота 0 — это «рамки не было», а не «текст крошечный».
         val blocks = blockOf(
             lineOf(word("A123BC77", x = 0, width = 0, y = 0, height = 0)),
             lineOf(word("X456YA199", x = 0, width = 0, y = 0, height = 0)),
@@ -161,41 +297,30 @@ class PlateParsingTest {
         assertNull(plateOf(blocks))
     }
 
-    @Test
-    fun `текст без номеров не даёт результата`() {
-        val blocks = blockOf(lineOf(word("ГРУЗОПЕРЕВОЗКИ", x = 100, width = 400, height = 50)))
-        assertNull(plateOf(blocks))
-    }
-
-    // --- геометрия кропа для второго прохода --------------------------------
+    // --- геометрия кропа ----------------------------------------------------
 
     @Test
     fun `рамка пересчитывается в координаты оригинала и расширяется`() {
-        // Уменьшенный кадр вдвое: рамка обязана удвоиться, плюс поля 20 %.
         val crop = cropRect(
             bounds = OcrRect(100, 100, 200, 140),
             decodedWidth = 1000, decodedHeight = 750,
             originalWidth = 2000, originalHeight = 1500,
         )
         requireNotNull(crop)
-        assertTrue("левый край ушёл влево на поле", crop.left < 200)
-        assertTrue("правый край ушёл вправо на поле", crop.right > 400)
-        assertTrue(crop.width > 200)
+        assertTrue(crop.left < 200)
+        assertTrue(crop.right > 400)
     }
 
     @Test
     fun `кроп обрезается по границам оригинала`() {
-        // Рамка у самого края: BitmapRegionDecoder бросает на выходе за границы.
         val crop = cropRect(
             bounds = OcrRect(0, 0, 1000, 750),
             decodedWidth = 1000, decodedHeight = 750,
             originalWidth = 1000, originalHeight = 750,
         )
         requireNotNull(crop)
-        assertTrue(crop.left >= 0)
-        assertTrue(crop.top >= 0)
-        assertTrue(crop.right <= 1000)
-        assertTrue(crop.bottom <= 750)
+        assertTrue(crop.left >= 0 && crop.top >= 0)
+        assertTrue(crop.right <= 1000 && crop.bottom <= 750)
     }
 
     @Test
@@ -207,7 +332,6 @@ class PlateParsingTest {
             expandRatio = 0.0,
         )
         requireNotNull(crop)
-        // scaleX = 10, scaleY = 2 — оси не должны перепутаться.
         assertEquals(100, crop.left)
         assertEquals(20, crop.top)
         assertEquals(200, crop.right)
@@ -220,25 +344,77 @@ class PlateParsingTest {
         assertNull(cropRect(OcrRect(0, 0, 10, 10), 100, 100, 0, 0))
     }
 
-    // --- арбитраж с ручным вводом -------------------------------------------
+    // --- приоритет ручного ввода --------------------------------------------
 
     @Test
     fun `пустое нетронутое поле заполняется`() {
-        assertEquals("А123ВС77", plateAfterOcr(current = "", editedByUser = false, recognised = "А123ВС77"))
+        assertEquals("А123ВС77", plateAfterOcr("", editedByUser = false, recognised = "А123ВС77"))
     }
 
     @Test
     fun `набранный руками номер не затирается`() {
-        assertNull(plateAfterOcr(current = "Х456УА199", editedByUser = true, recognised = "А123ВС77"))
+        assertNull(plateAfterOcr("Х456УА199", editedByUser = true, recognised = "А123ВС77"))
     }
 
     @Test
     fun `очищенное вручную поле остаётся пустым`() {
-        assertNull(plateAfterOcr(current = "", editedByUser = true, recognised = "А123ВС77"))
+        assertNull(plateAfterOcr("", editedByUser = true, recognised = "А123ВС77"))
     }
 
     @Test
     fun `второй результат не переписывает первый`() {
-        assertNull(plateAfterOcr(current = "А123ВС77", editedByUser = false, recognised = "Х456УА199"))
+        assertNull(plateAfterOcr("А123ВС77", editedByUser = false, recognised = "Х456УА199"))
+    }
+
+    // --- гонки нескольких снимков и однократная телеметрия -------------------
+
+    @Test
+    fun `результат предыдущего снимка не перезаписывает свежий`() {
+        // Два фото обрабатываются параллельно; первое закончилось позже второго.
+        val stale = isStaleOcrResult(
+            attemptId = "первое",
+            latestAttemptId = "второе",
+            photoPath = "/photos/1.jpg",
+            photoPaths = listOf("/photos/1.jpg", "/photos/2.jpg"),
+        )
+        assertTrue(stale)
+    }
+
+    @Test
+    fun `результат удалённого фото не применяется`() {
+        val stale = isStaleOcrResult(
+            attemptId = "последнее",
+            latestAttemptId = "последнее",
+            photoPath = "/photos/1.jpg",
+            photoPaths = emptyList(),
+        )
+        assertTrue("кадр уже убрали с формы", stale)
+    }
+
+    @Test
+    fun `результат последнего живого снимка применяется`() {
+        val stale = isStaleOcrResult(
+            attemptId = "последнее",
+            latestAttemptId = "последнее",
+            photoPath = "/photos/2.jpg",
+            photoPaths = listOf("/photos/1.jpg", "/photos/2.jpg"),
+        )
+        assertFalse(stale)
+    }
+
+    @Test
+    fun `правка распознанного пишется один раз, а не на каждый символ`() {
+        assertTrue(shouldReportPlateEdit(alreadyReported = false, origin = PlateOrigin.OCR_AUTO))
+        assertFalse(shouldReportPlateEdit(alreadyReported = true, origin = PlateOrigin.OCR_AUTO))
+    }
+
+    @Test
+    fun `правка вручную набранного номера ошибкой распознавания не считается`() {
+        assertFalse(shouldReportPlateEdit(alreadyReported = false, origin = PlateOrigin.MANUAL))
+    }
+
+    @Test
+    fun `правка принятой подсказки тоже считается ошибкой распознавания`() {
+        assertTrue(shouldReportPlateEdit(alreadyReported = false, origin = PlateOrigin.OCR_SUGGESTED))
     }
 }

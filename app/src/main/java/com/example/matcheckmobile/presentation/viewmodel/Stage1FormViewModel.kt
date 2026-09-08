@@ -8,6 +8,13 @@ import com.example.matcheckmobile.data.local.entity.RemoteSourceDocumentEntity
 import com.example.matcheckmobile.data.local.entity.RemoteSourceDocumentItemEntity
 import com.example.matcheckmobile.data.repository.Stage1DraftState
 import com.example.matcheckmobile.di.AppContainer
+import com.example.matcheckmobile.domain.ocr.PlateOcrOutcome
+import com.example.matcheckmobile.domain.ocr.PlateOcrResult
+import com.example.matcheckmobile.domain.validation.PlateOrigin
+import com.example.matcheckmobile.domain.validation.isStaleOcrResult
+import com.example.matcheckmobile.domain.validation.shouldReportPlateEdit
+import com.example.matcheckmobile.domain.validation.PlateSuggestion
+import com.example.matcheckmobile.domain.validation.PlateTier
 import com.example.matcheckmobile.domain.validation.plateAfterOcr
 import com.example.matcheckmobile.domain.model.mergeGroupParty
 import com.example.matcheckmobile.domain.model.sortGroupDocs
@@ -326,7 +333,15 @@ class Stage1FormViewModel(
         viewModelScope.launch { container.photoPrepareProcessor.deleteSourceIfUnused(path) }
     }
 
+    /** id последнего снимка: результаты более старых применять нельзя (см. [applyOcrResult]). */
+    private var latestOcrAttempt: String? = null
+
+    /** «Инспектор поправил распознанное» пишем один раз на подстановку, а не на символ. */
+    private var plateEditReported = false
+
     fun onCargoPhotoTaken(path: String) {
+        val attemptId = UUID.randomUUID().toString()
+        latestOcrAttempt = attemptId
         viewModelScope.launch {
             supervisorScope {
                 // Снимаем байты ДО штампа: MetadataWatermark перезаписывает файл
@@ -343,24 +358,95 @@ class Stage1FormViewModel(
                 stampWatermark(path)
                 _state.update { it.copy(cargoPhotoPaths = it.cargoPhotoPaths + path) }
 
-                ocr?.await()?.let { applyRecognisedPlate(it) }
+                val result = ocr?.await() ?: PlateOcrResult(PlateOcrOutcome.FRAME_READ_FAILED)
+                applyOcrResult(path, attemptId, result)
             }
         }
     }
 
     /**
-     * Подставляет распознанный номер, если поле ещё «ничьё».
+     * Применяет результат распознавания и пишет ровно одно событие телеметрии.
      *
-     * Проверка живёт внутри `update`, а не перед ним: пока крутился OCR, инспектор мог
-     * успеть напечатать номер или, наоборот, стереть его — и второе фото не должно
-     * вернуть значение в намеренно очищенное поле.
+     * Два снимка обрабатываются параллельно и заканчиваются в произвольном порядке,
+     * поэтому результат принимается, только если он от ПОСЛЕДНЕГО снимка и это фото ещё
+     * в списке. Иначе старое прочтение перезаписало бы свежее, а результат уже удалённого
+     * кадра всплыл бы после удаления.
      */
-    private fun applyRecognisedPlate(plate: String) {
-        _state.update { state ->
-            val next = plateAfterOcr(state.licensePlate, state.plateEditedByUser, plate)
-                ?: return@update state
-            state.copy(licensePlate = next, showPlateError = false, plateAutoFilled = true)
+    private fun applyOcrResult(path: String, attemptId: String, result: PlateOcrResult) {
+        val stale = isStaleOcrResult(
+            attemptId = attemptId,
+            latestAttemptId = latestOcrAttempt,
+            photoPath = path,
+            photoPaths = _state.value.cargoPhotoPaths,
+        )
+        recordPlateOcr(attemptId, result, stale)
+        if (stale) return
+
+        val reading = result.reading ?: return
+        when (reading.tier) {
+            // Уверенное прочтение подставляем само — но только в поле, которого инспектор
+            // не касался: ручной ввод главнее всегда.
+            PlateTier.AUTO -> _state.update { state ->
+                val next = plateAfterOcr(state.licensePlate, state.plateEditedByUser, reading.text)
+                    ?: return@update state
+                plateEditReported = false
+                state.copy(
+                    licensePlate = next,
+                    showPlateError = false,
+                    plateOrigin = PlateOrigin.OCR_AUTO,
+                    plateSuggestion = null,
+                )
+            }
+            // Неуверенное только предлагаем: поле не трогаем, пока не будет тапа.
+            PlateTier.SUGGESTION -> _state.update { state ->
+                if (state.plateEditedByUser || state.licensePlate.isNotBlank()) {
+                    state
+                } else {
+                    state.copy(
+                        plateSuggestion = PlateSuggestion(reading.text, reading.formatId, attemptId),
+                    )
+                }
+            }
         }
+    }
+
+    /**
+     * Инспектор принял подсказку.
+     *
+     * Отдельно от [setLicensePlate] намеренно: тот помечает значение ручным вводом, и
+     * принятая подсказка стала бы неотличима от набора руками — ни в состоянии, ни в
+     * телеметрии.
+     */
+    fun applyPlateSuggestion() {
+        val suggestion = _state.value.plateSuggestion ?: return
+        plateEditReported = false
+        _state.update {
+            it.copy(
+                licensePlate = suggestion.text,
+                showPlateError = false,
+                plateOrigin = PlateOrigin.OCR_SUGGESTED,
+                plateSuggestion = null,
+            )
+        }
+        container.incidentJournal.record(
+            "plate_applied",
+            "attemptId" to suggestion.attemptId,
+            "formatId" to suggestion.formatId,
+            "accepted" to true,
+        )
+    }
+
+    /** Событие на каждое фото — иначе у доли срабатываний нет знаменателя. Номер не пишем. */
+    private fun recordPlateOcr(attemptId: String, result: PlateOcrResult, stale: Boolean) {
+        container.incidentJournal.record(
+            "plate_ocr",
+            "attemptId" to attemptId,
+            "outcome" to if (stale) "STALE" else result.outcome.name,
+            "frame" to "${result.frameWidth}x${result.frameHeight}",
+            "textH" to result.textHeightPx,
+            "formatId" to result.reading?.formatId,
+            "reason" to result.reading?.reason?.name,
+        )
     }
 
     fun removeCargoPhoto(path: String) {
@@ -399,14 +485,26 @@ class Stage1FormViewModel(
     }
 
     fun setLicensePlate(text: String) {
+        // Правку распознанного значения фиксируем один раз на подстановку: это
+        // единственный честный признак ошибки OCR, но писать его на каждый символ
+        // означало бы забить журнал одним инспектором.
+        val previous = _state.value
+        if (shouldReportPlateEdit(plateEditReported, previous.plateOrigin)) {
+            plateEditReported = true
+            container.incidentJournal.record(
+                "plate_edited",
+                "origin" to previous.plateOrigin.name,
+            )
+        }
         // plateEditedByUser ставим всегда, даже когда номер стёрли в пустую строку:
         // иначе следующее фото вписало бы распознанный номер обратно.
         _state.update {
             it.copy(
                 licensePlate = text,
                 showPlateError = false,
-                plateAutoFilled = false,
+                plateOrigin = PlateOrigin.MANUAL,
                 plateEditedByUser = true,
+                plateSuggestion = null,
             )
         }
     }
@@ -760,8 +858,10 @@ data class Stage1FormUiState(
     val commentText: String = "",
     val licensePlate: String = "",
     val showPlateError: Boolean = false,
-    /** Номер подставлен распознаванием — под полем показываем «проверьте». */
-    val plateAutoFilled: Boolean = false,
+    /** Откуда взялось текущее значение поля — влияет на подпись и на телеметрию правок. */
+    val plateOrigin: PlateOrigin = PlateOrigin.MANUAL,
+    /** Неуверенное прочтение: показываем под полем и вставляем только по тапу. */
+    val plateSuggestion: PlateSuggestion? = null,
     /**
      * Инспектор правил поле руками на этом экране. Живёт только в UI-состоянии и в
      * черновик не сохраняется: хранить его — это колонка и Room-миграция ради редкого

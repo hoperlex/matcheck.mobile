@@ -47,8 +47,21 @@ data class OcrBlock(val lines: List<OcrLine>)
  */
 data class PlateCandidate(val text: String, val bounds: OcrRect, val weight: Int)
 
-/** Победивший кандидат вместе с рамкой — по ней делается второй проход. */
-data class SelectedPlate(val canonical: String, val bounds: OcrRect, val weight: Int)
+/**
+ * Победивший кандидат вместе с рамкой — по ней делается второй проход.
+ *
+ * Уровень доверия здесь НЕ хранится: он определяется только после сравнения обоих
+ * проходов, см. [decideReading].
+ */
+data class SelectedPlate(
+    val match: FormatMatch,
+    val bounds: OcrRect,
+    val weight: Int,
+    /** Кандидат собран склейкой, потребовавшей расширенного порога (готовность к релизу B). */
+    val wideGlue: Boolean = false,
+) {
+    val canonical: String get() = match.canonical
+}
 
 private const val LATIN_PLATE_LETTERS = "ABEKMHOPCTYX"
 private const val CYRILLIC_PLATE_LETTERS = "АВЕКМНОРСТУХ"
@@ -59,7 +72,14 @@ private val CYRILLIC_TO_LATIN: Map<Char, Char> =
 private val LATIN_TO_CYRILLIC: Map<Char, Char> =
     LATIN_PLATE_LETTERS.zip(CYRILLIC_PLATE_LETTERS).toMap()
 
-/** Цифра, которую распознаватель мог принять за букву на буквенной позиции. */
+/**
+ * Цифра, которую распознаватель мог принять за букву на буквенной позиции.
+ *
+ * Карта намеренно НЕ симметрична [LETTER_AS_DIGIT]: `4 → A` здесь есть, а обратного
+ * `A → 4` там нет. Это осознанно — буква «A» на цифровой позиции почти всегда настоящая
+ * буква, тогда как четвёрка на буквенной позиции почти всегда ошибка чтения. Добавлять
+ * обратные правки можно только там, где такое обоснование есть.
+ */
 private val DIGIT_AS_LETTER = mapOf('0' to 'O', '8' to 'B', '4' to 'A')
 
 /** Буква, которую распознаватель мог принять за цифру на цифровой позиции. */
@@ -68,33 +88,139 @@ private val LETTER_AS_DIGIT = mapOf(
     'S' to '5', 'B' to '8', 'Z' to '2',
 )
 
-/** Хвост «RUS» на номере — латиницей и в кириллическом написании после маппинга. */
-private val COUNTRY_SUFFIXES = listOf("RUS", "PYC")
+/** Хвост «RUS» на номере — в обеих раскладках. */
+private val COUNTRY_SUFFIXES = listOf("RUS", "РУС", "PYC")
 
 /**
- * Чистит распознанную строку: верхний регистр, только буквы и цифры, кириллица в
- * латиницу, срезанный хвост «RUS». Пробелы и дефисы выкидываем — на фото они читаются
- * непредсказуемо, а в шаблоне их всё равно нет.
+ * Описание одного формата номера.
+ *
+ * Форматы — данные, а не код: новый добавляется строчкой в [PLATE_FORMATS], без правки
+ * логики разбора. Это прямое следствие того, что белорусские номера оказались невидимы
+ * почти два месяца — шаблон был ровно один и зашит в regex.
+ *
+ * @param masks допустимые формы: `L` — буква, `D` — цифра.
+ * @param letters алфавит формата. Для нероссийских здесь ОБЕ раскладки: инспектор
+ *   набирает на русской клавиатуре, а распознаватель читает латиницей.
+ * @param transliterate приводить ли кириллицу к латинице при разборе и обратно на выходе.
+ *   Осмысленно только для ГОСТ, где 12 букв однозначно сопоставимы. Казахстанский
+ *   `067АЛК04` содержит «Л», которой в таблице омоглифов нет вовсе.
+ * @param separatorAfter позиция, после которой в каноническом виде ставится дефис.
+ * @param extraFixes правки, специфичные для формата, сверх общих карт.
+ * @param autoFillable можно ли подставлять без подтверждения инспектора.
  */
-internal fun normalizeCandidate(raw: String): String {
-    val compact = raw.uppercase().filter { it.isLetterOrDigit() }
-    val latin = compact.map { CYRILLIC_TO_LATIN[it] ?: it }.joinToString("")
-    return COUNTRY_SUFFIXES.firstOrNull { latin.endsWith(it) }
-        ?.let { latin.dropLast(it.length) }
-        ?: latin
+private data class PlateFormat(
+    val id: String,
+    val masks: List<String>,
+    val letters: Set<Char>,
+    val transliterate: Boolean,
+    val separatorAfter: Int? = null,
+    val extraFixes: Map<Char, Char> = emptyMap(),
+    val autoFillable: Boolean,
+)
+
+private val RU_LETTERS: Set<Char> = LATIN_PLATE_LETTERS.toSet()
+
+/** Белорусский алфавит номеров — те же омоглифы плюс «I», в обеих раскладках. */
+private val BY_LETTERS: Set<Char> =
+    (LATIN_PLATE_LETTERS + CYRILLIC_PLATE_LETTERS + "I" + "І").toSet()
+
+/** Казахстан: буквы шире российского набора, поэтому обе раскладки целиком. */
+private val KZ_LETTERS: Set<Char> =
+    (('A'..'Z') + ('А'..'Я')).toSet()
+
+/**
+ * Каталог наблюдаемых в нашей эксплуатации форматов.
+ *
+ * ВАЖНО: собран по тому, что реально встречалось в базе, а не по действующим редакциям
+ * стандартов — официальные правила РФ и Казахстана шире. Порядок в списке НЕ является
+ * приоритетом: арбитраж в [canonicalisePlate] сравнивает число исправлений.
+ */
+private val PLATE_FORMATS = listOf(
+    // ГОСТ Р 50577, легковой/грузовой — 98 % потока.
+    PlateFormat(
+        id = "ru_car",
+        masks = listOf("LDDDLLDD", "LDDDLLDDD"),
+        letters = RU_LETTERS,
+        transliterate = true,
+        autoFillable = true,
+    ),
+    // Прицепы, мото, спецтехника: четыре цифры впереди.
+    PlateFormat(
+        id = "ru_digits_first",
+        masks = listOf("DDDDLLDD", "DDDDLLDDD"),
+        letters = RU_LETTERS,
+        transliterate = true,
+        autoFillable = true,
+    ),
+    // Прицепы с буквами впереди.
+    PlateFormat(
+        id = "ru_letters_first",
+        masks = listOf("LLDDDDDD", "LLDDDDDDD"),
+        letters = RU_LETTERS,
+        transliterate = true,
+        autoFillable = true,
+    ),
+    // Беларусь, легковой: 4633КА-6. Только подсказкой — маска начинается с цифр и
+    // потому легче собирается из посторонних надписей на борту.
+    PlateFormat(
+        id = "by_1",
+        masks = listOf("DDDDLLD"),
+        letters = BY_LETTERS,
+        transliterate = false,
+        separatorAfter = 5,
+        extraFixes = mapOf('1' to 'I'),
+        autoFillable = false,
+    ),
+    // Беларусь, вторая наблюдаемая форма: АМ5351-5.
+    PlateFormat(
+        id = "by_2",
+        masks = listOf("LLDDDDD"),
+        letters = BY_LETTERS,
+        transliterate = false,
+        separatorAfter = 5,
+        extraFixes = mapOf('1' to 'I'),
+        autoFillable = false,
+    ),
+    // Казахстан: 067АЛК04.
+    PlateFormat(
+        id = "kz",
+        masks = listOf("DDDLLLDD"),
+        letters = KZ_LETTERS,
+        transliterate = false,
+        autoFillable = false,
+    ),
+)
+
+/** Уровень доверия к прочтению. */
+enum class PlateTier { AUTO, SUGGESTION }
+
+/**
+ * Совпадение строки с одним форматом каталога.
+ *
+ * @param corrections сколько символов пришлось починить. Ноль — точное совпадение.
+ * @param ambiguous строка одинаково хорошо легла на несколько форматов; автозаполнять нельзя.
+ */
+data class FormatMatch(
+    val canonical: String,
+    val formatId: String,
+    val corrections: Int,
+    val ambiguous: Boolean = false,
+) {
+    val autoFillable: Boolean
+        get() = !ambiguous && PLATE_FORMATS.first { it.id == formatId }.autoFillable
 }
 
 /**
- * Позиционно чинит путаницу букв и цифр по шаблону «Б ЦЦЦ ББ ЦЦ(Ц)». Правка только
- * позиционная: «O» в позиции региона — почти наверняка ноль, но та же «O» в позиции
- * серии — настоящая буква, и трогать её нельзя.
+ * Чистит распознанную строку: верхний регистр, только буквы и цифры, срезанный хвост «RUS».
+ *
+ * Транслитерации здесь НЕТ — она стала свойством формата. Раньше кириллица приводилась к
+ * латинице глобально, и казахстанский номер с «Л» превращался в кашу из двух раскладок.
  */
-internal fun fixConfusions(s: String): String {
-    if (s.length !in 8..9) return s
-    return s.mapIndexed { i, c ->
-        val isLetterPosition = i == 0 || i == 4 || i == 5
-        if (isLetterPosition) DIGIT_AS_LETTER[c] ?: c else LETTER_AS_DIGIT[c] ?: c
-    }.joinToString("")
+internal fun normalizeCandidate(raw: String): String {
+    val compact = raw.uppercase().filter { it.isLetterOrDigit() }
+    return COUNTRY_SUFFIXES.firstOrNull { compact.endsWith(it) }
+        ?.let { compact.dropLast(it.length) }
+        ?: compact
 }
 
 /** Латиница обратно в кириллицу — канонический вид, в котором номер уходит в БД. */
@@ -102,15 +228,84 @@ internal fun toCyrillic(s: String): String =
     s.map { LATIN_TO_CYRILLIC[it] ?: it }.joinToString("")
 
 /**
- * Строка → номер по ГОСТ в кириллице, либо null. Это единственный фильтр: всё, что не
- * легло в [RU_RE], отбрасывается молча. Спецтехника и прицепы (около 2 % записей в БД)
- * под шаблон не попадают и вводятся руками, как и раньше.
+ * Пробует уложить строку на конкретный формат, считая число исправлений.
+ *
+ * Правка строго позиционная: «O» в позиции региона — почти наверняка ноль, но та же «O»
+ * в позиции серии — настоящая буква, и трогать её нельзя.
  */
-internal fun canonicalisePlate(raw: String): String? {
+private fun matchFormat(normalized: String, format: PlateFormat): FormatMatch? {
+    for (mask in format.masks) {
+        if (mask.length != normalized.length) continue
+        var corrections = 0
+        val out = StringBuilder(normalized.length)
+        var ok = true
+        for (i in normalized.indices) {
+            val raw = normalized[i]
+            val c = if (format.transliterate) CYRILLIC_TO_LATIN[raw] ?: raw else raw
+            if (mask[i] == 'L') {
+                val fixed = when {
+                    c in format.letters -> c
+                    DIGIT_AS_LETTER[c]?.takeIf { it in format.letters } != null -> {
+                        corrections++; DIGIT_AS_LETTER.getValue(c)
+                    }
+                    format.extraFixes[c]?.takeIf { it in format.letters } != null -> {
+                        corrections++; format.extraFixes.getValue(c)
+                    }
+                    else -> { ok = false; c }
+                }
+                out.append(fixed)
+            } else {
+                val fixed = when {
+                    c.isDigit() -> c
+                    LETTER_AS_DIGIT[c] != null -> { corrections++; LETTER_AS_DIGIT.getValue(c) }
+                    else -> { ok = false; c }
+                }
+                out.append(fixed)
+            }
+            if (!ok) break
+        }
+        if (!ok) continue
+        val body = if (format.transliterate) toCyrillic(out.toString()) else out.toString()
+        val canonical = format.separatorAfter
+            ?.takeIf { it in 0 until body.lastIndex }
+            ?.let { body.substring(0, it + 1) + "-" + body.substring(it + 1) }
+            ?: body
+        return FormatMatch(canonical, format.id, corrections)
+    }
+    return null
+}
+
+/**
+ * Строка → номер в каноническом виде, либо null.
+ *
+ * **Арбитраж детерминирован и не зависит от порядка каталога.** Одна строка может лечь на
+ * несколько форматов: `0123BC77` — это и ГОСТ (после починки `0 → O`), и формат с цифрами
+ * впереди (вообще без починки). Побеждает совпадение с наименьшим числом исправлений;
+ * точное совпадение бьёт любое исправленное. Ничья означает, что выбрать безопасно нельзя:
+ * возвращаем помеченный `ambiguous` результат, который автозаполнению не подлежит.
+ */
+internal fun canonicalisePlate(raw: String): FormatMatch? {
     val normalized = normalizeCandidate(raw)
-    if (normalized.length !in 8..9) return null
-    val fixed = fixConfusions(normalized)
-    return if (RU_RE.matches(fixed)) toCyrillic(fixed) else null
+    if (normalized.isEmpty()) return null
+    return arbitrate(PLATE_FORMATS.mapNotNull { matchFormat(normalized, it) })
+}
+
+/**
+ * Выбирает победителя среди совпадений с разными форматами.
+ *
+ * Вынесено отдельно ради теста: на текущем каталоге ничья структурно недостижима (маски
+ * `ru_car` и `ru_digits_first` различаются ровно одной позицией, поэтому их числа
+ * исправлений всегда отличаются на единицу), но правило обязано быть покрыто до того,
+ * как в каталог добавят формат, который ничью сделает возможной.
+ */
+internal fun arbitrate(matches: List<FormatMatch>): FormatMatch? {
+    if (matches.isEmpty()) return null
+    // Сортировка по formatId вторым ключом — чтобы при ничьей результат был
+    // воспроизводим, но НЕ зависел от порядка объявления в каталоге.
+    val ranked = matches.sortedWith(compareBy({ it.corrections }, { it.formatId }))
+    val best = ranked.first()
+    val tie = ranked.size > 1 && ranked[1].corrections == best.corrections
+    return best.copy(ambiguous = tie)
 }
 
 /**
@@ -236,23 +431,75 @@ private const val AMBIGUITY_RATIO = 1.3
  * Порог сравнивает только РАЗНЫЕ номера: это защита от кадра, где видно два ТС.
  */
 internal fun pickPlate(candidates: List<PlateCandidate>): SelectedPlate? {
-    val bestByPlate = mutableMapOf<String, PlateCandidate>()
+    data class Scored(val match: FormatMatch, val candidate: PlateCandidate)
+
+    val bestByPlate = mutableMapOf<String, Scored>()
     for (candidate in candidates) {
-        val plate = canonicalisePlate(candidate.text) ?: continue
-        val known = bestByPlate[plate]
-        if (known == null || candidate.weight > known.weight) bestByPlate[plate] = candidate
+        val match = canonicalisePlate(candidate.text) ?: continue
+        val known = bestByPlate[match.canonical]
+        if (known == null || candidate.weight > known.candidate.weight) {
+            bestByPlate[match.canonical] = Scored(match, candidate)
+        }
     }
-    val ranked = bestByPlate.entries.sortedByDescending { it.value.weight }
-    fun Map.Entry<String, PlateCandidate>.selected() =
-        SelectedPlate(key, value.bounds, value.weight)
+    val ranked = bestByPlate.values.sortedByDescending { it.candidate.weight }
+    fun Scored.selected() = SelectedPlate(match, candidate.bounds, candidate.weight)
     return when {
         ranked.isEmpty() -> null
         ranked.size == 1 -> ranked[0].selected()
         // Вес 0 (рамки не было) не может выиграть спор: арифметически 0 >= 0 * 1.3
         // верно, но означает «мы ничего не знаем о размере».
-        ranked[0].value.weight > 0 &&
-            ranked[0].value.weight >= ranked[1].value.weight * AMBIGUITY_RATIO -> ranked[0].selected()
+        ranked[0].candidate.weight > 0 &&
+            ranked[0].candidate.weight >= ranked[1].candidate.weight * AMBIGUITY_RATIO ->
+            ranked[0].selected()
         else -> null
+    }
+}
+
+/** Почему прочтение получило свой уровень — уходит в телеметрию, не в UI. */
+enum class PlateReasonCode {
+    AGREED, DISAGREED, SECOND_EMPTY, FORMAT_NOT_AUTO, AMBIGUOUS_FORMAT, WIDE_GLUE
+}
+
+/** Итог распознавания одного кадра. */
+data class PlateReading(
+    val text: String,
+    val formatId: String,
+    val tier: PlateTier,
+    val reason: PlateReasonCode,
+)
+
+/**
+ * Решает, что делать с результатами двух проходов.
+ *
+ * Вынесено отдельной чистой функцией именно ради теста: таблица решений — то место, где
+ * ошибка стоит неверного номера в базе, а проверить её на устройстве почти невозможно.
+ *
+ * Правило подстановки консервативно по одной причине: в бой уже уезжал `М583МУ792` вместо
+ * `799`. Автозаполнение получают только совпавшие прочтения однозначного автозаполняемого
+ * формата; всё остальное идёт подсказкой, которую инспектор подтверждает тапом.
+ *
+ * При расхождении предлагаем результат ВТОРОГО прохода: он читает вырезанную рамку в
+ * полном разрешении, и именно мелкие цифры региона были причиной той ошибки.
+ */
+fun decideReading(first: SelectedPlate?, second: SelectedPlate?): PlateReading? {
+    val chosen = second ?: first ?: return null
+    val match = chosen.match
+
+    fun suggestion(reason: PlateReasonCode) =
+        PlateReading(match.canonical, match.formatId, PlateTier.SUGGESTION, reason)
+
+    return when {
+        // Ложная склейка может совпасть в обоих проходах — модель и парсер одни и те же,
+        // поэтому согласие проходов её не отсеивает. Такой кандидат только подсказкой.
+        chosen.wideGlue || first?.wideGlue == true -> suggestion(PlateReasonCode.WIDE_GLUE)
+        match.ambiguous -> suggestion(PlateReasonCode.AMBIGUOUS_FORMAT)
+        !match.autoFillable -> suggestion(PlateReasonCode.FORMAT_NOT_AUTO)
+        second == null -> suggestion(PlateReasonCode.SECOND_EMPTY)
+        first == null -> suggestion(PlateReasonCode.SECOND_EMPTY)
+        first.canonical != second.canonical -> suggestion(PlateReasonCode.DISAGREED)
+        else -> PlateReading(
+            match.canonical, match.formatId, PlateTier.AUTO, PlateReasonCode.AGREED,
+        )
     }
 }
 

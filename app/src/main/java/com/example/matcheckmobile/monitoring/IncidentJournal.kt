@@ -108,6 +108,11 @@ class IncidentJournal(
         const val TAG = "IncidentJournal"
         const val DIR_NAME = "diag"
         const val FILE_NAME = "incidents.log"
-        const val MAX_BYTES = 64L * 1024
+        /**
+         * Поднято с 64 КБ: с событием на каждое фото прежнего лимита (плюс один бэкап
+         * при ротации, то есть ~800 записей) на активном объекте хватало на пару дней,
+         * а разбираться приходится за неделю.
+         */
+        const val MAX_BYTES = 256L * 1024
     }
 }

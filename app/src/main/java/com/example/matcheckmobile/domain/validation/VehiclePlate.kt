@@ -31,7 +31,9 @@ fun vehiclePlateHint(input: String): String? {
     if (trimmed.isEmpty()) return null
     val upper = trimmed.uppercase()
     val compact = upper.replace(" ", "")
-    if (RU_RE.matches(compact)) return "Похоже на российский номер"
+    // Тот же каталог, что и у распознавания: иначе набранный руками белорусский номер
+    // получал бы «Проверьте формат» ровно тогда, когда приложение само его распознаёт.
+    canonicalisePlate(compact)?.let { return "Похоже на номер" }
     if (upper.length > 12) return "Слишком длинно для номера ТС"
     if (!ALLOWED_RE.matches(upper)) {
         return "Используйте буквы, цифры, пробел, дефис"

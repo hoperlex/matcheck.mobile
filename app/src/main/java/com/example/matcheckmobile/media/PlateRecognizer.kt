@@ -7,12 +7,16 @@ import android.graphics.Rect
 import android.util.Log
 import com.example.matcheckmobile.BuildConfig
 import com.example.matcheckmobile.domain.ocr.PlateOcr
+import com.example.matcheckmobile.domain.ocr.PlateOcrOutcome
+import com.example.matcheckmobile.domain.ocr.PlateOcrResult
 import com.example.matcheckmobile.domain.validation.OcrBlock
 import com.example.matcheckmobile.domain.validation.OcrElement
 import com.example.matcheckmobile.domain.validation.OcrLine
 import com.example.matcheckmobile.domain.validation.OcrRect
+import com.example.matcheckmobile.domain.validation.PlateTier
 import com.example.matcheckmobile.domain.validation.SelectedPlate
 import com.example.matcheckmobile.domain.validation.buildCandidates
+import com.example.matcheckmobile.domain.validation.decideReading
 import com.example.matcheckmobile.domain.validation.cropRect
 import com.example.matcheckmobile.domain.validation.pickPlate
 import com.google.android.gms.tasks.Task
@@ -20,6 +24,7 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
+import com.google.mlkit.common.MlKitException
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import java.io.ByteArrayInputStream
 import java.io.File
@@ -79,19 +84,26 @@ class PlateRecognizer : PlateOcr {
         }
     }
 
-    override suspend fun recognise(frame: ByteArray): String? = withContext(Dispatchers.IO) {
+    override suspend fun recognise(frame: ByteArray): PlateOcrResult = withContext(Dispatchers.IO) {
         try {
-            val (originalWidth, originalHeight) = frameSize(frame) ?: return@withContext null
+            val (originalWidth, originalHeight) = frameSize(frame)
+                ?: return@withContext PlateOcrResult(PlateOcrOutcome.DECODE_FAILED)
+
+            fun result(outcome: PlateOcrOutcome, height: Int? = null) =
+                PlateOcrResult(outcome, null, originalWidth, originalHeight, height)
 
             // --- проход 1: найти номер на уменьшенном кадре
             val coarse = decodeDownscaled(frame, originalWidth, originalHeight)
-                ?: return@withContext null
+                ?: return@withContext result(PlateOcrOutcome.DECODE_FAILED)
             val coarseWidth = coarse.width
             val coarseHeight = coarse.height
-            val firstText = recogniseBitmap(coarse) ?: return@withContext null
+            val firstText = recogniseBitmap(coarse)
+                ?: return@withContext result(PlateOcrOutcome.RECOGNISE_FAILED)
             val first = pickPlate(buildCandidates(firstText.toOcrBlocks()))
             logPass("1", "${coarseWidth}x$coarseHeight", first)
-            if (first == null) return@withContext null
+            if (first == null) return@withContext result(PlateOcrOutcome.NO_FIRST_CANDIDATE)
+
+            val textHeight = first.weight
 
             // --- проход 2: перечитать рамку номера в исходном разрешении
             val crop = cropRect(
@@ -100,25 +112,43 @@ class PlateRecognizer : PlateOcr {
                 decodedHeight = coarseHeight,
                 originalWidth = originalWidth,
                 originalHeight = originalHeight,
-            ) ?: return@withContext null
+            ) ?: return@withContext result(PlateOcrOutcome.CROP_FAILED, textHeight)
 
-            val cropped = decodeRegion(frame, crop) ?: return@withContext null
-            val secondText = recogniseBitmap(cropped) ?: return@withContext null
-            val second = pickPlate(buildCandidates(secondText.toOcrBlocks()))
+            val cropped = decodeRegion(frame, crop)
+                ?: return@withContext result(PlateOcrOutcome.CROP_FAILED, textHeight)
+            val secondText = recogniseBitmap(cropped)
+            val second = secondText?.let { pickPlate(buildCandidates(it.toOcrBlocks())) }
             logPass("2", "${crop.width}x${crop.height}", second)
 
-            val agreed = second != null && second.canonical == first.canonical
+            // Решение принимает чистая функция: таблицу уровней надо уметь тестировать,
+            // а на устройстве её не проверить.
+            val reading = decideReading(first, second)
+                ?: return@withContext result(PlateOcrOutcome.NO_SECOND_CANDIDATE, textHeight)
+
             if (BuildConfig.DEBUG) {
-                Log.d(TAG, if (agreed) "проходы совпали: ${first.canonical}" else "проходы разошлись — поле не заполняем")
+                Log.d(TAG, "итог: ${reading.tier} · ${reading.formatId} · ${reading.reason}")
             }
-            if (agreed) first.canonical else null
+            PlateOcrResult(
+                outcome = if (reading.tier == PlateTier.AUTO) {
+                    PlateOcrOutcome.AUTO
+                } else {
+                    PlateOcrOutcome.SUGGESTED
+                },
+                reading = reading,
+                frameWidth = originalWidth,
+                frameHeight = originalHeight,
+                textHeightPx = textHeight,
+            )
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            // Сюда же приходит MlKitException.UNAVAILABLE, когда модуль `ocr` ещё
-            // не приехал из Google Play services: штатная ситуация, не ошибка.
-            Log.w(TAG, "распознавание не удалось", e)
-            null
+            // Модуль `ocr` ещё не приехал из Google Play services — штатная ситуация на
+            // свежем планшете, а не сбой. Отличаем её, чтобы не искать несуществующий баг.
+            val unavailable = e is MlKitException && e.errorCode == MlKitException.UNAVAILABLE
+            Log.w(TAG, if (unavailable) "OCR-модуль недоступен" else "распознавание не удалось", e)
+            PlateOcrResult(
+                if (unavailable) PlateOcrOutcome.MODULE_UNAVAILABLE else PlateOcrOutcome.RECOGNISE_FAILED,
+            )
         }
     }
 
