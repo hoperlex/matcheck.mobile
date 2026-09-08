@@ -21,13 +21,18 @@ android {
         applicationId = "com.example.matcheckmobile"
         minSdk = 24
         targetSdk = 35
-        // Прод — 1.0.37 (versionCode 38): именно он стоит на планшетах, судя по
-        // user-agent'ам в unauthorized_access_log. Номер обязан строго расти:
+        // Прод — 1.0.38 (versionCode 39), выкачен 07.09: на него перешло 19 из 25
+        // аккаунтов, судя по sessions.last_seen_ua. Номер обязан строго расти:
         // in-app updater сравнивает manifest.versionCode с BuildConfig.VERSION_CODE
         // и предлагает обновление только когда первый больше. Непрерывность не
         // требуется — пропуски допустимы.
-        versionCode = 39
-        versionName = "1.0.38"
+        //
+        // Поднимать ОБЯЗАТЕЛЬНО перед каждой публикацией: publishGithubRelease при
+        // существующем теге уходит в `gh release upload --clobber` и молча
+        // перезаписывает ассеты уже выпущенной версии, а планшеты, которые на неё
+        // обновились, новый код не получат никогда.
+        versionCode = 40
+        versionName = "1.0.39"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
