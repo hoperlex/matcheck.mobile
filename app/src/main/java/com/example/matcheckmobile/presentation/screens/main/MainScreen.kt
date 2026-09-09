@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.matcheckmobile.BuildConfig
 import com.example.matcheckmobile.presentation.components.AppUpdateChip
 import com.example.matcheckmobile.presentation.components.SyncStatusChip
 import com.example.matcheckmobile.presentation.screens.settings.LogoutGuardDialog
@@ -100,16 +101,22 @@ fun MainScreen(
                     // с главного экрана (проверить, какие УПД подтянутся под другим
                     // аккаунтом).
                     //
-                    // Долгий тап открывает служебное меню — и в release тоже. Раньше он
-                    // был под BuildConfig.DEBUG с пометкой «навигация доступна через явный
-                    // UI», и это было неверно: другого пути к «Очереди синхронизации» и
-                    // «Настройкам» нет, то есть на боевом планшете они недостижимы вовсе.
-                    // Из очереди выгружается журнал инцидентов — единственный способ
-                    // узнать, почему распознавание сработало не так; без него разбор
-                    // каждой жалобы с объекта остаётся догадкой.
+                    // Долгий тап открывает служебное меню только в debug-сборке — так
+                    // решено осознанно: инспекторам на объектах «Очередь синхронизации» и
+                    // «Настройки» не нужны, и случайно попадать туда они не должны.
+                    //
+                    // Плата за это: другого пути к этим экранам нет, поэтому на боевом
+                    // планшете журнал инцидентов выгрузить нельзя. Разбор жалобы вида
+                    // «распознало не тот номер» приходится вести по косвенным признакам —
+                    // отличить сбой распознавания от опечатки инспектора по базе
+                    // невозможно. Понадобится факт — снимать debug-сборкой.
                     val titleModifier = Modifier.combinedClickable(
                         onClick = { confirmLogout = true },
-                        onLongClick = { showAdminSheet = true },
+                        onLongClick = if (BuildConfig.DEBUG) {
+                            { showAdminSheet = true }
+                        } else {
+                            null
+                        },
                     )
                     Box(modifier = titleModifier) {
                         // Брендовая надпись «МАТБАЛАНС»: Oswald — узкий
