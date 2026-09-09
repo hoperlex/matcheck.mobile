@@ -187,9 +187,13 @@ class PlateParsingTest {
     // --- уровни доверия -----------------------------------------------------
 
     @Test
-    fun `совпавшие проходы автозаполняемого формата подставляются сами`() {
+    fun `совпавшие проходы дают подсказку, а не автозаполнение`() {
+        // Автозаполнение снято целиком: инспекторы с двух объектов сообщили, что в поле
+        // попадает не тот регион, а согласие проходов этого не ловит — второй проход
+        // режет кадр по рамке первого. Причина остаётся AGREED, чтобы по журналу было
+        // видно, сколько прочтений дошло бы до автозаполнения при его возврате.
         val r = decideReading(selected("O123BC77"), selected("O123BC77"))
-        assertEquals(PlateTier.AUTO, r?.tier)
+        assertEquals(PlateTier.SUGGESTION, r?.tier)
         assertEquals(PlateReasonCode.AGREED, r?.reason)
         assertEquals("О123ВС77", r?.text)
     }
@@ -478,7 +482,11 @@ class PlateParsingTest {
         assertEquals("А777АА99", m?.canonical)
         assertFalse("суффикс — не спорный префикс", m!!.countryAffixStripped)
         assertTrue(m.autoFillable)
-        assertEquals(PlateTier.AUTO, decideReading(selected("A 777 AA 99 RUS"), selected("A 777 AA 99 RUS"))?.tier)
+        // Причина AGREED, а не COUNTRY_AFFIX: понижения из-за суффикса быть не должно.
+        assertEquals(
+            PlateReasonCode.AGREED,
+            decideReading(selected("A 777 AA 99 RUS"), selected("A 777 AA 99 RUS"))?.reason,
+        )
     }
 
     @Test
@@ -515,13 +523,15 @@ class PlateParsingTest {
     // региона (797→792, 799→792, 977→972). Номера здесь синтетические: настоящие полные
     // номера, идентификаторы приёмок и почты инспекторов в код не переносим.
 
-    private fun tierOf(text: String): PlateTier? =
-        decideReading(selected(text), selected(text))?.tier
+    // Уровень у всех исходов теперь один — подсказка, поэтому фильтр проверяется по
+    // ПРИЧИНЕ: она различает «регион не прошёл список» и «прошёл, сошлись оба прохода».
+    private fun reasonOf(text: String): PlateReasonCode? =
+        decideReading(selected(text), selected(text))?.reason
 
     @Test
-    fun `несуществующий трёхзначный регион не автозаполняется`() {
-        assertEquals(PlateTier.SUGGESTION, tierOf("A111AA792"))
-        assertEquals(PlateTier.SUGGESTION, tierOf("A111AA972"))
+    fun `несуществующий трёхзначный регион отсекается фильтром`() {
+        assertEquals(PlateReasonCode.RU_REGION_NOT_AUTO, reasonOf("A111AA792"))
+        assertEquals(PlateReasonCode.RU_REGION_NOT_AUTO, reasonOf("A111AA972"))
     }
 
     @Test
@@ -536,25 +546,34 @@ class PlateParsingTest {
     }
 
     @Test
-    fun `верные регионы с тех же фото автозаполняются`() {
-        assertEquals(PlateTier.AUTO, tierOf("A111AA797"))
-        assertEquals(PlateTier.AUTO, tierOf("A111AA799"))
-        assertEquals(PlateTier.AUTO, tierOf("A111AA977"))
+    fun `верные регионы с тех же фото фильтр пропускает`() {
+        assertEquals(PlateReasonCode.AGREED, reasonOf("A111AA797"))
+        assertEquals(PlateReasonCode.AGREED, reasonOf("A111AA799"))
+        assertEquals(PlateReasonCode.AGREED, reasonOf("A111AA977"))
     }
 
     @Test
     fun `легитимные редкие двузначные регионы фильтр не трогает`() {
         // Северная Осетия, Калмыкия, Еврейская АО — встречались в той же выборке,
         // что и четыре ошибки, и все три настоящие.
-        assertEquals(PlateTier.AUTO, tierOf("A111AA15"))
-        assertEquals(PlateTier.AUTO, tierOf("A111AA08"))
-        assertEquals(PlateTier.AUTO, tierOf("A111AA79"))
+        assertEquals(PlateReasonCode.AGREED, reasonOf("A111AA15"))
+        assertEquals(PlateReasonCode.AGREED, reasonOf("A111AA08"))
+        assertEquals(PlateReasonCode.AGREED, reasonOf("A111AA79"))
     }
 
     @Test
-    fun `нулевой регион не автозаполняется`() {
+    fun `нулевой регион фильтр отсекает`() {
         // Двузначные принимаются как 01-99, нуля среди них нет.
-        assertEquals(PlateTier.SUGGESTION, tierOf("A111AA00"))
+        assertEquals(PlateReasonCode.RU_REGION_NOT_AUTO, reasonOf("A111AA00"))
+    }
+
+    @Test
+    fun `автозаполнения нет ни при одном исходе`() {
+        // Страховка от случайного возврата AUTO мимо обсуждения: пока причина ошибки
+        // «вместо 977 вбивает 02» не установлена по дампу, в поле не должно попадать
+        // ничего без тапа инспектора.
+        listOf("A111AA797", "A111AA77", "A111AA792", "A111AA00", "0029TC797")
+            .forEach { assertEquals(it, PlateTier.SUGGESTION, decideReading(selected(it), selected(it))?.tier) }
     }
 
     @Test

@@ -21,8 +21,10 @@ android {
         applicationId = "com.example.matcheckmobile"
         minSdk = 24
         targetSdk = 35
-        // Прод — 1.0.38 (versionCode 39), выкачен 07.09: на него перешло 19 из 25
-        // аккаунтов, судя по sessions.last_seen_ua. Номер обязан строго расти:
+        // Прод — 1.0.39 (versionCode 40), выкачен 08.09 в 11:56: на него перешло 20
+        // аккаунтов, судя по auth_events (НЕ по sessions.last_seen_ua — там UA
+        // перезаписывается при обновлении, и записи старой версии числятся за новой).
+        // Номер обязан строго расти:
         // in-app updater сравнивает manifest.versionCode с BuildConfig.VERSION_CODE
         // и предлагает обновление только когда первый больше. Непрерывность не
         // требуется — пропуски допустимы.
@@ -31,8 +33,8 @@ android {
         // существующем теге уходит в `gh release upload --clobber` и молча
         // перезаписывает ассеты уже выпущенной версии, а планшеты, которые на неё
         // обновились, новый код не получат никогда.
-        versionCode = 40
-        versionName = "1.0.39"
+        versionCode = 41
+        versionName = "1.0.40"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

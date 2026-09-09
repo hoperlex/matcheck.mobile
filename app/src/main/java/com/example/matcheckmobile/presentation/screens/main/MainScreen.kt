@@ -51,7 +51,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.matcheckmobile.BuildConfig
 import com.example.matcheckmobile.presentation.components.AppUpdateChip
 import com.example.matcheckmobile.presentation.components.SyncStatusChip
 import com.example.matcheckmobile.presentation.screens.settings.LogoutGuardDialog
@@ -99,15 +98,18 @@ fun MainScreen(
                     // Тап по «su10» открывает диалог выхода из аккаунта — чтобы
                     // инспектор мог разлогиниться и зайти под другим логином прямо
                     // с главного экрана (проверить, какие УПД подтянутся под другим
-                    // аккаунтом). Долгий тап в debug-сборке открывает служебное меню;
-                    // в release он не нужен — навигация доступна через явный UI.
+                    // аккаунтом).
+                    //
+                    // Долгий тап открывает служебное меню — и в release тоже. Раньше он
+                    // был под BuildConfig.DEBUG с пометкой «навигация доступна через явный
+                    // UI», и это было неверно: другого пути к «Очереди синхронизации» и
+                    // «Настройкам» нет, то есть на боевом планшете они недостижимы вовсе.
+                    // Из очереди выгружается журнал инцидентов — единственный способ
+                    // узнать, почему распознавание сработало не так; без него разбор
+                    // каждой жалобы с объекта остаётся догадкой.
                     val titleModifier = Modifier.combinedClickable(
                         onClick = { confirmLogout = true },
-                        onLongClick = if (BuildConfig.DEBUG) {
-                            { showAdminSheet = true }
-                        } else {
-                            null
-                        },
+                        onLongClick = { showAdminSheet = true },
                     )
                     Box(modifier = titleModifier) {
                         // Брендовая надпись «МАТБАЛАНС»: Oswald — узкий
