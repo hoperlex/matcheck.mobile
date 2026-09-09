@@ -44,8 +44,19 @@ data class OcrBlock(val lines: List<OcrLine>)
  * обычно крупнее случайных надписей, и это единственный признак, по которому мы
  * различаем два ТС в кадре. Для многострочного кандидата вес считается по средней
  * высоте строк, а не по высоте всей рамки, иначе блок текста побеждал бы номер.
+ *
+ * @param elementSpan из скольких ИСХОДНЫХ элементов ML Kit собран кандидат. Единица —
+ *   модель вернула номер одним словом; больше — мы склеили его сами. Считать надо
+ *   элементы до склейки, а не смысловые части: `А | 123 | - | ВС77` даёт четыре элемента
+ *   при трёх значащих, и именно такие широкие склейки чаще всего приваривают к номеру
+ *   постороннюю надпись.
  */
-data class PlateCandidate(val text: String, val bounds: OcrRect, val weight: Int)
+data class PlateCandidate(
+    val text: String,
+    val bounds: OcrRect,
+    val weight: Int,
+    val elementSpan: Int = 1,
+)
 
 /**
  * Победивший кандидат вместе с рамкой — по ней делается второй проход.
@@ -57,7 +68,13 @@ data class SelectedPlate(
     val match: FormatMatch,
     val bounds: OcrRect,
     val weight: Int,
-    /** Кандидат собран склейкой, потребовавшей расширенного порога (готовность к релизу B). */
+    /**
+     * Кандидат собран склейкой более чем из [WIDE_GLUE_SPAN] исходных элементов ML Kit.
+     *
+     * Такой номер не автозаполняется: чем шире склейка, тем выше шанс, что к знаку
+     * приварилась соседняя надпись. Согласие двух проходов здесь не помогает — модель и
+     * парсер одни и те же, ошибка воспроизводится.
+     */
     val wideGlue: Boolean = false,
 ) {
     val canonical: String get() = match.canonical
@@ -507,7 +524,9 @@ internal fun buildCandidates(blocks: List<OcrBlock>): List<PlateCandidate> {
     val out = mutableListOf<PlateCandidate>()
     for (block in blocks) {
         for (line in block.lines) {
-            line.elements.forEach { out += PlateCandidate(it.text, it.bounds, it.bounds.height) }
+            line.elements.forEach {
+                out += PlateCandidate(it.text, it.bounds, it.bounds.height, elementSpan = 1)
+            }
 
             // Окна соседних слов: вес окна — по самому мелкому слову в нём, чтобы
             // склейка не получила вес крупной надписи из-за одного большого слова.
@@ -518,6 +537,7 @@ internal fun buildCandidates(blocks: List<OcrBlock>): List<PlateCandidate> {
                             text = window.joinToString("") { it.text },
                             bounds = window.map { it.bounds }.reduce(OcrRect::union),
                             weight = window.minOf { it.bounds.height },
+                            elementSpan = window.size,
                         )
                     }
                 }
@@ -527,7 +547,12 @@ internal fun buildCandidates(blocks: List<OcrBlock>): List<PlateCandidate> {
             val lineIsCoherent = line.elements.size <= 1 ||
                 line.elements.zipWithNext().all { (a, b) -> sameLineAdjacent(a.bounds, b.bounds) }
             if (lineIsCoherent) {
-                out += PlateCandidate(line.text, line.bounds, line.bounds.height)
+                out += PlateCandidate(
+                    line.text,
+                    line.bounds,
+                    line.bounds.height,
+                    elementSpan = maxOf(line.elements.size, 1),
+                )
             }
         }
 
@@ -538,6 +563,7 @@ internal fun buildCandidates(blocks: List<OcrBlock>): List<PlateCandidate> {
                     text = window.joinToString("") { it.text },
                     bounds = window[0].bounds.union(window[1].bounds),
                     weight = window.sumOf { it.bounds.height } / window.size,
+                    elementSpan = window.sumOf { maxOf(it.elements.size, 1) },
                 )
             }
         }
@@ -552,6 +578,7 @@ internal fun buildCandidates(blocks: List<OcrBlock>): List<PlateCandidate> {
                 // Средняя высота строк, а не высота блока: иначе многострочный
                 // блок получил бы завышенный вес и выиграл бы у настоящего номера.
                 weight = block.lines.sumOf { it.bounds.height } / block.lines.size,
+                elementSpan = block.lines.sumOf { maxOf(it.elements.size, 1) },
             )
         }
     }
@@ -562,6 +589,34 @@ internal fun buildCandidates(blocks: List<OcrBlock>): List<PlateCandidate> {
 private const val AMBIGUITY_RATIO = 1.3
 
 /**
+ * До скольких исходных элементов ML Kit склейка считается нормальной.
+ *
+ * Три — потому что настоящий номер модель обычно возвращает одним-двумя словами, а
+ * разделители дают третий: `А123ВС` + `777`, `А123ВС` + `77` + `7`. Четвёртый элемент уже
+ * означает, что мы собрали знак из кусков, и вероятность приварить соседнюю надпись
+ * становится заметной.
+ */
+private const val WIDE_GLUE_SPAN = 3
+
+/**
+ * Обрезан ли [shorter] относительно [longer] — то есть это тот же номер без последней
+ * цифры региона.
+ *
+ * Так выглядит потерянная цифра трёхзначного кода: «Х123УК977» распадается на элементы
+ * `Х123УК`, `97`, `7`, окно из двух даёт «Х123УК97», окно из трёх — «Х123УК977». ОБА
+ * ложатся на `ru_car` без единой правки (маски `LDDDLLDD` и `LDDDLLDDD`), поэтому
+ * дедупликация их не схлопывает, и дальше побеждает тот, чей элемент оказался крупнее.
+ * Инспекторы это и видят: серия верная, регион короче или не тот.
+ *
+ * Разница ровно в один символ — не произвол: маски автозаполняемых российских форматов
+ * различаются на одну цифру, и никакой другой обрыв двух валидных номеров не порождает.
+ */
+private fun isTruncatedRegion(shorter: String, longer: String): Boolean =
+    longer.length == shorter.length + 1 &&
+        longer.startsWith(shorter) &&
+        longer.last().isDigit()
+
+/**
  * Выбирает номер из кандидатов либо возвращает null, если уверенности нет.
  *
  * Дедупликация обязательна и идёт ДО проверки неоднозначности: один и тот же номер
@@ -570,6 +625,11 @@ private const val AMBIGUITY_RATIO = 1.3
  * бы два вхождения одного номера.
  *
  * Порог сравнивает только РАЗНЫЕ номера: это защита от кадра, где видно два ТС.
+ *
+ * Обрезанные прочтения выбрасываются ещё раньше, до сравнения весов (см.
+ * [isTruncatedRegion]): цифру, которую ML Kit прочитал, отбрасывать нельзя — более длинное
+ * чтение всегда полнее. Обратное невозможно: лишнюю цифру разбор не придумывает, она может
+ * взяться только из элемента, который модель действительно вернула.
  */
 internal fun pickPlate(candidates: List<PlateCandidate>): SelectedPlate? {
     data class Scored(val match: FormatMatch, val candidate: PlateCandidate)
@@ -582,8 +642,16 @@ internal fun pickPlate(candidates: List<PlateCandidate>): SelectedPlate? {
             bestByPlate[match.canonical] = Scored(match, candidate)
         }
     }
-    val ranked = bestByPlate.values.sortedByDescending { it.candidate.weight }
-    fun Scored.selected() = SelectedPlate(match, candidate.bounds, candidate.weight)
+    val complete = bestByPlate.keys.filterNot { short ->
+        bestByPlate.keys.any { long -> isTruncatedRegion(short, long) }
+    }
+    val ranked = complete.map { bestByPlate.getValue(it) }.sortedByDescending { it.candidate.weight }
+    fun Scored.selected() = SelectedPlate(
+        match = match,
+        bounds = candidate.bounds,
+        weight = candidate.weight,
+        wideGlue = candidate.elementSpan > WIDE_GLUE_SPAN,
+    )
     return when {
         ranked.isEmpty() -> null
         ranked.size == 1 -> ranked[0].selected()
@@ -629,17 +697,14 @@ data class PlateReading(
  * Вынесено отдельной чистой функцией именно ради теста: таблица решений — то место, где
  * ошибка стоит неверного номера в базе, а проверить её на устройстве почти невозможно.
  *
- * **Автозаполнения сейчас нет ни при каком исходе — любое прочтение идёт подсказкой.**
- * Причина: инспекторы с двух объектов сообщили, что в поле попадает не тот регион
- * («вместо 977 может вбить 02»), а такую ошибку не видно ни в базе, ни здесь. Коды
- * `02` и `799` существуют, поэтому [regionAllowsAutoFill] их пропускает, а согласие двух
- * проходов доказательством не является: второй проход режет кадр ПО РАМКЕ ПЕРВОГО
- * ([cropRect], запас 20 %) и цифру, которую первый не увидел, увидеть не может — он
- * подтверждает ошибку, а не исправляет.
+ * Правило подстановки консервативно по одной причине: в бой уже уезжал `М583МУ792` вместо
+ * `799`. Автозаполнение получают только совпавшие прочтения однозначного автозаполняемого
+ * формата; всё остальное идёт подсказкой, которую инспектор подтверждает тапом.
  *
- * Уровни и коды причин оставлены целиком: [PlateTier.AUTO] вернётся одной строкой, когда
- * дамп `PlateRecognizer` с реального кадра покажет причину. До тех пор журнал продолжает
- * различать классы, чтобы было с чем сравнивать.
+ * Осторожно с трактовкой согласия проходов: оно НЕ независимое свидетельство. Второй проход
+ * режет кадр по рамке первого ([cropRect], запас 20 %), поэтому цифру региона, которую
+ * первый проход не увидел, второй чаще подтвердит, чем исправит. Именно поэтому обрезанный
+ * регион отсекается раньше — в [pickPlate], а не здесь.
  *
  * При расхождении предлагаем результат ВТОРОГО прохода: он читает вырезанную рамку в
  * полном разрешении, и именно мелкие цифры региона были причиной ошибки `М583МУ792`.
@@ -665,9 +730,9 @@ fun decideReading(first: SelectedPlate?, second: SelectedPlate?): PlateReading? 
         second == null -> suggestion(PlateReasonCode.SECOND_EMPTY)
         first == null -> suggestion(PlateReasonCode.SECOND_EMPTY)
         first.canonical != second.canonical -> suggestion(PlateReasonCode.DISAGREED)
-        // Здесь стояло PlateTier.AUTO. Причина остаётся AGREED: по журналу должно быть
-        // видно, сколько прочтений дошло бы до автозаполнения, если его вернуть.
-        else -> suggestion(PlateReasonCode.AGREED)
+        else -> PlateReading(
+            match.canonical, match.formatId, PlateTier.AUTO, PlateReasonCode.AGREED,
+        )
     }
 }
 

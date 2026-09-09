@@ -187,13 +187,9 @@ class PlateParsingTest {
     // --- уровни доверия -----------------------------------------------------
 
     @Test
-    fun `совпавшие проходы дают подсказку, а не автозаполнение`() {
-        // Автозаполнение снято целиком: инспекторы с двух объектов сообщили, что в поле
-        // попадает не тот регион, а согласие проходов этого не ловит — второй проход
-        // режет кадр по рамке первого. Причина остаётся AGREED, чтобы по журналу было
-        // видно, сколько прочтений дошло бы до автозаполнения при его возврате.
+    fun `совпавшие проходы автозаполняемого формата подставляются сами`() {
         val r = decideReading(selected("O123BC77"), selected("O123BC77"))
-        assertEquals(PlateTier.SUGGESTION, r?.tier)
+        assertEquals(PlateTier.AUTO, r?.tier)
         assertEquals(PlateReasonCode.AGREED, r?.reason)
         assertEquals("О123ВС77", r?.text)
     }
@@ -482,10 +478,9 @@ class PlateParsingTest {
         assertEquals("А777АА99", m?.canonical)
         assertFalse("суффикс — не спорный префикс", m!!.countryAffixStripped)
         assertTrue(m.autoFillable)
-        // Причина AGREED, а не COUNTRY_AFFIX: понижения из-за суффикса быть не должно.
         assertEquals(
-            PlateReasonCode.AGREED,
-            decideReading(selected("A 777 AA 99 RUS"), selected("A 777 AA 99 RUS"))?.reason,
+            PlateTier.AUTO,
+            decideReading(selected("A 777 AA 99 RUS"), selected("A 777 AA 99 RUS"))?.tier,
         )
     }
 
@@ -523,15 +518,13 @@ class PlateParsingTest {
     // региона (797→792, 799→792, 977→972). Номера здесь синтетические: настоящие полные
     // номера, идентификаторы приёмок и почты инспекторов в код не переносим.
 
-    // Уровень у всех исходов теперь один — подсказка, поэтому фильтр проверяется по
-    // ПРИЧИНЕ: она различает «регион не прошёл список» и «прошёл, сошлись оба прохода».
-    private fun reasonOf(text: String): PlateReasonCode? =
-        decideReading(selected(text), selected(text))?.reason
+    private fun tierOf(text: String): PlateTier? =
+        decideReading(selected(text), selected(text))?.tier
 
     @Test
-    fun `несуществующий трёхзначный регион отсекается фильтром`() {
-        assertEquals(PlateReasonCode.RU_REGION_NOT_AUTO, reasonOf("A111AA792"))
-        assertEquals(PlateReasonCode.RU_REGION_NOT_AUTO, reasonOf("A111AA972"))
+    fun `несуществующий трёхзначный регион не автозаполняется`() {
+        assertEquals(PlateTier.SUGGESTION, tierOf("A111AA792"))
+        assertEquals(PlateTier.SUGGESTION, tierOf("A111AA972"))
     }
 
     @Test
@@ -546,34 +539,25 @@ class PlateParsingTest {
     }
 
     @Test
-    fun `верные регионы с тех же фото фильтр пропускает`() {
-        assertEquals(PlateReasonCode.AGREED, reasonOf("A111AA797"))
-        assertEquals(PlateReasonCode.AGREED, reasonOf("A111AA799"))
-        assertEquals(PlateReasonCode.AGREED, reasonOf("A111AA977"))
+    fun `верные регионы с тех же фото автозаполняются`() {
+        assertEquals(PlateTier.AUTO, tierOf("A111AA797"))
+        assertEquals(PlateTier.AUTO, tierOf("A111AA799"))
+        assertEquals(PlateTier.AUTO, tierOf("A111AA977"))
     }
 
     @Test
     fun `легитимные редкие двузначные регионы фильтр не трогает`() {
         // Северная Осетия, Калмыкия, Еврейская АО — встречались в той же выборке,
         // что и четыре ошибки, и все три настоящие.
-        assertEquals(PlateReasonCode.AGREED, reasonOf("A111AA15"))
-        assertEquals(PlateReasonCode.AGREED, reasonOf("A111AA08"))
-        assertEquals(PlateReasonCode.AGREED, reasonOf("A111AA79"))
+        assertEquals(PlateTier.AUTO, tierOf("A111AA15"))
+        assertEquals(PlateTier.AUTO, tierOf("A111AA08"))
+        assertEquals(PlateTier.AUTO, tierOf("A111AA79"))
     }
 
     @Test
-    fun `нулевой регион фильтр отсекает`() {
+    fun `нулевой регион не автозаполняется`() {
         // Двузначные принимаются как 01-99, нуля среди них нет.
-        assertEquals(PlateReasonCode.RU_REGION_NOT_AUTO, reasonOf("A111AA00"))
-    }
-
-    @Test
-    fun `автозаполнения нет ни при одном исходе`() {
-        // Страховка от случайного возврата AUTO мимо обсуждения: пока причина ошибки
-        // «вместо 977 вбивает 02» не установлена по дампу, в поле не должно попадать
-        // ничего без тапа инспектора.
-        listOf("A111AA797", "A111AA77", "A111AA792", "A111AA00", "0029TC797")
-            .forEach { assertEquals(it, PlateTier.SUGGESTION, decideReading(selected(it), selected(it))?.tier) }
+        assertEquals(PlateTier.SUGGESTION, tierOf("A111AA00"))
     }
 
     @Test
@@ -593,5 +577,112 @@ class PlateParsingTest {
     fun `остальные правки путаницы работают как раньше`() {
         assertEquals("О123ВС70", canonicalisePlate("O123BC7O")?.canonical)
         assertEquals("А111АА15", canonicalisePlate("A111AA1S")?.canonical)
+    }
+
+    // --- обрезанный регион и ширина склейки ---------------------------------
+    //
+    // Жалоба с объектов 09.09.2026: «в госномерах часто вбивается не тот регион, например
+    // вместо 977 может вбить 02». Оба дефекта ниже дают ровно эту картину — серия верная,
+    // регион короче либо чужой, — и оба доходили до автозаполнения молча.
+
+    @Test
+    fun `потерянная цифра региона не побеждает полное чтение`() {
+        // ML Kit разбил регион на «97» и «7». Окно из двух даёт «О123ВС97», окно из трёх и
+        // строка целиком — «О123ВС977»; оба ложатся на ru_car без правок, поэтому раньше
+        // спорили по весу и порог 1,3 отвергал обоих.
+        val plate = plateOf(
+            blockOf(
+                lineOf(
+                    word("O123BC", x = 0, width = 120),
+                    word("97", x = 125, width = 40),
+                    word("7", x = 168, width = 18, height = 30),
+                ),
+            ),
+        )
+        assertEquals("О123ВС977", plate)
+    }
+
+    @Test
+    fun `обрезанный кандидат отбрасывается даже когда написан крупнее`() {
+        // Вес здесь ни при чём: цифру, которую модель прочитала, отбрасывать нельзя.
+        val picked = pickPlate(
+            listOf(
+                PlateCandidate("O123BC97", OcrRect(0, 0, 100, 60), weight = 60),
+                PlateCandidate("O123BC977", OcrRect(0, 0, 110, 30), weight = 30),
+            ),
+        )
+        assertEquals("О123ВС977", picked?.canonical)
+    }
+
+    @Test
+    fun `настоящий двузначный регион не страдает`() {
+        // Конкурента длиннее нет — кандидат обязан остаться.
+        val picked = pickPlate(listOf(PlateCandidate("O123BC97", OcrRect(0, 0, 100, 40), 40)))
+        assertEquals("О123ВС97", picked?.canonical)
+    }
+
+    @Test
+    fun `правило обрезки не трогает разные номера`() {
+        // Два ТС в кадре: ни один номер не является началом другого, спор решает вес —
+        // ровно как раньше. Иначе защита от обрезки съела бы соседнюю машину.
+        val picked = pickPlate(
+            listOf(
+                PlateCandidate("O123BC97", OcrRect(0, 0, 100, 60), weight = 60),
+                PlateCandidate("X456YA199", OcrRect(0, 0, 110, 30), weight = 30),
+            ),
+        )
+        assertEquals("О123ВС97", picked?.canonical)
+    }
+
+    @Test
+    fun `хвостовая буква, чинимая в цифру, тоже считается потерянной цифрой`() {
+        // «B» на цифровой позиции чинится в «8», то есть длинный кандидат реально полнее
+        // на одну цифру региона. Поведение правильное, фиксируем его явно.
+        val picked = pickPlate(
+            listOf(
+                PlateCandidate("O123BC97", OcrRect(0, 0, 100, 60), weight = 60),
+                PlateCandidate("O123BC97B", OcrRect(0, 0, 110, 30), weight = 30),
+            ),
+        )
+        assertEquals("О123ВС978", picked?.canonical)
+    }
+
+    @Test
+    fun `склейка из четырёх элементов помечается широкой`() {
+        // Раньше wideGlue не выставлялся нигде, и ветка WIDE_GLUE в decideReading была
+        // мёртвой: собранный из кусков номер автозаполнялся наравне с прочитанным целиком.
+        val wide = pickPlate(
+            listOf(PlateCandidate("O123BC77", OcrRect(0, 0, 100, 40), 40, elementSpan = 4)),
+        )
+        assertTrue("четыре элемента — уже широкая склейка", wide!!.wideGlue)
+        assertEquals(PlateTier.SUGGESTION, decideReading(wide, wide)?.tier)
+        assertEquals(PlateReasonCode.WIDE_GLUE, decideReading(wide, wide)?.reason)
+    }
+
+    @Test
+    fun `склейка из трёх элементов широкой не считается`() {
+        // Номер с разделителем — обычное дело: «А123ВС» + «77» + «7».
+        val narrow = pickPlate(
+            listOf(PlateCandidate("O123BC77", OcrRect(0, 0, 100, 40), 40, elementSpan = 3)),
+        )
+        assertFalse(narrow!!.wideGlue)
+        assertEquals(PlateTier.AUTO, decideReading(narrow, narrow)?.tier)
+    }
+
+    @Test
+    fun `ширина склейки берётся из исходных элементов, а не из значащих частей`() {
+        // «А | 123 | - | ВС77» — четыре элемента при трёх значащих частях.
+        val candidates = buildCandidates(
+            blockOf(
+                lineOf(
+                    word("O", x = 0, width = 20),
+                    word("123", x = 25, width = 60),
+                    word("-", x = 90, width = 10),
+                    word("BC77", x = 105, width = 80),
+                ),
+            ),
+        )
+        val whole = candidates.first { it.text.replace(" ", "").length >= 9 }
+        assertEquals(4, whole.elementSpan)
     }
 }
