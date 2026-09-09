@@ -44,19 +44,8 @@ data class OcrBlock(val lines: List<OcrLine>)
  * обычно крупнее случайных надписей, и это единственный признак, по которому мы
  * различаем два ТС в кадре. Для многострочного кандидата вес считается по средней
  * высоте строк, а не по высоте всей рамки, иначе блок текста побеждал бы номер.
- *
- * @param elementSpan из скольких ИСХОДНЫХ элементов ML Kit собран кандидат. Единица —
- *   модель вернула номер одним словом; больше — мы склеили его сами. Считать надо
- *   элементы до склейки, а не смысловые части: `А | 123 | - | ВС77` даёт четыре элемента
- *   при трёх значащих, и именно такие широкие склейки чаще всего приваривают к номеру
- *   постороннюю надпись.
  */
-data class PlateCandidate(
-    val text: String,
-    val bounds: OcrRect,
-    val weight: Int,
-    val elementSpan: Int = 1,
-)
+data class PlateCandidate(val text: String, val bounds: OcrRect, val weight: Int)
 
 /**
  * Победивший кандидат вместе с рамкой — по ней делается второй проход.
@@ -69,11 +58,19 @@ data class SelectedPlate(
     val bounds: OcrRect,
     val weight: Int,
     /**
-     * Кандидат собран склейкой более чем из [WIDE_GLUE_SPAN] исходных элементов ML Kit.
+     * Кандидат собран склейкой, которой нельзя доверять автозаполнение.
      *
-     * Такой номер не автозаполняется: чем шире склейка, тем выше шанс, что к знаку
-     * приварилась соседняя надпись. Согласие двух проходов здесь не помогает — модель и
-     * парсер одни и те же, ошибка воспроизводится.
+     * **Никем не выставляется — ветка WIDE_GLUE в [decideReading] сейчас недостижима.**
+     * Это не забытый код, а осознанный отказ от одного конкретного признака: пробовали
+     * считать ширину склейки в ИСХОДНЫХ элементах ML Kit, и она случаи не разделяет.
+     * Обычный однострочный номер модель отдаёт четырьмя элементами (`А | 647 | ОУ | 797`),
+     * с хвостом «RUS» — пятью, двухстрочная табличка прицепа — тоже пятью. Любой порог,
+     * ловящий приварку, забирает вместе с ней нормальные номера, а механизм умеет только
+     * СНИМАТЬ автозаполнение, добавить не может.
+     *
+     * Настоящий признак приварки — геометрический (расстояние до знака в долях высоты
+     * символа), и он уже применяется раньше, в [sameLineAdjacent]. Поле оставлено под
+     * будущий признак; пока оно false, ветка мертва, и притворяться защитой не должна.
      */
     val wideGlue: Boolean = false,
 ) {
@@ -524,9 +521,7 @@ internal fun buildCandidates(blocks: List<OcrBlock>): List<PlateCandidate> {
     val out = mutableListOf<PlateCandidate>()
     for (block in blocks) {
         for (line in block.lines) {
-            line.elements.forEach {
-                out += PlateCandidate(it.text, it.bounds, it.bounds.height, elementSpan = 1)
-            }
+            line.elements.forEach { out += PlateCandidate(it.text, it.bounds, it.bounds.height) }
 
             // Окна соседних слов: вес окна — по самому мелкому слову в нём, чтобы
             // склейка не получила вес крупной надписи из-за одного большого слова.
@@ -537,7 +532,6 @@ internal fun buildCandidates(blocks: List<OcrBlock>): List<PlateCandidate> {
                             text = window.joinToString("") { it.text },
                             bounds = window.map { it.bounds }.reduce(OcrRect::union),
                             weight = window.minOf { it.bounds.height },
-                            elementSpan = window.size,
                         )
                     }
                 }
@@ -547,12 +541,7 @@ internal fun buildCandidates(blocks: List<OcrBlock>): List<PlateCandidate> {
             val lineIsCoherent = line.elements.size <= 1 ||
                 line.elements.zipWithNext().all { (a, b) -> sameLineAdjacent(a.bounds, b.bounds) }
             if (lineIsCoherent) {
-                out += PlateCandidate(
-                    line.text,
-                    line.bounds,
-                    line.bounds.height,
-                    elementSpan = maxOf(line.elements.size, 1),
-                )
+                out += PlateCandidate(line.text, line.bounds, line.bounds.height)
             }
         }
 
@@ -563,7 +552,6 @@ internal fun buildCandidates(blocks: List<OcrBlock>): List<PlateCandidate> {
                     text = window.joinToString("") { it.text },
                     bounds = window[0].bounds.union(window[1].bounds),
                     weight = window.sumOf { it.bounds.height } / window.size,
-                    elementSpan = window.sumOf { maxOf(it.elements.size, 1) },
                 )
             }
         }
@@ -578,7 +566,6 @@ internal fun buildCandidates(blocks: List<OcrBlock>): List<PlateCandidate> {
                 // Средняя высота строк, а не высота блока: иначе многострочный
                 // блок получил бы завышенный вес и выиграл бы у настоящего номера.
                 weight = block.lines.sumOf { it.bounds.height } / block.lines.size,
-                elementSpan = block.lines.sumOf { maxOf(it.elements.size, 1) },
             )
         }
     }
@@ -587,16 +574,6 @@ internal fun buildCandidates(blocks: List<OcrBlock>): List<PlateCandidate> {
 
 /** Во сколько раз лучший кандидат должен быть крупнее следующего, чтобы ему верить. */
 private const val AMBIGUITY_RATIO = 1.3
-
-/**
- * До скольких исходных элементов ML Kit склейка считается нормальной.
- *
- * Три — потому что настоящий номер модель обычно возвращает одним-двумя словами, а
- * разделители дают третий: `А123ВС` + `777`, `А123ВС` + `77` + `7`. Четвёртый элемент уже
- * означает, что мы собрали знак из кусков, и вероятность приварить соседнюю надпись
- * становится заметной.
- */
-private const val WIDE_GLUE_SPAN = 3
 
 /**
  * Обрезан ли [shorter] относительно [longer] — то есть это тот же номер без последней
@@ -617,6 +594,33 @@ private fun isTruncatedRegion(shorter: String, longer: String): Boolean =
         longer.last().isDigit()
 
 /**
+ * Достаточно ли крупен добавленный символ, чтобы считать его частью ЗНАКА, а не посторонней
+ * надписью рядом.
+ *
+ * Без этой проверки правило [isTruncatedRegion] опаснее болезни, которую лечит. Вес окна —
+ * это минимальная высота символа в нём, поэтому длинное чтение = короткое плюс ещё один
+ * элемент, и его вес равен `min(вес короткого, высота добавленного)`. Значит условие
+ * «вес длинного не меньше веса короткого» буквально означает «добавленный символ не мельче
+ * самой мелкой части короткого чтения» — то есть написан тем же кеглем, что и остальной
+ * номер.
+ *
+ * Что будет без неё (проверено прогоном обеих версий на 105 геометриях): настоящий
+ * двузначный регион плюс любая посторонняя цифра, прошедшая геометрический гейт, даёт
+ * фабрикованный трёхзначный — и, поскольку короткий кандидат удалён, длинный остаётся
+ * единственным, порог [AMBIGUITY_RATIO] к нему не применяется, и выдуманный номер уходит в
+ * `AUTO`, то есть пишется молча. Список [RU_THREE_DIGIT_AUTO_REGIONS] здесь не спасает по
+ * построению: каждый реальный трёхзначный код — это реальный двузначный плюс цифра
+ * (777 = 77+7, 150 = 15+0, 161 = 16+1), поэтому приварка попадает внутрь списка. Хуже
+ * того, цифру умеет синтезировать [LETTER_AS_DIGIT] из посторонней БУКВЫ.
+ *
+ * Когда символ мельче — оба чтения остаются, спорят по весу, и обычный порог отдаёт победу
+ * настоящему номеру либо не отдаёт никому. Это тот самый класс ошибки, что стоил записи
+ * `М583МУ792`: «цифра есть на кадре» не значит «цифра принадлежит знаку».
+ */
+private fun addedGlyphMatchesPlate(shorter: PlateCandidate, longer: PlateCandidate): Boolean =
+    longer.weight >= shorter.weight
+
+/**
  * Выбирает номер из кандидатов либо возвращает null, если уверенности нет.
  *
  * Дедупликация обязательна и идёт ДО проверки неоднозначности: один и тот же номер
@@ -626,10 +630,10 @@ private fun isTruncatedRegion(shorter: String, longer: String): Boolean =
  *
  * Порог сравнивает только РАЗНЫЕ номера: это защита от кадра, где видно два ТС.
  *
- * Обрезанные прочтения выбрасываются ещё раньше, до сравнения весов (см.
- * [isTruncatedRegion]): цифру, которую ML Kit прочитал, отбрасывать нельзя — более длинное
- * чтение всегда полнее. Обратное невозможно: лишнюю цифру разбор не придумывает, она может
- * взяться только из элемента, который модель действительно вернула.
+ * Обрезанные прочтения выбрасываются ещё раньше, до сравнения весов — но ТОЛЬКО когда
+ * добавленный символ написан тем же кеглем, что и остальной номер (см. [isTruncatedRegion]
+ * и [addedGlyphMatchesPlate]). Мельче — оба кандидата остаются и решают спор весом, как
+ * раньше.
  */
 internal fun pickPlate(candidates: List<PlateCandidate>): SelectedPlate? {
     data class Scored(val match: FormatMatch, val candidate: PlateCandidate)
@@ -643,15 +647,13 @@ internal fun pickPlate(candidates: List<PlateCandidate>): SelectedPlate? {
         }
     }
     val complete = bestByPlate.keys.filterNot { short ->
-        bestByPlate.keys.any { long -> isTruncatedRegion(short, long) }
+        bestByPlate.keys.any { long ->
+            isTruncatedRegion(short, long) &&
+                addedGlyphMatchesPlate(bestByPlate.getValue(short).candidate, bestByPlate.getValue(long).candidate)
+        }
     }
     val ranked = complete.map { bestByPlate.getValue(it) }.sortedByDescending { it.candidate.weight }
-    fun Scored.selected() = SelectedPlate(
-        match = match,
-        bounds = candidate.bounds,
-        weight = candidate.weight,
-        wideGlue = candidate.elementSpan > WIDE_GLUE_SPAN,
-    )
+    fun Scored.selected() = SelectedPlate(match, candidate.bounds, candidate.weight)
     return when {
         ranked.isEmpty() -> null
         ranked.size == 1 -> ranked[0].selected()

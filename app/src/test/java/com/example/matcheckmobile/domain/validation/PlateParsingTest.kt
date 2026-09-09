@@ -603,15 +603,29 @@ class PlateParsingTest {
     }
 
     @Test
-    fun `обрезанный кандидат отбрасывается даже когда написан крупнее`() {
-        // Вес здесь ни при чём: цифру, которую модель прочитала, отбрасывать нельзя.
+    fun `обрезанный кандидат отбрасывается, когда добавленный символ того же кегля`() {
+        // Вес окна — минимальная высота символа в нём. Если добавленный символ не мельче,
+        // вес длинного чтения не падает: это потерянная цифра знака, а не чужая надпись.
         val picked = pickPlate(
             listOf(
-                PlateCandidate("O123BC97", OcrRect(0, 0, 100, 60), weight = 60),
-                PlateCandidate("O123BC977", OcrRect(0, 0, 110, 30), weight = 30),
+                PlateCandidate("O123BC97", OcrRect(0, 0, 100, 40), weight = 40),
+                PlateCandidate("O123BC977", OcrRect(0, 0, 110, 40), weight = 40),
             ),
         )
         assertEquals("О123ВС977", picked?.canonical)
+    }
+
+    @Test
+    fun `мелкий добавленный символ обрезкой не считается`() {
+        // Тот же вход, но добавленный глиф вчетверо ниже номера. Раньше правило срабатывало
+        // и здесь, отдавая выдуманный регион в AUTO; теперь оба кандидата спорят по весу.
+        val picked = pickPlate(
+            listOf(
+                PlateCandidate("O123BC97", OcrRect(0, 0, 100, 40), weight = 40),
+                PlateCandidate("O123BC977", OcrRect(0, 0, 110, 10), weight = 10),
+            ),
+        )
+        assertEquals("О123ВС97", picked?.canonical)
     }
 
     @Test
@@ -635,54 +649,75 @@ class PlateParsingTest {
     }
 
     @Test
-    fun `хвостовая буква, чинимая в цифру, тоже считается потерянной цифрой`() {
-        // «B» на цифровой позиции чинится в «8», то есть длинный кандидат реально полнее
-        // на одну цифру региона. Поведение правильное, фиксируем его явно.
+    fun `посторонний мелкий глиф не приваривается к настоящему двузначному региону`() {
+        // Дыра, найденная аудитом: правило обрезки, применённое безусловно, вычёркивало
+        // верное «О123ВС97» из-за фабрикованного «О123ВС978», тот оставался единственным
+        // кандидатом, порог 1,3 к нему не применялся — и выдуманный регион уходил в AUTO,
+        // то есть писался молча. Список регионов тут бессилен: каждый реальный
+        // трёхзначный код — это реальный двузначный плюс цифра.
         val picked = pickPlate(
             listOf(
                 PlateCandidate("O123BC97", OcrRect(0, 0, 100, 60), weight = 60),
                 PlateCandidate("O123BC97B", OcrRect(0, 0, 110, 30), weight = 30),
             ),
         )
-        assertEquals("О123ВС978", picked?.canonical)
+        assertEquals("настоящий номер обязан выиграть у приварки", "О123ВС97", picked?.canonical)
     }
 
     @Test
-    fun `склейка из четырёх элементов помечается широкой`() {
-        // Раньше wideGlue не выставлялся нигде, и ветка WIDE_GLUE в decideReading была
-        // мёртвой: собранный из кусков номер автозаполнялся наравне с прочитанным целиком.
-        val wide = pickPlate(
-            listOf(PlateCandidate("O123BC77", OcrRect(0, 0, 100, 40), 40, elementSpan = 4)),
-        )
-        assertTrue("четыре элемента — уже широкая склейка", wide!!.wideGlue)
-        assertEquals(PlateTier.SUGGESTION, decideReading(wide, wide)?.tier)
-        assertEquals(PlateReasonCode.WIDE_GLUE, decideReading(wide, wide)?.reason)
-    }
-
-    @Test
-    fun `склейка из трёх элементов широкой не считается`() {
-        // Номер с разделителем — обычное дело: «А123ВС» + «77» + «7».
-        val narrow = pickPlate(
-            listOf(PlateCandidate("O123BC77", OcrRect(0, 0, 100, 40), 40, elementSpan = 3)),
-        )
-        assertFalse(narrow!!.wideGlue)
-        assertEquals(PlateTier.AUTO, decideReading(narrow, narrow)?.tier)
-    }
-
-    @Test
-    fun `ширина склейки берётся из исходных элементов, а не из значащих частей`() {
-        // «А | 123 | - | ВС77» — четыре элемента при трёх значащих частях.
-        val candidates = buildCandidates(
-            blockOf(
-                lineOf(
-                    word("O", x = 0, width = 20),
-                    word("123", x = 25, width = 60),
-                    word("-", x = 90, width = 10),
-                    word("BC77", x = 105, width = 80),
-                ),
+    fun `спор с приваркой сопоставимого веса не даёт автозаполнения`() {
+        // Когда посторонний глиф того же кегля, отличить его от потерянной цифры нечем.
+        // Тогда работает обычный порог: победителя нет, номер не подставляется.
+        val picked = pickPlate(
+            listOf(
+                PlateCandidate("O123BC97", OcrRect(0, 0, 100, 40), weight = 40),
+                PlateCandidate("X456YA199", OcrRect(0, 0, 110, 36), weight = 36),
             ),
         )
-        val whole = candidates.first { it.text.replace(" ", "").length >= 9 }
-        assertEquals(4, whole.elementSpan)
+        assertNull("две разные машины сопоставимого размера — выбирать нельзя", picked)
     }
+
+    // --- сквозная проверка: автозаполнение реально происходит -----------------
+    //
+    // Аудит нашёл пробел: все проверки уровня шли через фикстуру selected(), которая
+    // строит SelectedPlate напрямую. Цепочку buildCandidates -> pickPlate -> decideReading
+    // не гонял ни один тест, поэтому регрессия «авто пропало совсем» осталась бы незамечена.
+
+    private fun tierFromFrame(vararg words: OcrElement): PlateTier? {
+        val picked = pickPlate(buildCandidates(blockOf(lineOf(*words))))!!
+        return decideReading(picked, picked)?.tier
+    }
+
+    @Test
+    fun `обычный номер из четырёх элементов всё ещё автозаполняется`() {
+        // Ровно так ML Kit чаще всего и отдаёт знак. Порог по числу элементов забирал бы
+        // такой номер в подсказку — поэтому от этого признака отказались.
+        assertEquals(
+            PlateTier.AUTO,
+            tierFromFrame(
+                word("O", x = 0, width = 20),
+                word("123", x = 25, width = 60),
+                word("BC", x = 90, width = 45),
+                word("797", x = 140, width = 70),
+            ),
+        )
+    }
+
+    @Test
+    fun `номер одним словом автозаполняется`() {
+        assertEquals(PlateTier.AUTO, tierFromFrame(word("O123BC797", x = 0, width = 200)))
+    }
+
+    @Test
+    fun `номер с хвостом RUS автозаполняется`() {
+        assertEquals(
+            PlateTier.AUTO,
+            tierFromFrame(
+                word("O123BC", x = 0, width = 120),
+                word("797", x = 125, width = 70),
+                word("RUS", x = 200, width = 45),
+            ),
+        )
+    }
+
 }
