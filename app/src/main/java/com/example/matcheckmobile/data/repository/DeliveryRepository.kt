@@ -398,7 +398,12 @@ class DeliveryRepository(
         val nameRaw: String,
         val qtyPlanned: String? = null,
         val qtyActual: String? = null,
-        val unit: String = "шт",
+        /**
+         * Единица измерения. БЕЗ значения по умолчанию намеренно: пока оно
+         * было, форма 2 Этапа молча роняла единицу документа в «шт», и
+         * компилятор об этом не сообщал. Теперь пропуск — ошибка сборки.
+         */
+        val unit: String,
         val comment: String? = null,
         val lineNo: Int? = null,
         val volumeM3: String? = null,

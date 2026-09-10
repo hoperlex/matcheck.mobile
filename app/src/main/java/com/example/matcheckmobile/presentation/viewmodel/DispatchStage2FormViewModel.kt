@@ -413,6 +413,11 @@ class DispatchStage2FormViewModel(
                             id = m.id,
                             nameRaw = m.name.trim().ifEmpty { "—" },
                             qtyActual = m.qty.trim().ifEmpty { null },
+                            // См. Stage2FormViewModel: без unit срабатывал
+                            // дефолт "шт" и единица документа терялась. У
+                            // отгрузок дефект был латентным — привязанных к
+                            // документам строк в данных пока нет.
+                            unit = m.unit,
                             lineNo = idx + 1,
                             price = m.price,
                             vatRate = m.vatRate,
