@@ -60,6 +60,9 @@ import com.example.matcheckmobile.presentation.components.PhotoPreviewDialog
 import com.example.matcheckmobile.presentation.components.TransitCheckbox
 import com.example.matcheckmobile.presentation.components.VehicleLoadInfo
 import com.example.matcheckmobile.presentation.components.VehicleTypeChips
+import com.example.matcheckmobile.presentation.components.DraftVariantsDialog
+import com.example.matcheckmobile.presentation.viewmodel.awaitingChoice
+import com.example.matcheckmobile.domain.model.vehicleTypeByCode
 import com.example.matcheckmobile.presentation.components.rememberPhotoCapture
 import com.example.matcheckmobile.presentation.viewmodel.Stage1FormViewModel
 import com.example.matcheckmobile.presentation.viewmodel.buildMaterialDisplayGroups
@@ -104,6 +107,17 @@ fun Stage1FormScreen(
             added = change.added.size,
             removed = change.removed.size,
             onDismiss = vm::dismissGroupChange,
+        )
+    }
+
+    // Машины объединили на портале, а инспектор начинал обе карточки, и поля
+    // в черновиках разные. Фото и материалы уже сложены — выбрать нужно только
+    // госномер, тип машины и тексты. Без выбора дальше нельзя.
+    if (state.mergedVariants.awaitingChoice()) {
+        DraftVariantsDialog(
+            variants = state.mergedVariants,
+            vehicleLabel = { code -> vehicleTypeByCode(code)?.name },
+            onChoose = vm::chooseDraftVariant,
         )
     }
 

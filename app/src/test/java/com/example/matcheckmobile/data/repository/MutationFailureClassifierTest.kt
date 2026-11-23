@@ -161,4 +161,58 @@ class MutationFailureClassifierTest {
         assertEquals(HttpDisposition.DROP, httpDisposition(408))
         assertEquals(HttpDisposition.DROP, httpDisposition(429))
     }
+
+    // ── Групповой протокол «одна машина — одна приёмка» (выпуск 2) ─────────
+
+    @Test
+    fun `group_claimed с временем занятия — GroupConflict`() {
+        val body = """{"error":"group_claimed","groupId":"g","groupRevision":4,""" +
+            """"claimedByOperationId":"op-1","claimedAt":"2026-11-20T09:15:00.000Z"}"""
+
+        val result = classifyMutationFailure(409, body)
+
+        assertEquals(
+            MutationFailure.GroupConflict(
+                code = "group_claimed",
+                claimedAt = "2026-11-20T09:15:00.000Z",
+                claimedByOperationId = "op-1",
+            ),
+            result,
+        )
+        assertEquals("group_claimed", result.tag)
+    }
+
+    @Test
+    fun `все коды группового протокола распознаются, null-поля не роняют разбор`() {
+        for (code in listOf("group_changed", "group_incomplete", "source_documents_not_ready")) {
+            val result = classifyMutationFailure(
+                409,
+                """{"error":"$code","groupId":null,"claimedAt":null,"expectedDocumentIds":["a"]}""",
+            )
+            assertEquals(MutationFailure.GroupConflict(code = code), result)
+        }
+    }
+
+    @Test
+    fun `групповой код не с 409 — не ответ протокола, в карантин не уводим`() {
+        assertEquals(
+            MutationFailure.Other(httpCode = 400, errorCode = "group_changed"),
+            classifyMutationFailure(400, """{"error":"group_changed"}"""),
+        )
+    }
+
+    @Test
+    fun `426 client_outdated распознаётся отдельно`() {
+        val body = """{"error":"client_outdated","message":"Обновите приложение"}"""
+
+        assertEquals(MutationFailure.ClientOutdated, classifyMutationFailure(426, body))
+    }
+
+    @Test
+    fun `503 busy_retry — временный отказ, мутация повторяется`() {
+        val result = classifyMutationFailure(503, """{"error":"busy_retry","message":"повторите"}""")
+
+        assertEquals(MutationFailure.Other(httpCode = 503, errorCode = "busy_retry"), result)
+        assertEquals(HttpDisposition.RETRY, httpDisposition(503))
+    }
 }

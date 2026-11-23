@@ -110,7 +110,9 @@ class MainStatusViewModel(container: AppContainer) : ViewModel() {
         // начатых до появления группировки (см. IntakeUpdSelectViewModel).
         val docsById = docs.associateBy { it.id }
         val inboundGroupsWithDraft: Set<String> = inboundDrafts
-            .mapNotNullTo(mutableSetOf()) { draftGroupKey(it.groupId, it.updId, docsById) }
+            .mapNotNullTo(mutableSetOf()) {
+                draftGroupKey(it.groupId, it.updId, docsById, RemoteMappers.decodeIdList(it.loadedDocIdsJson))
+            }
         val outboundGroupsWithDraft: Set<String> = outboundDrafts
             .mapNotNullTo(mutableSetOf()) { draftGroupKey(it.groupId, it.updId, docsById) }
         // Машина привязана целиком, если привязан любой её документ — то же

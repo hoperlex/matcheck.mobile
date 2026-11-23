@@ -188,7 +188,10 @@ class AccountSwitchCoordinator(
          * кнопку выхода в чёрную дыру.
          */
         const val BARRIER_TIMEOUT_MS = 90_000L
-        val PHOTO_DIRS = listOf("remote_photos", "operation_photos")
+        // group_quarantine — копии фото операций в карантине группового
+        // протокола. Барьер PendingWork их считает, так что сюда доходят только
+        // после явного подтверждения человеком.
+        val PHOTO_DIRS = listOf("remote_photos", "operation_photos", "group_quarantine")
     }
 }
 

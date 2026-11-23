@@ -44,6 +44,8 @@ import com.example.matcheckmobile.data.repository.SiteChangeReset
 import com.example.matcheckmobile.data.repository.SourceDocumentRepository
 import com.example.matcheckmobile.data.repository.SyncRepository
 import com.example.matcheckmobile.data.repository.RoomTransactionRunner
+import com.example.matcheckmobile.data.repository.GroupQuarantine
+import com.example.matcheckmobile.data.repository.RoomGroupQuarantinePort
 import com.example.matcheckmobile.data.repository.TerminalConflictResolver
 import com.example.matcheckmobile.data.repository.TransactionRunner
 import com.example.matcheckmobile.data.settings.DeviceSettings
@@ -137,6 +139,25 @@ class AppContainer(val appContext: Context) {
         tx = transactionRunner,
     )
 
+    /**
+     * Карантин операций группового протокола (409 group_*): снимок операции и
+     * копии фото. Объявлен до mutationProcessor — тот его требует.
+     */
+    val groupQuarantine: GroupQuarantine = GroupQuarantine(
+        port = RoomGroupQuarantinePort(
+            quarantineDao = database.quarantinedOperationDao(),
+            deliveryDao = database.remoteDeliveryDao(),
+            shipmentDao = database.remoteShipmentDao(),
+            metaDao = database.deliveryLocalMetaDao(),
+            mutationDao = database.mutationDao(),
+            tx = transactionRunner,
+        ),
+        filesDir = appContext.filesDir,
+        // stage1DraftRepository объявлен ниже — обращаемся лениво: к моменту
+        // «Оформить заново» контейнер давно собран.
+        saveDraft = { stage1DraftRepository.upsert(it) },
+    )
+
     val mutationProcessor: MutationProcessor = MutationProcessor(
         mutationDao = database.mutationDao(),
         deliveryDao = database.remoteDeliveryDao(),
@@ -145,6 +166,7 @@ class AppContainer(val appContext: Context) {
         shipmentsApi = shipmentsApi,
         remoteWriter = remoteWriter,
         quarantine = foreignSiteQuarantine,
+        groupQuarantine = groupQuarantine,
     )
 
     val photoUploadProcessor: PhotoUploadProcessor = PhotoUploadProcessor(
@@ -209,6 +231,9 @@ class AppContainer(val appContext: Context) {
         // Долг на сброс переживает перезапуск процесса — подхватываем его
         // в начале каждого цикла, а не только сразу после смены объекта.
         onBeforeSync = { runCatching { siteChangeReset.resumeIfNeeded() } },
+        // Документ удалён окончательно — его строки в черновиках 1 Этапа больше
+        // некуда возвращать. Скрытые (hidden) сюда не попадают: их строки ждут.
+        onSourceDocumentsDeleted = { ids -> runCatching { stage1DraftRepository.dropRowsOfDocuments(ids) } },
         currentSiteId = { tokenStorage.state.value.effectiveSiteId },
     )
 
@@ -324,6 +349,7 @@ class AppContainer(val appContext: Context) {
 
     val stage1DraftRepository: Stage1DraftRepository = Stage1DraftRepository(
         dao = database.stage1DraftDao(),
+        tx = transactionRunner,
     )
 
     val stage2DraftRepository: Stage2DraftRepository = Stage2DraftRepository(

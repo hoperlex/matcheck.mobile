@@ -13,16 +13,28 @@ interface Stage1DraftDao {
     @Query("SELECT * FROM stage1_drafts WHERE localDraftId = :id")
     suspend fun findById(id: String): Stage1DraftEntity?
 
-    @Query("SELECT * FROM stage1_drafts WHERE updId = :updId LIMIT 1")
+    @Query("SELECT * FROM stage1_drafts WHERE updId = :updId ORDER BY updatedAt DESC LIMIT 1")
     suspend fun findByUpdId(updId: String): Stage1DraftEntity?
 
-    /** Черновик машины. UNIQUE по groupId гарантирует единственность. */
-    @Query("SELECT * FROM stage1_drafts WHERE groupId = :groupId LIMIT 1")
+    /**
+     * Черновик машины по сохранённому ключу. Единственности больше нет: после
+     * объединения машин их может быть несколько — их сливает форма
+     * (planMachineDrafts), здесь берётся самый свежий.
+     */
+    @Query("SELECT * FROM stage1_drafts WHERE groupId = :groupId ORDER BY updatedAt DESC LIMIT 1")
     suspend fun findByGroupId(groupId: String): Stage1DraftEntity?
 
     @Query("SELECT * FROM stage1_drafts ORDER BY updatedAt DESC")
     fun observeAll(): Flow<List<Stage1DraftEntity>>
 
+    /** Все черновики разом — для слияния по машине при открытии формы. */
+    @Query("SELECT * FROM stage1_drafts ORDER BY updatedAt DESC")
+    suspend fun findAll(): List<Stage1DraftEntity>
+
+    /**
+     * REPLACE срабатывает только по первичному ключу: уникальных индексов у
+     * таблицы больше нет (миграция 26→27), и чужой черновик запись не удалит.
+     */
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(draft: Stage1DraftEntity)
 

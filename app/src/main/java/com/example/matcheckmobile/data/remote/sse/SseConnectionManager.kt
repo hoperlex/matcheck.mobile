@@ -7,6 +7,7 @@ import com.example.matcheckmobile.data.local.dao.RemoteShipmentDao
 import com.example.matcheckmobile.data.local.dao.RemoteSourceDocumentDao
 import com.example.matcheckmobile.data.remote.api.dto.SseEventPayload
 import com.example.matcheckmobile.data.remote.net.CertificatePins
+import com.example.matcheckmobile.data.remote.net.ClientCapabilities
 import com.example.matcheckmobile.data.remote.net.TokenRefreshCoordinator
 import com.example.matcheckmobile.sync.MatcheckSyncScheduler
 import kotlinx.coroutines.CoroutineScope
@@ -225,6 +226,9 @@ class SseConnectionManager(
             .header("Authorization", "Bearer $token")
             .header("X-Client-Type", "mobile")
             .header("User-Agent", userAgent)
+            // У SSE свой OkHttpClient без AuthHeaderInterceptor — заголовок
+            // возможностей ставим руками, как и остальные.
+            .header(ClientCapabilities.HEADER, ClientCapabilities.ALL)
             .build()
         _state.value = ConnectionState.Connecting
         // Поколение и слушатель заводятся ДО newEventSource: соединение стартует

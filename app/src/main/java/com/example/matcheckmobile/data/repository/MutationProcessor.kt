@@ -59,6 +59,13 @@ class MutationProcessor(
      * (только метаданные, без содержимого). Инъектируется — в JVM-тестах no-op.
      */
     private val telemetryDiscard: (List<MutationEntity>) -> Unit = DiscardTelemetry.sentry,
+    /**
+     * Typed-отказ группового протокола (409 group_*): операция целиком уходит в
+     * карантин со снимком и копиями фото. null — только в тестах, где
+     * карантин не нужен: тогда мутация замораживается, как при Drop. Последним
+     * параметром: instrumented-тесты передают telemetryDiscard позиционно.
+     */
+    private val groupQuarantine: GroupQuarantine? = null,
 ) {
 
     private val json: Json = Json { ignoreUnknownKeys = true; coerceInputValues = true }
@@ -87,6 +94,15 @@ class MutationProcessor(
         // вместе с pull и загрузкой фото. Разбор наследия такой цены не стоит:
         // упавший sweep должен молча уступить место обычной синхронизации.
         dropped += runCatching { sweep401Failures() }.getOrDefault(0)
+
+        // Наследие сборок до group_claim_v1: на объекте с защитой «одна машина —
+        // одна приёмка» сервер отвечал им 426, и старая сборка замораживала
+        // операцию с целыми данными. Эта сборка шлёт возможность на каждом
+        // запросе — возвращаем такие мутации в очередь. Сервер проверит их по
+        // новым правилам: свободная машина без groupId → group_changed, занятая
+        // → group_claimed; оба исхода уводят операцию в карантин целиком.
+        // Обёрнут по той же причине, что sweep401Failures.
+        runCatching { sweep426Failures() }
 
         val pending = mutationDao.listPending(System.currentTimeMillis())
         // FIFO в рамках одной сущности — если предыдущая мутация осталась
@@ -154,6 +170,38 @@ class MutationProcessor(
                                 ForeignSiteQuarantine.Outcome.Deleted -> "mutation purged: foreign_site (no photos)"
                                 null -> "mutation purge failed: foreign_site"
                             },
+                        )
+                    }
+                    dropped++
+                }
+                is Outcome.QuarantineGroup -> {
+                    // 409 группового протокола: сервер ничего не записал, повтор
+                    // бесполезен. Операция переезжает в карантин целиком — снимок
+                    // и копии фото, — а очередь сущности снимается (FIFO не
+                    // блокируется). Не вышло записать снимок — данные не трогаем,
+                    // мутацию держим замороженной с причиной.
+                    val result = runCatching {
+                        groupQuarantine?.quarantineDelivery(m, outcome.conflict)
+                            ?: error("карантин группы недоступен")
+                    }
+                    blockedEntities += key
+                    Sentry.withScope { scope ->
+                        scope.setTag("entityType", m.entityType)
+                        scope.setTag("operation", m.operation)
+                        scope.setTag("reason", outcome.conflict.code)
+                        scope.setLevel(SentryLevel.WARNING)
+                        Sentry.captureMessage(
+                            if (result.isSuccess) "mutation quarantined: ${outcome.conflict.code}"
+                            else "mutation quarantine failed: ${outcome.conflict.code}",
+                        )
+                    }
+                    if (result.isFailure) {
+                        mutationDao.upsert(
+                            m.copy(
+                                conflictPending = true,
+                                attempts = m.attempts + 1,
+                                lastError = "http 409 · ${outcome.conflict.code}",
+                            ),
                         )
                     }
                     dropped++
@@ -233,6 +281,33 @@ class MutationProcessor(
             Sentry.captureMessage("legacy foreign_site mutations swept")
         }
         return byEntity.size
+    }
+
+    /**
+     * Размораживает мутации, замороженные старой сборкой из-за 426. Свои 426
+     * (поломка заголовка в этой сборке) не трогает — иначе разморозка и
+     * повторный 426 крутились бы на каждом цикле синка. См. [isLegacy426Freeze].
+     *
+     * @return сколько мутаций возвращено в очередь.
+     */
+    private suspend fun sweep426Failures(): Int {
+        val frozen = runCatching { mutationDao.listFrozen426() }.getOrDefault(emptyList())
+            .filter { isLegacy426Freeze(it.lastError) }
+        if (frozen.isEmpty()) return 0
+        var unfrozen = 0
+        for (m in frozen) {
+            // Условный UPDATE: пользователь мог заменить мутацию, пока идём по списку.
+            unfrozen += runCatching { mutationDao.unfreezeIfFrozen(m.id) }.getOrDefault(0)
+        }
+        if (unfrozen > 0) {
+            Log.w(SWEEP_TAG, "unfrozen 426: $unfrozen")
+            Sentry.withScope { scope ->
+                scope.setLevel(SentryLevel.WARNING)
+                scope.setTag("unfrozen", unfrozen.toString())
+                Sentry.captureMessage("legacy http 426 mutations swept")
+            }
+        }
+        return unfrozen
     }
 
     /** Что sweep делает с конкретной замороженной 401-мутацией. */
@@ -466,6 +541,19 @@ class MutationProcessor(
                 Outcome.Drop("http $code · ${failure}")
             }
             MutationFailure.ForeignSite -> Outcome.PurgeForeign
+            // Групповой протокол существует только для СОЗДАНИЯ приёмки. Тот же
+            // код на чём-то другом — не его ответ: замораживаем, как прочие 4xx.
+            is MutationFailure.GroupConflict ->
+                if (m.entityType == ForeignSiteQuarantine.ENTITY_DELIVERY && m.operation == "upsert") {
+                    Outcome.QuarantineGroup(failure)
+                } else {
+                    Outcome.Drop("http $code · $rawSnippet")
+                }
+            // Эта сборка шлёт group_claim_v1 на каждом запросе, так что 426 —
+            // поломка заголовка, а не старая сборка. Данные целы, мутация
+            // заморожена и видна в «Очереди»; префикс «http 426» тот же, что у
+            // старых сборок, — их разморозку см. sweep426Failures.
+            MutationFailure.ClientOutdated -> Outcome.Drop(OWN_426_MARKER)
             is MutationFailure.Other -> when (httpDisposition(code)) {
                 HttpDisposition.RETRY -> Outcome.Backoff("http $code · $rawSnippet")
                 HttpDisposition.DROP -> Outcome.Drop("http $code · $rawSnippet")
@@ -652,6 +740,8 @@ class MutationProcessor(
         data object TerminalServerWin : Outcome
         data class Conflict(val tag: String) : Outcome
         data class Drop(val reason: String) : Outcome
+        /** 409 группового протокола: операция уходит в [GroupQuarantine]. */
+        data class QuarantineGroup(val conflict: MutationFailure.GroupConflict) : Outcome
         /**
          * 403 foreign_site: сервер отказал, потому что запись принадлежит
          * другому объекту. Очередь этой записи снимаем — она не должна ни
@@ -678,3 +768,21 @@ class MutationProcessor(
         const val SWEEP_TAG = "Sweep401"
     }
 }
+
+/**
+ * `lastError` своего 426 (см. MutationProcessor.classifyFailure). Отличается от
+ * того, что писали старые сборки («http 426 · <тело ответа>»), — по этому
+ * отличию [isLegacy426Freeze] размораживает только чужое наследие.
+ */
+internal const val OWN_426_MARKER = "http 426 · client_outdated"
+
+/**
+ * Заморожена ли мутация старой сборкой из-за 426 `client_outdated`.
+ *
+ * Старые сборки не знали этого кода и писали `"http 426 · " + тело ответа`.
+ * Своя заморозка (этой сборкой) помечена [OWN_426_MARKER] и не размораживается:
+ * эта сборка шлёт group_claim_v1 всегда, и её 426 — поломка, которую повтор не
+ * вылечит, а разморозка крутилась бы на каждом цикле синка.
+ */
+internal fun isLegacy426Freeze(lastError: String?): Boolean =
+    lastError != null && lastError.startsWith("http 426") && lastError != OWN_426_MARKER

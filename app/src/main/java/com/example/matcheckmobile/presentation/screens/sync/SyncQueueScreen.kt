@@ -64,6 +64,8 @@ fun SyncQueueScreen(onBack: () -> Unit, onOpenOperation: (String) -> Unit) {
     val quarantinedDelivery by vm.quarantinedDeliveryPhotos.collectAsStateWithLifecycle()
     val quarantinedShipment by vm.quarantinedShipmentPhotos.collectAsStateWithLifecycle()
     val quarantineMessage by vm.quarantineMessage.collectAsStateWithLifecycle()
+    val groupQuarantine by vm.groupQuarantine.collectAsStateWithLifecycle()
+    var groupDeleteId by remember { mutableStateOf<String?>(null) }
     val df = remember { SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()) }
     var showClearDialog by remember { mutableStateOf(false) }
     var showQuarantineDeleteDialog by remember { mutableStateOf(false) }
@@ -241,6 +243,66 @@ fun SyncQueueScreen(onBack: () -> Unit, onOpenOperation: (String) -> Unit) {
                                         "чужой объект · ${p.takenAt.take(16).replace('T', ' ')}",
                                         style = MaterialTheme.typography.bodySmall,
                                     )
+                                }
+                            }
+                        }
+                    }
+
+                    // Карантин группового протокола: машину уже оформил другой
+                    // планшет или её состав изменился. Сервер операцию не принял,
+                    // повтор бесполезен — снимок и копии фото ждут решения
+                    // человека. Секция только когда есть записи.
+                    if (groupQuarantine.isNotEmpty()) {
+                        item {
+                            Text(
+                                "Не принятые сервером приёмки (${groupQuarantine.size})",
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.padding(top = 12.dp),
+                            )
+                        }
+                        items(groupQuarantine, key = { "gq-" + it.id }) { row ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                                ),
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    Text(
+                                        row.reason,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.onErrorContainer,
+                                    )
+                                    Text(
+                                        row.machine,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onErrorContainer,
+                                    )
+                                    Text(
+                                        row.details + if (row.reissued) " · черновик создан" else "",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onErrorContainer,
+                                    )
+                                    if (row.canReissue) {
+                                        Button(
+                                            onClick = { vm.reissueGroupQuarantine(row.id) },
+                                            modifier = Modifier.fillMaxWidth().height(56.dp),
+                                        ) {
+                                            Text("Оформить заново")
+                                        }
+                                    }
+                                    OutlinedButton(
+                                        onClick = { groupDeleteId = row.id },
+                                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                                        colors = ButtonDefaults.outlinedButtonColors(
+                                            contentColor = MaterialTheme.colorScheme.error,
+                                        ),
+                                    ) {
+                                        Text("Удалить")
+                                    }
                                 }
                             }
                         }
@@ -482,6 +544,33 @@ fun SyncQueueScreen(onBack: () -> Unit, onOpenOperation: (String) -> Unit) {
                 },
                 dismissButton = {
                     TextButton(onClick = { showQuarantineDeleteDialog = false }) {
+                        Text("Отмена")
+                    }
+                },
+            )
+        }
+
+        groupDeleteId?.let { id ->
+            AlertDialog(
+                onDismissRequest = { groupDeleteId = null },
+                title = { Text("Удалить запись?") },
+                text = {
+                    Text(
+                        "Данные этой приёмки и её фото будут удалены с планшета. " +
+                            "На сервер они не попали и не попадут. Восстановить их " +
+                            "будет нельзя.",
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        vm.deleteGroupQuarantine(id)
+                        groupDeleteId = null
+                    }) {
+                        Text("Удалить", color = MaterialTheme.colorScheme.error)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { groupDeleteId = null }) {
                         Text("Отмена")
                     }
                 },

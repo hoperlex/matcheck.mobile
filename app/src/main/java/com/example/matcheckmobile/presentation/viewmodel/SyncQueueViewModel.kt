@@ -10,6 +10,7 @@ import com.example.matcheckmobile.data.local.entity.OperationAttachmentEntity
 import com.example.matcheckmobile.data.local.entity.ReceiptSessionEntity
 import com.example.matcheckmobile.data.local.entity.RemoteDeliveryPhotoEntity
 import com.example.matcheckmobile.data.local.entity.RemoteShipmentPhotoEntity
+import com.example.matcheckmobile.data.repository.GroupQuarantine
 import com.example.matcheckmobile.data.repository.OperationRepository
 import com.example.matcheckmobile.di.AppContainer
 import com.example.matcheckmobile.domain.model.RemotePhotoStatus
@@ -19,6 +20,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -101,6 +103,44 @@ class SyncQueueViewModel(private val container: AppContainer) : ViewModel() {
             started = SharingStarted.WhileSubscribed(5_000),
             initialValue = emptyList(),
         )
+
+    /**
+     * Операции, отвергнутые групповым протоколом «одна машина — одна приёмка»
+     * (409 group_*): снимок и копии фото. Решает человек — «Оформить заново»
+     * или «Удалить». `clearQueue()` их не трогает: это не очередь отправки.
+     */
+    val groupQuarantine: StateFlow<List<GroupQuarantineRow>> = combine(
+        container.groupQuarantine.observeAll(),
+        container.database.remoteSourceDocumentDao().observeAll(),
+    ) { rows, docs ->
+        val byId = docs.associateBy { it.id }
+        rows.map { groupQuarantineRow(it, byId) }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = emptyList(),
+    )
+
+    fun reissueGroupQuarantine(id: String) {
+        viewModelScope.launch {
+            val result = runCatching { container.groupQuarantine.reissue(id) }
+            _quarantineMessage.value = when (result.getOrNull()) {
+                is GroupQuarantine.ReissueResult.Created ->
+                    "Черновик создан — машина в «1 Этап» с отметкой «Начато»"
+                GroupQuarantine.ReissueResult.NotAllowed -> "Машину уже оформил другой планшет"
+                GroupQuarantine.ReissueResult.AlreadyReissued -> "Черновик по этой операции уже создан"
+                GroupQuarantine.ReissueResult.NotFound -> "Запись уже удалена"
+                null -> "Не удалось создать черновик: ${result.exceptionOrNull()?.message ?: "ошибка"}"
+            }
+        }
+    }
+
+    fun deleteGroupQuarantine(id: String) {
+        viewModelScope.launch {
+            val ok = runCatching { container.groupQuarantine.delete(id) }.isSuccess
+            _quarantineMessage.value = if (ok) "Запись удалена" else "Не удалось удалить запись"
+        }
+    }
 
     private val _quarantineMessage = MutableStateFlow<String?>(null)
     val quarantineMessage: StateFlow<String?> = _quarantineMessage.asStateFlow()

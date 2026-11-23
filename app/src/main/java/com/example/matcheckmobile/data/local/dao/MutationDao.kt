@@ -67,6 +67,18 @@ interface MutationDao {
     suspend fun listFrozen401(): List<MutationEntity>
 
     /**
+     * Замороженные мутации, отбитые 426 `client_outdated`: объект включён в
+     * защиту «одна машина — одна приёмка», а запрос пришёл от старой сборки без
+     * group_claim_v1. Разбор — [com.example.matcheckmobile.data.repository.isLegacy426Freeze];
+     * `conflictPending = 1` обязателен по той же причине, что у [listFrozen401].
+     */
+    @Query(
+        "SELECT * FROM mutations WHERE conflictPending = 1 " +
+            "AND lastError LIKE 'http 426%' ORDER BY createdAt ASC",
+    )
+    suspend fun listFrozen426(): List<MutationEntity>
+
+    /**
      * Разморозка одной мутации. Возвращает число затронутых строк.
      *
      * Условие `conflictPending = 1` закрывает гонку: пока sweep идёт по ранее

@@ -11,6 +11,7 @@ import com.example.matcheckmobile.data.local.mapper.RemoteMappers
 import com.example.matcheckmobile.data.remote.api.dto.DeliveryUpsertItem
 import com.example.matcheckmobile.data.remote.api.dto.DeliveryUpsertRequest
 import com.example.matcheckmobile.data.remote.api.dto.MarkDeletionRequest
+import com.example.matcheckmobile.data.remote.net.ClientCapabilities
 import com.example.matcheckmobile.domain.model.PhotoIntent
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.Json
@@ -234,7 +235,8 @@ class DeliveryRepository(
                 )
             },
             baseVersion = baseVersion,
-        )
+            capabilities = ClientCapabilities.ALL,
+        ).let { carryGroupFields(it, input, baseVersion, mutationDao.findFor("delivery", id)) }
 
         // Если на этой сущности уже был upsert в очереди — заменяем его свежим.
         mutationDao.deleteFor("delivery", id)
@@ -382,6 +384,14 @@ class DeliveryRepository(
          * Подготовку (декод + два JPEG) делает потом PhotoPrepareWorker.
          */
         val photos: List<PhotoIntent> = emptyList(),
+        /**
+         * Машина и версия её состава, по которым инспектор открыл форму 1 Этапа
+         * (групповой протокол, см. [DeliveryUpsertRequest.groupId]). null у
+         * приёмки без документов и у вызывающих, которые машину не знают
+         * (2 Этап, ручной внос) — для них см. [carryGroupFields].
+         */
+        val groupId: String? = null,
+        val groupRevision: Int? = null,
     )
 
     data class ItemInput(
@@ -415,8 +425,52 @@ class DeliveryRepository(
         val groupName: String? = null,
     )
 
+    /**
+     * Поля машины для запроса — см. [inheritGroupFields]. Предыдущий upsert
+     * этой же приёмки читается из очереди ДО того, как его заменит новый.
+     */
+    private fun carryGroupFields(
+        request: DeliveryUpsertRequest,
+        input: UpsertInput,
+        baseVersion: Int,
+        queued: List<MutationEntity>,
+    ): DeliveryUpsertRequest {
+        val previous = queued
+            .lastOrNull { it.operation == "upsert" && it.payloadJson != null }
+            ?.payloadJson
+            ?.let { raw -> runCatching { json.decodeFromString(DeliveryUpsertRequest.serializer(), raw) }.getOrNull() }
+        return inheritGroupFields(request, input.groupId, input.groupRevision, baseVersion, previous)
+    }
+
     private companion object {
         val DELETABLE_STATUSES = setOf("draft", "not_filled")
         const val CONFIRMED_MOL = "confirmed_mol"
     }
+}
+
+/**
+ * Машина и версия её состава в запросе upsert приёмки.
+ *
+ * Знает их только форма 1 Этапа — она и передаёт. Остальные вызывающие
+ * (2 Этап, повтор) машину не знают, и тут важен один случай: оба этапа пройдены
+ * офлайн. Тогда мутация 1 Этапа ещё в очереди, а 2 Этап ЗАМЕНЯЕТ её одной
+ * мутацией `confirmed_mol` с baseVersion = 0 — для сервера это создание
+ * приёмки, и на защищённом объекте без groupId оно было бы отвергнуто как
+ * устаревший снимок. Поэтому, пока приёмки на сервере нет (baseVersion = 0),
+ * машина наследуется из заменяемой мутации.
+ *
+ * У приёмки, уже созданной на сервере (baseVersion > 0), ничего не
+ * наследуется: это правка, сервер группу при правке не проверяет.
+ */
+internal fun inheritGroupFields(
+    request: DeliveryUpsertRequest,
+    inputGroupId: String?,
+    inputGroupRevision: Int?,
+    baseVersion: Int,
+    previous: DeliveryUpsertRequest?,
+): DeliveryUpsertRequest = when {
+    inputGroupId != null -> request.copy(groupId = inputGroupId, groupRevision = inputGroupRevision)
+    baseVersion == 0 && previous?.groupId != null ->
+        request.copy(groupId = previous.groupId, groupRevision = previous.groupRevision)
+    else -> request
 }

@@ -1,6 +1,6 @@
 package com.example.matcheckmobile.data.remote.net
 
-import com.example.matcheckmobile.data.auth.TokenStorage
+import com.example.matcheckmobile.data.auth.SessionTokens
 import okhttp3.Interceptor
 import okhttp3.Response
 
@@ -12,7 +12,9 @@ import okhttp3.Response
  * для /auth/login Authorization не нужен вообще.
  */
 class AuthHeaderInterceptor(
-    private val tokenStorage: TokenStorage,
+    // SessionTokens, а не TokenStorage: перехватчику нужен только access-токен,
+    // а интерфейс позволяет проверить заголовки JVM-тестом без Android.
+    private val tokenStorage: SessionTokens,
     private val userAgent: String,
 ) : Interceptor {
 
@@ -21,6 +23,9 @@ class AuthHeaderInterceptor(
         val builder = original.newBuilder()
             .header(HEADER_CLIENT_TYPE, "mobile")
             .header(HEADER_USER_AGENT, userAgent)
+            // На каждый запрос, включая refresh и повтор старых мутаций: сервер
+            // судит о сборке по тому, кто отправляет запрос. См. ClientCapabilities.
+            .header(ClientCapabilities.HEADER, ClientCapabilities.ALL)
 
         if (original.header(HEADER_AUTH) == null) {
             tokenStorage.accessToken?.let { token ->

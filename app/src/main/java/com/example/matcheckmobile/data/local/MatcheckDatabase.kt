@@ -11,6 +11,7 @@ import com.example.matcheckmobile.data.local.dao.CounterpartyDao
 import com.example.matcheckmobile.data.local.dao.DeliveryLocalMetaDao
 import com.example.matcheckmobile.data.local.dao.ShipmentLocalMetaDao
 import com.example.matcheckmobile.data.local.dao.ManualDispatchDraftDao
+import com.example.matcheckmobile.data.local.dao.QuarantinedOperationDao
 import com.example.matcheckmobile.data.local.dao.ManualEntryDraftDao
 import com.example.matcheckmobile.data.local.dao.MaterialDao
 import com.example.matcheckmobile.data.local.dao.MaterialOperationDao
@@ -63,6 +64,7 @@ import com.example.matcheckmobile.data.local.entity.SourceDocumentItemEntity
 import com.example.matcheckmobile.data.local.entity.ShipmentStage1DraftEntity
 import com.example.matcheckmobile.data.local.entity.ShipmentStage2DraftEntity
 import com.example.matcheckmobile.data.local.entity.Stage1DraftEntity
+import com.example.matcheckmobile.data.local.entity.QuarantinedOperationEntity
 import com.example.matcheckmobile.data.local.entity.Stage2DraftEntity
 import com.example.matcheckmobile.data.local.entity.SyncQueueEntity
 import com.example.matcheckmobile.data.local.entity.UserEntity
@@ -104,8 +106,9 @@ import com.example.matcheckmobile.data.local.entity.UserEntity
         ShipmentStage2DraftEntity::class,
         ManualEntryDraftEntity::class,
         ManualDispatchDraftEntity::class,
+        QuarantinedOperationEntity::class,
     ],
-    version = 26,
+    version = 27,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -137,6 +140,7 @@ abstract class MatcheckDatabase : RoomDatabase() {
     abstract fun shipmentStage2DraftDao(): ShipmentStage2DraftDao
     abstract fun manualEntryDraftDao(): ManualEntryDraftDao
     abstract fun manualDispatchDraftDao(): ManualDispatchDraftDao
+    abstract fun quarantinedOperationDao(): QuarantinedOperationDao
 
     companion object {
         private const val DB_NAME = "matcheck.db"
@@ -151,7 +155,7 @@ abstract class MatcheckDatabase : RoomDatabase() {
                     MatcheckDatabase::class.java,
                     DB_NAME,
                 )
-                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26)
+                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27)
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
                     .also { INSTANCE = it }
@@ -360,6 +364,56 @@ abstract class MatcheckDatabase : RoomDatabase() {
                 )
             }
         }
+
+        // 26 → 27: групповой протокол «одна машина — одна приёмка» (выпуск 2).
+        //
+        // quarantined_operations — операции, которые сервер отверг typed-
+        // конфликтом группы (машину уже оформил другой планшет, состав
+        // изменился). Полный снимок + копии фото; удаляет только человек.
+        //
+        // stage1_drafts:
+        //  - mergedVariantsJson — значения полей, проигравшие при слиянии двух
+        //    черновиков одной машины (выбор «основного» не стирает чужой ввод);
+        //  - parkedMaterialsJson — строки документов, которых сейчас нет в
+        //    локальной базе (временно скрыты сервером);
+        //  - индексы updId/groupId перестают быть уникальными (см. ниже).
+        // Старые черновики получают '[]' — ни конфликтов, ни отложенных строк.
+        //
+        // DDL таблицы — дословно createSql из schemas/…/27.json: Room сверяет
+        // схему после миграции и при расхождении (а у нас
+        // fallbackToDestructiveMigration) стёр бы ВСЮ локальную базу вместе с
+        // очередью и черновиками. Сверку держит тест MigrationSchemaTest.
+        internal val MIGRATION_26_27 = object : Migration(26, 27) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(QUARANTINED_OPERATIONS_DDL)
+                db.execSQL(
+                    "ALTER TABLE `stage1_drafts` ADD COLUMN `mergedVariantsJson` TEXT NOT NULL DEFAULT '[]'",
+                )
+                db.execSQL(
+                    "ALTER TABLE `stage1_drafts` ADD COLUMN `parkedMaterialsJson` TEXT NOT NULL DEFAULT '[]'",
+                )
+                // UNIQUE по updId/groupId снимаем: REPLACE по уникальному ключу
+                // молча удалял ЧУЖОЙ черновик. Черновики одной машины теперь
+                // сливает форма при открытии (planMachineDrafts). Имена индексов
+                // прежние — Room называет их по таблице и колонкам.
+                db.execSQL("DROP INDEX IF EXISTS `index_stage1_drafts_updId`")
+                db.execSQL("DROP INDEX IF EXISTS `index_stage1_drafts_groupId`")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_stage1_drafts_updId` ON `stage1_drafts` (`updId`)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_stage1_drafts_groupId` ON `stage1_drafts` (`groupId`)",
+                )
+            }
+        }
+
+        internal const val QUARANTINED_OPERATIONS_DDL =
+            "CREATE TABLE IF NOT EXISTS `quarantined_operations` (" +
+                "`id` TEXT NOT NULL, `entityType` TEXT NOT NULL, `entityId` TEXT NOT NULL, " +
+                "`reason` TEXT NOT NULL, `claimedAt` TEXT, `siteId` TEXT, `groupId` TEXT, " +
+                "`sourceDocumentIdsJson` TEXT NOT NULL, `vehiclePlate` TEXT, `statusCode` TEXT NOT NULL, " +
+                "`photoCount` INTEGER NOT NULL, `snapshotJson` TEXT NOT NULL, `reissuedAt` INTEGER, " +
+                "`createdAt` INTEGER NOT NULL, PRIMARY KEY(`id`))"
 
         // stage1_drafts — локальный черновик формы 1 Этапа: фото + поля.
         // Сохраняется автоматически Stage1FormViewModel'ью при наличии хотя бы

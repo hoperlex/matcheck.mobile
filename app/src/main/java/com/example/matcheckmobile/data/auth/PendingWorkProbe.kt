@@ -21,12 +21,19 @@ data class PendingWork(
      * (сервер отвечает 403 всегда), решается только руками в «Очереди».
      */
     val quarantinedPhotos: Int,
+    /**
+     * Операции, отвергнутые групповым протоколом (машину оформил другой
+     * планшет, состав изменился): снимок и копии фото. Как и карантин чужого
+     * объекта, синхронизация его не разберёт — только человек в «Очереди».
+     */
+    val quarantinedOperations: Int = 0,
     /** Хотя бы один подсчёт упал — трактуем как «данные могут быть». */
     val probeFailed: Boolean = false,
 ) {
     val isEmpty: Boolean
         get() = !probeFailed &&
-            mutations == 0 && photos == 0 && drafts == 0 && quarantinedPhotos == 0
+            mutations == 0 && photos == 0 && drafts == 0 && quarantinedPhotos == 0 &&
+            quarantinedOperations == 0
 
     /** Можно ли надеяться, что синхронизация очистит очередь. */
     val syncCanHelp: Boolean get() = mutations > 0 || photos > 0 || probeFailed
@@ -38,6 +45,9 @@ data class PendingWork(
         if (drafts > 0) add("черновиков: $drafts")
         if (quarantinedPhotos > 0) {
             add("фото чужого объекта: $quarantinedPhotos (только вручную, в «Очереди синхронизации»)")
+        }
+        if (quarantinedOperations > 0) {
+            add("операций в карантине: $quarantinedOperations (только вручную, в «Очереди синхронизации»)")
         }
         if (probeFailed) add("проверить очередь не удалось — возможны неотправленные данные")
     }.joinToString(", ").ifEmpty { "нет данных о состоянии очереди" }
@@ -112,11 +122,16 @@ class PendingWorkProbe(private val database: MatcheckDatabase) {
                 shipmentDao.findPhotosByStatus(QUARANTINE_ONLY).size
         }
 
+        val quarantinedOperations = count("quarantined_operations") {
+            database.quarantinedOperationDao().count()
+        }
+
         return PendingWork(
             mutations = queues,
             photos = photos,
             drafts = drafts,
             quarantinedPhotos = quarantined,
+            quarantinedOperations = quarantinedOperations,
             probeFailed = failed,
         )
     }

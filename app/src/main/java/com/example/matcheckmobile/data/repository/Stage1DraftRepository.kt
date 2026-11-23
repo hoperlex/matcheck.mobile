@@ -3,6 +3,8 @@ package com.example.matcheckmobile.data.repository
 import com.example.matcheckmobile.data.local.dao.Stage1DraftDao
 import com.example.matcheckmobile.data.local.entity.Stage1DraftEntity
 import com.example.matcheckmobile.presentation.components.MaterialDraft
+import com.example.matcheckmobile.presentation.viewmodel.DraftPlan
+import com.example.matcheckmobile.presentation.viewmodel.DraftVariant
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
@@ -13,7 +15,11 @@ import kotlinx.serialization.json.Json
  * Тонкий репозиторий поверх [Stage1DraftDao]: занимается сериализацией
  * списков фото и материалов в JSON-строки (Room хранит примитивы).
  */
-class Stage1DraftRepository(private val dao: Stage1DraftDao) {
+class Stage1DraftRepository(
+    private val dao: Stage1DraftDao,
+    /** Слияние черновиков машины пишется одной транзакцией — см. [applyPlan]. */
+    private val tx: TransactionRunner,
+) {
 
     fun observeAll(): Flow<List<Stage1DraftEntity>> = dao.observeAll()
 
@@ -37,6 +43,49 @@ class Stage1DraftRepository(private val dao: Stage1DraftDao) {
         dao.deleteById(id)
     }
 
+    /** Все черновики 1 Этапа на планшете. */
+    suspend fun listAll(): List<Stage1DraftState> = dao.findAll().map(::toState)
+
+    /**
+     * План слияния черновиков машины ([com.example.matcheckmobile.presentation.viewmodel.planMachineDrafts])
+     * — ОДНОЙ транзакцией: сначала поглощённые удаляются, затем пишется
+     * результат. Порознь смерть процесса между шагами оставила бы либо две
+     * копии одной работы, либо ни одной.
+     */
+    suspend fun applyPlan(plan: DraftPlan) = tx.run {
+        plan.delete.forEach { dao.deleteById(it) }
+        plan.save.forEach { state ->
+            val existing = dao.findById(state.localDraftId)
+            val stable = if (existing != null) state.copy(createdAt = existing.createdAt) else state
+            dao.upsert(stable.toEntity())
+        }
+    }
+
+    /**
+     * Сервер сообщил, что документы удалены окончательно (`deletedReasons` в
+     * /sync = `deleted`): их строки больше некуда возвращать — убираем из
+     * материалов и из отложенных во всех черновиках. Для СКРЫТЫХ документов
+     * (`hidden`) не вызывается: их строки ждут возвращения документа.
+     *
+     * @return сколько черновиков изменилось.
+     */
+    suspend fun dropRowsOfDocuments(documentIds: Collection<String>): Int {
+        if (documentIds.isEmpty()) return 0
+        val ids = documentIds.toSet()
+        return tx.run {
+            var changed = 0
+            for (entity in dao.findAll()) {
+                val state = toState(entity)
+                val materials = state.materials.filterNot { it.sourceDocumentId in ids }
+                val parked = state.parkedMaterials.filterNot { it.sourceDocumentId in ids }
+                if (materials.size == state.materials.size && parked.size == state.parkedMaterials.size) continue
+                dao.upsert(state.copy(materials = materials, parkedMaterials = parked).toEntity())
+                changed++
+            }
+            changed
+        }
+    }
+
     fun toState(entity: Stage1DraftEntity): Stage1DraftState = Stage1DraftState(
         localDraftId = entity.localDraftId,
         updId = entity.updId,
@@ -52,6 +101,8 @@ class Stage1DraftRepository(private val dao: Stage1DraftDao) {
         manualUpdText = entity.manualUpdText,
         inTransit = entity.inTransit,
         isAssets = entity.isAssets,
+        parkedMaterials = decodeMaterials(entity.parkedMaterialsJson),
+        mergedVariants = decodeVariants(entity.mergedVariantsJson),
         createdAt = entity.createdAt,
         updatedAt = entity.updatedAt,
     )
@@ -71,9 +122,15 @@ class Stage1DraftRepository(private val dao: Stage1DraftDao) {
         manualUpdText = manualUpdText,
         inTransit = inTransit,
         isAssets = isAssets,
+        parkedMaterialsJson = encodeMaterials(parkedMaterials),
+        mergedVariantsJson = json.encodeToString(variantListSerializer, mergedVariants),
         createdAt = createdAt,
         updatedAt = updatedAt,
     )
+
+    private fun decodeVariants(raw: String): List<DraftVariant> = runCatching {
+        json.decodeFromString(variantListSerializer, raw)
+    }.getOrDefault(emptyList())
 
     private fun encodeStringList(values: List<String>): String =
         json.encodeToString(stringListSerializer, values)
@@ -128,6 +185,7 @@ class Stage1DraftRepository(private val dao: Stage1DraftDao) {
         private val json: Json = Json { encodeDefaults = true; ignoreUnknownKeys = true }
         private val stringListSerializer = ListSerializer(String.serializer())
         private val materialListSerializer = ListSerializer(MaterialDraftWire.serializer())
+        private val variantListSerializer = ListSerializer(DraftVariant.serializer())
     }
 }
 
@@ -162,6 +220,13 @@ data class Stage1DraftState(
     val inTransit: Boolean = false,
     /** ОС — чекбокс «основные средства» на 1 этапе. Default false. */
     val isAssets: Boolean = false,
+    /**
+     * Строки документов, которых сейчас нет в локальной базе (временно скрыты
+     * сервером). В форму и отправку не идут; см. Stage1DraftEntity.parkedMaterialsJson.
+     */
+    val parkedMaterials: List<MaterialDraft> = emptyList(),
+    /** Варианты полей после слияния черновиков машины; см. [DraftVariant]. */
+    val mergedVariants: List<DraftVariant> = emptyList(),
     val createdAt: Long,
     val updatedAt: Long,
 )

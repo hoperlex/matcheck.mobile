@@ -26,6 +26,13 @@ data class SyncDeltaResponse(
     val units: List<UnitDto> = emptyList(),
     val deletedIds: SyncDeletedIds = SyncDeletedIds(),
     /**
+     * Почему документ ушёл из выдачи: `deleted` — удалён окончательно,
+     * `hidden` — временно скрыт (переразбор, неполная машина, перенос объекта).
+     * Необязательное: сервер до выпуска 1 группового протокола его не шлёт.
+     * deletedIds остаётся прежним — это пояснение к нему, а не замена.
+     */
+    val deletedReasons: SyncDeletedReasons? = null,
+    /**
      * Есть продолжение — значение передаётся следующим запросом параметром
      * `pageToken`. null или отсутствие поля означает «страница последняя».
      *
@@ -38,6 +45,12 @@ data class SyncDeltaResponse(
      * хвост — ровно та ошибка, ради которой пагинацию и переделывали.
      */
     val nextPageToken: String? = null,
+)
+
+@Serializable
+data class SyncDeletedReasons(
+    /** id документа → `deleted` | `hidden`. */
+    val sourceDocuments: Map<String, String> = emptyMap(),
 )
 
 @Serializable

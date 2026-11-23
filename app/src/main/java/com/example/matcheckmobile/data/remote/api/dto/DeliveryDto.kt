@@ -122,6 +122,23 @@ data class DeliveryUpsertRequest(
     val sourceDocumentIds: List<String> = emptyList(),
     val items: List<DeliveryUpsertItem> = emptyList(),
     val baseVersion: Int? = null,
+    /**
+     * Групповой протокол «одна машина — одна приёмка» (contracts:
+     * group-operations.ts). Строка через запятую, как query у /sync; основной
+     * признак сборки — заголовок [com.example.matcheckmobile.data.remote.net.ClientCapabilities.HEADER],
+     * поле в теле — страховка на случай, если заголовок где-то потерялся.
+     *
+     * Default null у всех трёх: мутации, записанные прошлыми сборками,
+     * декодируются этим же сериализатором и не должны падать.
+     */
+    val capabilities: String? = null,
+    /**
+     * Машина (голова, `groupId` из /sync), по которой инспектор открыл форму.
+     * ОСС-токен: сервер сам вычисляет машину и лишь сверяет присланное.
+     */
+    val groupId: String? = null,
+    /** Версия состава машины на момент загрузки формы — сверяется сервером. */
+    val groupRevision: Int? = null,
 )
 
 @Serializable

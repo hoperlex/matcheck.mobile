@@ -135,11 +135,19 @@ class IntakeUpdSelectViewModel(container: AppContainer) : ViewModel() {
         // «groupId черновика → groupId его якорного документа → updId» такой
         // черновик после обновления приложения потерял бы свою карточку вместе
         // с бейджем «Начато» и фотографиями.
+        //
+        // Ключ — ТЕКУЩАЯ машина документов черновика (draftGroupKey): после
+        // объединения машин на портале у одной машины бывает несколько
+        // черновиков. Карточка одна, «Начато» — если есть хоть один; открываем
+        // самый свежий, а форма сливает остальные (planMachineDrafts).
+        // drafts приходят по updatedAt DESC — первый в группе и есть свежий.
         val draftsByGroupKey: Map<String, String> = drafts
             .mapNotNull { d ->
-                draftGroupKey(d.groupId, d.updId, docsById)?.let { it to d.localDraftId }
+                draftGroupKey(d.groupId, d.updId, docsById, RemoteMappers.decodeIdList(d.loadedDocIdsJson))
+                    ?.let { it to d.localDraftId }
             }
-            .toMap()
+            .groupBy({ it.first }, { it.second })
+            .mapValues { (_, ids) -> ids.first() }
         // Пустая приёмка — ни документа, ни машины. Проверка groupId не
         // лишняя: черновик машины, сохранённый до того, как форма догрузила
         // документы, имеет updId = null, и без неё он показался бы дважды —

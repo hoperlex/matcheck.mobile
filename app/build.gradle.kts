@@ -21,9 +21,11 @@ android {
         applicationId = "com.example.matcheckmobile"
         minSdk = 24
         targetSdk = 35
-        // Прод — 1.0.39 (versionCode 40), выкачен 08.09 в 11:56: на него перешло 20
-        // аккаунтов, судя по auth_events (НЕ по sessions.last_seen_ua — там UA
-        // перезаписывается при обновлении, и записи старой версии числятся за новой).
+        // Прод на 20.11.2026 — 1.0.40 (versionCode 41): 111 сессий за 14 дней,
+        // отставшие — Build 38 (2) и Build 37 (1). Счёт по sessions.last_seen_ua
+        // занижает старые сборки: UA перезаписывается при обновлении, и записи
+        // старой версии числятся за новой — точнее смотреть auth_events.
+        // 1.0.41 (42) — групповой протокол «одна машина — одна приёмка».
         // Номер обязан строго расти:
         // in-app updater сравнивает manifest.versionCode с BuildConfig.VERSION_CODE
         // и предлагает обновление только когда первый больше. Непрерывность не
@@ -33,8 +35,8 @@ android {
         // существующем теге уходит в `gh release upload --clobber` и молча
         // перезаписывает ассеты уже выпущенной версии, а планшеты, которые на неё
         // обновились, новый код не получат никогда.
-        versionCode = 41
-        versionName = "1.0.40"
+        versionCode = 42
+        versionName = "1.0.41"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -201,6 +203,9 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    // Настоящий HTTP в JVM-тестах: заголовок возможностей и тело запроса
+    // планшета, разбор 409/426/503 через Retrofit — как на бою.
+    testImplementation(libs.okhttp.mockwebserver)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)
@@ -264,6 +269,21 @@ val publishGithubRelease by tasks.registering {
             digest.digest().joinToString("") { "%02x".format(it) }
         }
 
+        // Минимальная поддерживаемая сборка: ниже неё диалог обновления
+        // показывается без «Не сейчас» (AppUpdateRepository.isMandatoryUpdate).
+        // По умолчанию 1 — никого не принуждаем. Поднимать — параметром:
+        //   ./gradlew publishGithubRelease -PminSupportedVersionCode=42
+        // Нужна для группового протокола: на объекте с защитой «одна машина —
+        // одна приёмка» старые сборки работать не могут.
+        val minSupportedVersionCode = (project.findProperty("minSupportedVersionCode") as String?)
+            ?.toIntOrNull() ?: 1
+        if (minSupportedVersionCode > versionCode) {
+            throw GradleException(
+                "minSupportedVersionCode=$minSupportedVersionCode больше versionCode=$versionCode: " +
+                    "обновиться было бы не на что",
+            )
+        }
+
         val tag = "v$versionName"
         val apkUrl = "https://github.com/hoperlex/matcheck.mobile-releases/" +
             "releases/download/$tag/app-release.apk"
@@ -280,7 +300,7 @@ val publishGithubRelease by tasks.registering {
               "apkSizeBytes": ${apkFile.length()},
               "apkSha256": "$sha256",
               "changelog": "",
-              "minSupportedVersionCode": 1,
+              "minSupportedVersionCode": $minSupportedVersionCode,
               "releasedAt": "${OffsetDateTime.now(ZoneOffset.UTC)}"
             }
         """.trimIndent()

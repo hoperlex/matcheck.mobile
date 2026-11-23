@@ -1,6 +1,7 @@
 package com.example.matcheckmobile.data.repository
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
@@ -50,9 +51,42 @@ sealed interface MutationFailure {
      */
     data object ForeignSite : MutationFailure
 
+    /**
+     * 409 группового протокола «одна машина — одна приёмка» (contracts:
+     * group-operations.ts, GroupConflictCodes). Сервер ничего не записал:
+     * машину уже оформил другой планшет (`group_claimed`) или снимок формы
+     * устарел (`group_changed`, `group_incomplete`, `source_documents_not_ready`).
+     *
+     * Повтор бесполезен, Drop заморозил бы работу инспектора без объяснения —
+     * поэтому операция целиком уходит в карантин (см. GroupQuarantine) с
+     * причиной для «Очереди».
+     */
+    data class GroupConflict(
+        val code: String,
+        val claimedAt: String? = null,
+        val claimedByOperationId: String? = null,
+    ) : MutationFailure
+
+    /**
+     * 426 `client_outdated`: объект защищён, а сервер не увидел в запросе
+     * возможности `group_claim_v1`. Эта сборка шлёт её на каждом запросе, так
+     * что ответ означает поломку заголовка, а не старую сборку. Мутацию держим
+     * замороженной с целыми данными — см. sweep426Failures, которым новая
+     * сборка размораживает такие же мутации, оставленные старой.
+     */
+    data object ClientOutdated : MutationFailure
+
     /** Нераспознанная ошибка: 5xx → backoff, 4xx → drop. */
     data class Other(val httpCode: Int, val errorCode: String?) : MutationFailure
 }
+
+/** Коды typed-отказов группового протокола. MUST MATCH SERVER: GroupConflictCodes. */
+val GROUP_CONFLICT_CODES: Set<String> = setOf(
+    "group_claimed",
+    "group_changed",
+    "source_documents_not_ready",
+    "group_incomplete",
+)
 
 /**
  * Чистая функция: на основании HTTP-кода и тела ошибки возвращает семантику.
@@ -83,6 +117,19 @@ fun classifyMutationFailure(httpCode: Int, rawBody: String?): MutationFailure {
         "must_mark_first" -> MutationFailure.MustMarkFirst
         "cannot_mark_status" -> MutationFailure.CannotMarkStatus
         "foreign_site" -> MutationFailure.ForeignSite
+        "client_outdated" -> MutationFailure.ClientOutdated
+        in GROUP_CONFLICT_CODES ->
+            // Только 409: тот же код с другим статусом — не ответ протокола,
+            // и уводить по нему работу инспектора в карантин нельзя.
+            if (httpCode == 409) {
+                MutationFailure.GroupConflict(
+                    code = errorCode!!,
+                    claimedAt = (parsed["claimedAt"] as? JsonPrimitive)?.contentOrNull,
+                    claimedByOperationId = (parsed["claimedByOperationId"] as? JsonPrimitive)?.contentOrNull,
+                )
+            } else {
+                MutationFailure.Other(httpCode, errorCode)
+            }
         else -> MutationFailure.Other(httpCode, errorCode)
     }
 }
@@ -97,6 +144,8 @@ val MutationFailure.tag: String
         MutationFailure.MustMarkFirst -> "must_mark_first"
         MutationFailure.CannotMarkStatus -> "cannot_mark_status"
         MutationFailure.ForeignSite -> "foreign_site"
+        is MutationFailure.GroupConflict -> code
+        MutationFailure.ClientOutdated -> "client_outdated"
         is MutationFailure.Other -> "http $httpCode${errorCode?.let { " ($it)" } ?: ""}"
     }
 

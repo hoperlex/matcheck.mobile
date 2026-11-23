@@ -95,8 +95,17 @@ class IntakeStagesViewModel(container: AppContainer) : ViewModel() {
         // начатых до появления группировки, groupId пуст.
         val docsById = docs.associateBy { it.id }
         val groupsWithDraft: Set<String> = ownDrafts
-            .mapNotNull { d -> draftGroupKey(d.groupId, d.updId, docsById) }
+            .mapNotNull { d -> draftGroupKey(d.groupId, d.updId, docsById, RemoteMappers.decodeIdList(d.loadedDocIdsJson)) }
             .toSet()
+        // После объединения машин у одной машины бывает несколько черновиков
+        // (форма сольёт их при открытии) — считаем машины, а не строки. Пустая
+        // приёмка без документа — сама себе единица.
+        val draftUnits = ownDrafts
+            .groupBy { d ->
+                draftGroupKey(d.groupId, d.updId, docsById, RemoteMappers.decodeIdList(d.loadedDocIdsJson))
+                    ?: "empty:${d.localDraftId}"
+            }
+            .values
 
         // Всего: непривязанные УПД на сегодня без draft + drafts +
         // filled-приёмки.
@@ -107,15 +116,16 @@ class IntakeStagesViewModel(container: AppContainer) : ViewModel() {
                 key !in groupsWithDraft &&
                 groupDocs.any { it.expectedDate == today }
         }
-        val totalToday = ownDrafts.size + unattachedTodayWithoutDraft + ownDeliveries.size
+        val totalToday = draftUnits.size + unattachedTodayWithoutDraft + ownDeliveries.size
 
         // В разгрузке: drafts (== есть фото) + приёмки на 2 Этапе.
-        val unloading = ownDrafts.size + ownDeliveries.size
+        val unloading = draftUnits.size + ownDeliveries.size
 
         // >2ч: для draft — createdAt (первое фото). Для filled-приёмки —
         // updatedAt (момент перехода в filled при «Завершить 1 Этап»).
         val twoHoursAgoMs = nowMs - 2 * 60 * 60 * 1000L
-        val overdueDrafts = ownDrafts.count { it.createdAt in 1 until twoHoursAgoMs }
+        // «Начато» машины — самый ранний из её черновиков (слияние берёт так же).
+        val overdueDrafts = draftUnits.count { ds -> ds.minOf { it.createdAt } in 1 until twoHoursAgoMs }
         val overdueStage2 = ownDeliveries.count { d ->
             val ts = parseIsoMillis(d.updatedAt)
             ts != null && ts < twoHoursAgoMs

@@ -16,6 +16,7 @@ import com.example.matcheckmobile.domain.validation.shouldReportPlateEdit
 import com.example.matcheckmobile.domain.validation.PlateSuggestion
 import com.example.matcheckmobile.domain.validation.PlateTier
 import com.example.matcheckmobile.domain.validation.plateAfterOcr
+import com.example.matcheckmobile.domain.model.groupKeyOf
 import com.example.matcheckmobile.domain.model.mergeGroupParty
 import com.example.matcheckmobile.domain.model.sortGroupDocs
 import com.example.matcheckmobile.media.PhotoSourceInvalidException
@@ -34,6 +35,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
@@ -66,8 +68,13 @@ class Stage1FormViewModel(
      * Идентификатор draft в Room. Заранее сгенерирован: при первом фото
      * автосейв создаст запись с этим id, а навигация по списку «Сегодня»
      * вернёт пользователя сюда же по `draftId`.
+     *
+     * var: если у машины уже есть черновик (форму открыли по машине, а не по
+     * draftId, или черновики машины слились), форма продолжает ЕГО, а не
+     * заводит второй — уникальных индексов, которые раньше «переименовывали»
+     * черновик через REPLACE, больше нет.
      */
-    private val draftLocalId: String = initialDraftId ?: UUID.randomUUID().toString()
+    private var draftLocalId: String = initialDraftId ?: UUID.randomUUID().toString()
 
     private val _state = MutableStateFlow(
         Stage1FormUiState(updId = updId, groupId = initialGroupId),
@@ -81,23 +88,45 @@ class Stage1FormViewModel(
     }
 
     /**
-     * Восстановление draft. Источники пробуются ПО ОЧЕРЕДИ, а не
-     * взаимоисключающе: черновик, начатый до появления группировки, лежит с
-     * groupId = null, и поиск только по группе его бы не нашёл — форма завела бы
-     * второй черновик, а фото остались бы в осиротевшей записи.
+     * Восстановление draft.
      *
-     * 1. По переданному `draftId` (открыт через «Сегодня» либо продолжение начатого).
-     * 2. По `groupId` — групповой черновик машины.
-     * 3. По `updId` — черновик прошлой сессии либо legacy-запись по якорю.
+     * 1. Черновик, с которым открыли форму: по `draftId` (продолжение начатого),
+     *    иначе по машине или документу маршрута. Источники пробуются ПО ОЧЕРЕДИ:
+     *    черновик, начатый до группировки, лежит с groupId = null.
+     * 2. Машина — по ТЕКУЩИМ документам (см. [resolveGroupDocs]): её могли
+     *    объединить или разъединить на портале, пока черновик лежал.
+     * 3. Черновики машины сводятся к её актуальному составу ([planMachineDrafts]):
+     *    черновики одной машины сливаются, строки ушедших документов уезжают в
+     *    черновик их новой машины, строки скрытых — откладываются. Одной
+     *    транзакцией, ДО того как форма начнёт автосохранение.
      * 4. Иначе — обычный init с предзаполнением позициями из документов.
      */
     private suspend fun restoreDraftOrInitDefaults() {
         val repo = container.stage1DraftRepository
-        val restored = (
+        val opened = (
             initialDraftId?.let { repo.findById(it) }
                 ?: initialGroupId?.takeIf(String::isNotBlank)?.let { repo.findByGroupId(it) }
                 ?: updId?.takeIf(String::isNotBlank)?.let { repo.findByUpdId(it) }
             )?.let { repo.toState(it) }
+
+        // Открыли по draftId — машина та, где сейчас документы черновика.
+        // Открыли по карточке — та, что на карточке (маршрут несёт текущую).
+        val docs = if (initialDraftId != null && opened != null) {
+            resolveGroupDocs(
+                groupId = opened.groupId,
+                anchorUpdId = opened.updId,
+                loadedDocIds = opened.loadedDocIds,
+            )
+        } else {
+            resolveGroupDocs(groupId = initialGroupId, anchorUpdId = updId ?: opened?.updId)
+        }
+
+        val restored = if (docs.isNotEmpty()) {
+            reconcileMachineDrafts(docs, preferredId = opened?.localDraftId, current = null)
+        } else {
+            opened
+        }
+        restored?.let { draftLocalId = it.localDraftId }
 
         if (restored != null) {
             _state.update {
@@ -114,6 +143,8 @@ class Stage1FormViewModel(
                     cargoPhotoPaths = restored.cargoPhotoPaths,
                     vehicleTypeCode = restored.vehicleTypeCode,
                     materials = restored.materials,
+                    parkedMaterials = restored.parkedMaterials,
+                    mergedVariants = restored.mergedVariants,
                     commentText = restored.commentText,
                     licensePlate = restored.licensePlate,
                     manualUpdText = restored.manualUpdText,
@@ -123,15 +154,6 @@ class Stage1FormViewModel(
             }
         }
 
-        // Состав машины определяет портал, а не инспектор: черновик, начатый до
-        // появления группировки, молча принимает группу своего якорного
-        // документа. Раньше он оставался одиночным, и остальные документы
-        // машины были недоступны — список скрывает всю машину, как только
-        // привязан любой её документ (см. filterUpdDocsForSite).
-        val docs = resolveGroupDocs(
-            groupId = _state.value.groupId,
-            anchorUpdId = _state.value.updId ?: updId,
-        )
         if (docs.isEmpty()) return
 
         // УПД-метаданные (контрагенты, финансы по позициям) подтягиваем всегда —
@@ -161,21 +183,58 @@ class Stage1FormViewModel(
     }
 
     /**
+     * Свести черновики к актуальному составу машины [docs] и записать результат.
+     *
+     * [current] — состояние открытой формы: оно записывается ПЕРЕД сведением,
+     * чтобы правки, сделанные с момента последнего автосохранения, тоже
+     * участвовали (иначе строки ушедшего документа уехали бы к соседу без них).
+     *
+     * @return черновик машины после сведения; null — черновиков у машины нет.
+     */
+    private suspend fun reconcileMachineDrafts(
+        docs: List<RemoteSourceDocumentEntity>,
+        preferredId: String?,
+        current: Stage1DraftState?,
+    ): Stage1DraftState? {
+        val repo = container.stage1DraftRepository
+        current?.let { repo.upsert(it) }
+        val docsById = runCatching {
+            container.database.remoteSourceDocumentDao().observeAll().first()
+        }.getOrDefault(docs).associateBy { it.id } + docs.associateBy { it.id }
+        val plan = planMachineDrafts(
+            targetKey = groupKeyOf(docs.first()),
+            targetDocs = docs,
+            drafts = repo.listAll(),
+            docsById = docsById,
+            preferredId = preferredId,
+            newDraftId = { UUID.randomUUID().toString() },
+            now = System.currentTimeMillis(),
+        )
+        if (!plan.isNoop) repo.applyPlan(plan)
+        return plan.result
+    }
+
+    /**
      * Документы машины в порядке [sortGroupDocs]. Для одиночного документа —
      * список из него одного; для документа, у которого сервер проставил группу,
      * — вся машина, даже если открывали по updId.
+     *
+     * Машина определяется по ТЕКУЩЕЙ группе якоря (или любого из
+     * [loadedDocIds]), а не по сохранённому [groupId]: после объединения машин
+     * на портале сохранённый ключ указывает на машину, которой больше нет.
+     * [groupId] — запасной путь, когда документов черновика в базе нет.
      */
     private suspend fun resolveGroupDocs(
         groupId: String?,
         anchorUpdId: String?,
+        loadedDocIds: List<String> = emptyList(),
         expandToGroup: Boolean = true,
     ): List<RemoteSourceDocumentEntity> {
         val dao = container.database.remoteSourceDocumentDao()
-        val anchor = if (anchorUpdId.isNullOrBlank()) null else {
-            runCatching { dao.findById(anchorUpdId) }.getOrNull()
-        }
+        val anchor = (listOfNotNull(anchorUpdId?.takeIf(String::isNotBlank)) + loadedDocIds)
+            .firstNotNullOfOrNull { id -> runCatching { dao.findById(id) }.getOrNull() }
         val effectiveGroupId = if (!expandToGroup) null else {
-            groupId?.takeIf(String::isNotBlank) ?: anchor?.groupId
+            anchor?.groupId ?: groupId?.takeIf(String::isNotBlank)
         }
         if (effectiveGroupId != null) {
             val group = runCatching { dao.findByGroupId(effectiveGroupId) }.getOrDefault(emptyList())
@@ -241,13 +300,20 @@ class Stage1FormViewModel(
             withMaterials.copy(
                 loadInfo = built.loadInfo,
                 materialFinancials = built.financials,
+                // Эталон «ничего не правили»: черновик без фото хранится, только
+                // если материалы от него отличаются (см. hasDraftWork).
+                pristineMaterials = built.materials,
             )
         }
     }
 
     /**
-     * Автосейв draft: подписка на state c debounce. Триггер — хотя бы одно
-     * фото (любой kind). Если фото нет — draft удаляется (или не создаётся).
+     * Автосейв draft: подписка на state c debounce. Черновик хранится, если в
+     * нём есть хотя бы одно фото ИЛИ работа инспектора без фото (правки
+     * количества, свои строки, тексты, отложенные строки — см. [hasDraftWork]).
+     * Пустой — удаляется (или не создаётся). Раньше триггером было только
+     * фото, и правки без снимков пропадали при выходе из формы.
+     *
      * `drop(1)` чтобы при первой подписке не дёрнуть запись с дефолтным
      * пустым state до того, как успеет отработать restoreDraftOrInitDefaults.
      */
@@ -257,15 +323,46 @@ class Stage1FormViewModel(
             .debounce(300L)
             .distinctUntilChanged { a, b -> a.draftPayloadEquals(b) }
             .collect { snapshot ->
-                if (snapshot.finalized) return@collect
+                if (snapshot.finalized || snapshot.isSaving) return@collect
                 val hasAnyPhoto = snapshot.documentPhotoPaths.isNotEmpty() ||
                     snapshot.cargoPhotoPaths.isNotEmpty()
-                if (hasAnyPhoto) {
+                if (hasAnyPhoto || snapshot.hasWork()) {
                     container.stage1DraftRepository.upsert(snapshot.toDraftState())
                 } else {
                     container.stage1DraftRepository.deleteById(draftLocalId)
                 }
             }
+    }
+
+    private fun Stage1FormUiState.hasWork(): Boolean = hasDraftWork(
+        materials = materials,
+        pristine = pristineMaterials,
+        parked = parkedMaterials,
+        commentText = commentText,
+        licensePlate = licensePlate,
+        manualUpdText = manualUpdText,
+        vehicleTypeCode = vehicleTypeCode,
+        inTransit = inTransit,
+        isAssets = isAssets,
+        mergedVariants = mergedVariants,
+    )
+
+    /**
+     * Инспектор выбрал основной вариант после слияния черновиков машины: его
+     * непустые значения становятся значениями формы, остальные варианты
+     * остаются в черновике (см. [chooseVariant]).
+     */
+    fun chooseDraftVariant(variantDraftId: String) {
+        _state.update { cur ->
+            val chosen = cur.toDraftState().chooseVariant(variantDraftId)
+            cur.copy(
+                licensePlate = chosen.licensePlate,
+                vehicleTypeCode = chosen.vehicleTypeCode,
+                commentText = chosen.commentText,
+                manualUpdText = chosen.manualUpdText,
+                mergedVariants = chosen.mergedVariants,
+            )
+        }
     }
 
     private fun Stage1FormUiState.toDraftState(): Stage1DraftState {
@@ -291,6 +388,8 @@ class Stage1FormViewModel(
             manualUpdText = manualUpdText,
             inTransit = inTransit,
             isAssets = isAssets,
+            parkedMaterials = parkedMaterials,
+            mergedVariants = mergedVariants,
             createdAt = now,
             updatedAt = now,
         )
@@ -581,9 +680,35 @@ class Stage1FormViewModel(
      * экране уже ПОСЛЕ подтягивания, иначе инспектор не узнает, что изменилось.
      */
     private suspend fun applyGroupComposition() {
-        val cur = _state.value
-        val docs = resolveGroupDocs(groupId = cur.groupId, anchorUpdId = cur.updId)
+        val before = _state.value
+        val docs = resolveGroupDocs(
+            groupId = before.groupId,
+            anchorUpdId = before.updId,
+            loadedDocIds = before.groupDocIds,
+        )
         if (docs.isEmpty()) return
+        // Строки документов, ушедших из машины, НЕ выбрасываем: сведение
+        // черновиков переносит их в черновик новой машины документа или
+        // откладывает до его возвращения. Текущее состояние формы пишется
+        // перед сведением — правки последних секунд тоже переедут.
+        val reconciled = reconcileMachineDrafts(
+            docs,
+            preferredId = draftLocalId,
+            current = before.toDraftState(),
+        )
+        reconciled?.let { r ->
+            draftLocalId = r.localDraftId
+            _state.update {
+                it.copy(
+                    materials = r.materials,
+                    parkedMaterials = r.parkedMaterials,
+                    mergedVariants = r.mergedVariants,
+                    documentPhotoPaths = r.documentPhotoPaths,
+                    cargoPhotoPaths = r.cargoPhotoPaths,
+                )
+            }
+        }
+        val cur = _state.value
         val merged = mergeGroupMaterials(cur.materials, loadDocItems(docs))
         val party = mergeGroupParty(docs)
         _state.update {
@@ -599,9 +724,19 @@ class Stage1FormViewModel(
                 updContractorId = party.contractorId,
                 updRecipientMolId = party.recipientMolId,
                 managerPhone = party.createdByUserPhone,
+                pristineMaterials = buildGroupMaterials(
+                    docs.flatMap { d -> loadDocItemsOf(d) },
+                ).materials,
             )
         }
     }
+
+    private suspend fun loadDocItemsOf(
+        doc: RemoteSourceDocumentEntity,
+    ): List<Pair<String, RemoteSourceDocumentItemEntity>> =
+        runCatching { container.database.remoteSourceDocumentDao().findItemsBySource(doc.id) }
+            .getOrDefault(emptyList())
+            .map { doc.id to it }
 
     /** Позиции всех документов машины из Room, в порядке [sortGroupDocs]. */
     private suspend fun loadDocItems(
@@ -772,6 +907,13 @@ class Stage1FormViewModel(
                         isAssets = cur.isAssets,
                         sourceDocumentIds = sourceDocIds,
                         items = items,
+                        // Машина и версия состава, с которыми форма только что
+                        // сверена (detectGroupChange). На объекте с защитой
+                        // «одна машина — одна приёмка» сервер сверит их сам и
+                        // при расхождении ответит typed-конфликтом. Без
+                        // документов машины нет — поля не шлём.
+                        groupId = cur.groupId?.takeIf { sourceDocIds.isNotEmpty() && it.isNotBlank() },
+                        groupRevision = cur.loadedGroupRevision.takeIf { sourceDocIds.isNotEmpty() },
                         // Фото ложатся в Room одной транзакцией с мутацией:
                         // приёмка не может уехать без своих кадров. Тяжёлую
                         // подготовку делает PhotoPrepareWorker — локально,
@@ -841,6 +983,22 @@ data class Stage1FormUiState(
     val cargoPhotoPaths: List<String> = emptyList(),
     val vehicleTypeCode: String? = null,
     val materials: List<MaterialDraft> = emptyList(),
+    /**
+     * Строки документов, которых сейчас нет в машине и в локальной базе
+     * (временно скрыты сервером). На экране и в отправке их нет; хранятся в
+     * черновике до возвращения документа. См. planMachineDrafts.
+     */
+    val parkedMaterials: List<MaterialDraft> = emptyList(),
+    /**
+     * Позиции документов машины «как пришли» — эталон для правила «в черновике
+     * есть работа» ([hasDraftWork]). В черновик не сохраняется.
+     */
+    val pristineMaterials: List<MaterialDraft> = emptyList(),
+    /**
+     * Варианты полей после слияния черновиков машины. Пока ни один не выбран,
+     * форма показывает диалог выбора основного; см. [DraftVariant].
+     */
+    val mergedVariants: List<DraftVariant> = emptyList(),
     // Финансы по позициям УПД (price/vatRate/vatSum), параллельны materials
     // по lineNo (= индекс+1). Хранятся отдельно от MaterialDraft чтобы не
     // ломать UI-компонент списка материалов; на финализации мерджатся в items.
@@ -929,4 +1087,8 @@ private fun Stage1FormUiState.draftPayloadEquals(other: Stage1FormUiState): Bool
         licensePlate == other.licensePlate &&
         manualUpdText == other.manualUpdText &&
         inTransit == other.inTransit &&
-        isAssets == other.isAssets
+        isAssets == other.isAssets &&
+        parkedMaterials == other.parkedMaterials &&
+        mergedVariants == other.mergedVariants &&
+        // Эталон влияет на решение «хранить или удалить» черновик без фото.
+        pristineMaterials == other.pristineMaterials

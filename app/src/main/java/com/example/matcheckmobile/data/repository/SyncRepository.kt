@@ -99,6 +99,13 @@ class SyncRepository(
      */
     private val onAfterPhotoUpload: (suspend () -> Unit)? = null,
     /**
+     * Сервер сообщил, что документы удалены ОКОНЧАТЕЛЬНО (`deletedReasons` =
+     * `deleted`): строки черновиков по ним больше некуда возвращать. Для
+     * скрытых (`hidden`) и для ответа без причин не вызывается — строки
+     * черновиков ждут возвращения документа. Реализация глотает свои ошибки.
+     */
+    private val onSourceDocumentsDeleted: (suspend (List<String>) -> Unit)? = null,
+    /**
      * Объект текущей сессии (`TokenStorage.effectiveSiteId`). Нужен M4b
      * push-recovery: переотправлять можно только записи СВОЕГО объекта, иначе
      * планшет с чужими остатками перетаскивает их к себе (инцидент 2026-07).
@@ -606,6 +613,10 @@ class SyncRepository(
         if (r.deletedIds.deliveries.isNotEmpty()) deliveryDao.deleteByIds(r.deletedIds.deliveries)
         if (r.deletedIds.shipments.isNotEmpty()) shipmentDao.deleteByIds(r.deletedIds.shipments)
         if (r.deletedIds.sourceDocuments.isNotEmpty()) sourceDocumentDao.deleteByIds(r.deletedIds.sourceDocuments)
+        val deletedForGood = deletedForGood(r)
+        if (deletedForGood.isNotEmpty()) {
+            runCatching { onSourceDocumentsDeleted?.invoke(deletedForGood) }
+        }
     }
 
     /** Лимиты на запрос — см. MOBILE_API.md. Если массив пришёл «полным» — есть ещё. */
@@ -737,3 +748,13 @@ fun Throwable.isTransient(): Boolean = this is IOException || (this is HttpExcep
  */
 class SyncCycleTimeoutException(timeoutMs: Long) :
     Exception("sync cycle не уложился в ${timeoutMs}мс и был прерван")
+
+/**
+ * Документы, удалённые сервером окончательно: в deletedIds и с причиной
+ * `deleted`. Без причины (старый сервер) и со `hidden` — не окончательно:
+ * строки черновиков по ним должны дождаться возвращения документа.
+ */
+internal fun deletedForGood(r: SyncDeltaResponse): List<String> {
+    val reasons = r.deletedReasons?.sourceDocuments ?: return emptyList()
+    return r.deletedIds.sourceDocuments.filter { reasons[it] == "deleted" }
+}
