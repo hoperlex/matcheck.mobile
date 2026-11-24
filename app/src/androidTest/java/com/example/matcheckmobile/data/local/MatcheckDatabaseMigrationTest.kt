@@ -203,7 +203,7 @@ class MatcheckDatabaseMigrationTest {
                 VALUES
                     ('$DELIVERY_ID', 'filled', 'Оформлена', NULL, 'site-1', NULL, NULL,
                      NULL, NULL, NULL, '2026-08-12T02:33:00Z', NULL, NULL,
-                     0, 0, NULL, '[]', 1, '2026-08-12T02:33:00Z', NULL, 0, NULL)
+                     0, 0, NULL, '[]', 1, '2026-08-12T02:33:00Z', '2026-08-12T02:33:00Z', 0, NULL)
                 """.trimIndent(),
             )
         }
@@ -326,7 +326,8 @@ class MatcheckDatabaseMigrationTest {
                 VALUES ('draft-23', 'upd-23', '[]', '["/z.jpg"]', NULL, '[]', '', 'Т777ЕЕ77', '', 0, 0, 1, 1)
                 """.trimIndent(),
             )
-            db.execSQL(sourceDoc("sd-23", "strftime('%Y-%m-%dT%H:%M:%SZ','now','-3 days')"))
+            // В схеме 23 ещё нет consigneeName — она появилась в 24.
+            db.execSQL(sourceDoc("sd-23", "strftime('%Y-%m-%dT%H:%M:%SZ','now','-3 days')", consignee = false))
         }
 
         val db = migrateToLatest()
@@ -594,15 +595,16 @@ class MatcheckDatabaseMigrationTest {
     }
 
     /** Минимальная строка remote_source_documents для версии 25. */
-    private fun sourceDoc(id: String, updatedAtSql: String): String = """
+    /** Строка источника; [consignee] = false — для схемы 23, где consigneeName ещё нет. */
+    private fun sourceDoc(id: String, updatedAtSql: String, consignee: Boolean = true): String = """
         INSERT INTO remote_source_documents
             (id, kind, direction, status, supplierId, recipientId, contractorId, recipientMolId,
-             siteId, supplierName, contractorName, consigneeName, siteName, createdByUserPhone,
+             siteId, supplierName, contractorName, ${if (consignee) "consigneeName, " else ""}siteName, createdByUserPhone,
              docNumber, docDate, totalSum, vatSum, expectedDate, origin, parsedAt,
              parseErrorCode, originalFilename, version, createdAt, updatedAt)
         VALUES
             ('$id', 'upd', 'inbound', 'parsed', NULL, NULL, NULL, NULL,
-             'site-1', NULL, NULL, NULL, NULL, NULL,
+             'site-1', NULL, NULL, ${if (consignee) "NULL, " else ""}NULL, NULL,
              '1403', NULL, NULL, NULL, NULL, 'manual_pdf', '2026-08-01T00:00:00Z',
              NULL, NULL, 5, '2026-08-01T00:00:00Z', $updatedAtSql)
     """.trimIndent()
