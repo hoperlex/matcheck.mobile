@@ -69,6 +69,10 @@ class ForeignSiteQuarantineTest {
         createdAt = TS, updatedAt = TS,
     )
 
+    // Фото кладём через photoIntents — тем же путём, что DeliveryRepository при
+    // финализации. Третий аргумент saveAggregate — серверный merge: новую строку
+    // без uploadedAt он не заводит (RemoteDeliveryDao.upsertServerPhoto, с
+    // 04.09.2026), и неотправленное фото в базу просто не попадало.
     private fun photo(
         id: String,
         deliveryId: String,
@@ -97,7 +101,7 @@ class ForeignSiteQuarantineTest {
     fun quarantine_keepsUnsentPhotoAndParent_dropsQueue() = runBlocking {
         val id = "d-keep"
         val blob = blobFile("d-keep.jpg")
-        deliveryDao.saveAggregate(delivery(id), emptyList(), listOf(photo("p1", id, blob = blob)))
+        deliveryDao.saveAggregate(delivery(id), emptyList(), emptyList(), photoIntents = listOf(photo("p1", id, blob = blob)))
         mutationDao.upsert(mutation("m1", id))
 
         val outcome = quarantine.quarantineDelivery(id)
@@ -118,8 +122,8 @@ class ForeignSiteQuarantineTest {
     fun quarantinedPhotos_areNotPickedByUploadCycle() = runBlocking {
         val id = "d-cycle"
         deliveryDao.saveAggregate(
-            delivery(id), emptyList(),
-            listOf(photo("p1", id, blob = blobFile("d-cycle.jpg"))),
+            delivery(id), emptyList(), emptyList(),
+            photoIntents = listOf(photo("p1", id, blob = blobFile("d-cycle.jpg"))),
         )
 
         quarantine.quarantineDelivery(id)
@@ -132,8 +136,8 @@ class ForeignSiteQuarantineTest {
     fun quarantine_deletesParent_whenNothingToSalvage() = runBlocking {
         val id = "d-drop"
         deliveryDao.saveAggregate(
-            delivery(id), emptyList(),
-            listOf(photo("p1", id, status = RemotePhotoStatus.UPLOADED)),
+            delivery(id), emptyList(), emptyList(),
+            photoIntents = listOf(photo("p1", id, status = RemotePhotoStatus.UPLOADED)),
         )
         mutationDao.upsert(mutation("m1", id))
 
@@ -150,8 +154,8 @@ class ForeignSiteQuarantineTest {
         // Второй тоже обязан стать терминальным, иначе он вечно ловит 403.
         val id = "d-mixed"
         deliveryDao.saveAggregate(
-            delivery(id), emptyList(),
-            listOf(
+            delivery(id), emptyList(), emptyList(),
+            photoIntents = listOf(
                 photo("p-live", id, blob = blobFile("d-mixed.jpg")),
                 photo("p-lost", id, blob = null),
             ),
@@ -170,8 +174,8 @@ class ForeignSiteQuarantineTest {
     fun protectedParents_listsQuarantineContainers() = runBlocking {
         val id = "d-protect"
         deliveryDao.saveAggregate(
-            delivery(id), emptyList(),
-            listOf(photo("p1", id, blob = blobFile("d-protect.jpg"))),
+            delivery(id), emptyList(), emptyList(),
+            photoIntents = listOf(photo("p1", id, blob = blobFile("d-protect.jpg"))),
         )
         quarantine.quarantineDelivery(id)
 
@@ -185,7 +189,7 @@ class ForeignSiteQuarantineTest {
     fun deleteAll_removesFilesRowsAndEmptyParent() = runBlocking {
         val id = "d-delete"
         val blob = blobFile("d-delete.jpg")
-        deliveryDao.saveAggregate(delivery(id), emptyList(), listOf(photo("p1", id, blob = blob)))
+        deliveryDao.saveAggregate(delivery(id), emptyList(), emptyList(), photoIntents = listOf(photo("p1", id, blob = blob)))
         quarantine.quarantineDelivery(id)
 
         val removed = quarantine.deleteAll()
@@ -200,8 +204,8 @@ class ForeignSiteQuarantineTest {
     fun deleteAll_keepsParentWithRemainingQueue() = runBlocking {
         val id = "d-busy"
         deliveryDao.saveAggregate(
-            delivery(id), emptyList(),
-            listOf(photo("p1", id, blob = blobFile("d-busy.jpg"))),
+            delivery(id), emptyList(), emptyList(),
+            photoIntents = listOf(photo("p1", id, blob = blobFile("d-busy.jpg"))),
         )
         quarantine.quarantineDelivery(id)
         // Мутация появилась уже после карантина (например, ручная правка).
@@ -218,8 +222,8 @@ class ForeignSiteQuarantineTest {
         val live = blobFile("d-export-live.jpg")
         val ghost = File(tmp.root, "never-written.jpg")
         deliveryDao.saveAggregate(
-            delivery(id), emptyList(),
-            listOf(photo("p-live", id, blob = live), photo("p-ghost", id, blob = ghost)),
+            delivery(id), emptyList(), emptyList(),
+            photoIntents = listOf(photo("p-live", id, blob = live), photo("p-ghost", id, blob = ghost)),
         )
         quarantine.quarantineDelivery(id)
 

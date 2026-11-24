@@ -34,9 +34,10 @@ import java.util.UUID
  *     берётся из подготовленного файла, а если его ещё нет — из исходника:
  *     подготовка пишет файл ДО удаления исходника, поэтому хотя бы один из
  *     двух существует в любой момент.
- *  2. Одной транзакцией: запись карантина, снятие очереди сущности и удаление
- *     локальной приёмки (каскадом позиции и строки фото). Упала транзакция —
- *     копии удаляются, оригиналы и очередь остаются как были.
+ *  2. Одной транзакцией: сверка фото со снимком, запись карантина, снятие
+ *     очереди сущности и удаление локальной приёмки (каскадом позиции и строки
+ *     фото). Упала транзакция или не скопировался существующий файл — копии
+ *     удаляются, оригиналы и очередь остаются как были.
  *  3. Только после коммита удаляются оригиналы фото: копии уже принадлежат
  *     карантину.
  *
@@ -90,7 +91,8 @@ class GroupQuarantine(
                 photos = copied,
             )
             port.commit(
-                QuarantinedOperationEntity(
+                expectedPhotos = photos,
+                row = QuarantinedOperationEntity(
                     id = id,
                     entityType = ENTITY_DELIVERY,
                     entityId = mutation.entityId,
@@ -192,18 +194,27 @@ class GroupQuarantine(
     /**
      * Первый файл кадра, который удалось скопировать: подготовленный JPEG,
      * затем исходник. null — на планшете не осталось ни одного.
+     *
+     * Файл есть, а скопировать его не вышло (нет места, ошибка чтения, исходник
+     * в эту секунду удалила подготовка) — это НЕ потерянный кадр: бросаем
+     * [RetryLaterException] до записи карантина, оригиналы и очередь целы.
+     * Раньше такой кадр молча считался потерянным, и после коммита оригинал
+     * удалялся.
      */
     private fun copyFirstExisting(photo: RemoteDeliveryPhotoEntity, dir: File): String? {
         val name = "${photo.id}.jpg"
+        var failure: Exception? = null
         for (path in listOfNotNull(photo.localBlobPath, photo.sourcePath)) {
-            val ok = runCatching {
-                val from = File(path)
-                if (!from.isFile) return@runCatching false
+            val from = File(path)
+            if (!from.isFile) continue
+            try {
                 from.copyTo(File(dir, name), overwrite = true)
-                true
-            }.getOrDefault(false)
-            if (ok) return name
+                return name
+            } catch (e: Exception) {
+                failure = e
+            }
         }
+        if (failure != null) throw RetryLaterException("кадр ${photo.id} не скопирован", failure)
         return null
     }
 
@@ -211,7 +222,28 @@ class GroupQuarantine(
         runCatching { File(path).delete() }
     }
 
+    /**
+     * Карантин не записан, но повтор может удаться: кадр не скопировался или
+     * фото приёмки изменились между снимком и записью. Ничего не удалено —
+     * очередь повторит операцию по backoff (сервер снова ответит 409), а не
+     * заморозит её навсегда.
+     */
+    class RetryLaterException(message: String, cause: Throwable? = null) : Exception(message, cause)
+
     companion object {
+        /**
+         * Совпадают ли файлы кадров со снимком: id и пути. Статус загрузки не
+         * важен — копируются файлы; важно, чтобы каскад не унёс кадр, которого
+         * нет в снимке, и чтобы подготовка не подменила файл после копии.
+         */
+        fun samePhotoFiles(
+            current: List<RemoteDeliveryPhotoEntity>,
+            snapshot: List<RemoteDeliveryPhotoEntity>,
+        ): Boolean {
+            fun key(p: RemoteDeliveryPhotoEntity) = Triple(p.id, p.localBlobPath, p.sourcePath)
+            return current.map(::key).toSet() == snapshot.map(::key).toSet()
+        }
+
         const val DIR = "group_quarantine"
         const val ENTITY_DELIVERY = "delivery"
         private const val OPERATION_PHOTOS_DIR = "operation_photos"
@@ -332,8 +364,13 @@ interface GroupQuarantinePort {
     /**
      * ОДНОЙ транзакцией: вставить запись, снять очередь сущности, удалить
      * локальную приёмку (каскадом позиции, фото, мета).
+     *
+     * Первым делом внутри транзакции фото приёмки сверяются со снимком
+     * [expectedPhotos] ([GroupQuarantine.samePhotoFiles]); расхождение —
+     * [GroupQuarantine.RetryLaterException] до любых изменений. Иначе кадр,
+     * снятый или подготовленный после снимка, ушёл бы каскадом без копии.
      */
-    suspend fun commit(row: QuarantinedOperationEntity)
+    suspend fun commit(row: QuarantinedOperationEntity, expectedPhotos: List<RemoteDeliveryPhotoEntity>)
     suspend fun find(id: String): QuarantinedOperationEntity?
     suspend fun markReissued(id: String, at: Long)
     suspend fun delete(id: String)

@@ -71,6 +71,10 @@ class TerminalConflictResolverTest {
         lastSyncError = if (conflict) "conflict serverVersion=2" else null,
     )
 
+    // Фото кладём через photoIntents — тем же путём, что DeliveryRepository при
+    // финализации. Третий аргумент saveAggregate — серверный merge: новую строку
+    // без uploadedAt он не заводит (RemoteDeliveryDao.upsertServerPhoto, с
+    // 04.09.2026), и неотправленное фото в базу просто не попадало.
     private fun pendingPhoto(id: String, deliveryId: String) = RemoteDeliveryPhotoEntity(
         id = id, deliveryId = deliveryId, kind = "vehicle", stage = "before",
         s3Key = null, thumbS3Key = null, contentHash = "hash-$id", takenAt = "2026-07-24T00:00:00Z",
@@ -95,7 +99,7 @@ class TerminalConflictResolverTest {
     @Test
     fun sweepLocalTerminal_clearsConflict_keepsPhoto_deletesConflictMutation() = runBlocking {
         val id = "d1"
-        deliveryDao.saveAggregate(delivery(id, "confirmed_mol", conflict = true), emptyList(), listOf(pendingPhoto("p1", id)))
+        deliveryDao.saveAggregate(delivery(id, "confirmed_mol", conflict = true), emptyList(), emptyList(), photoIntents = listOf(pendingPhoto("p1", id)))
         mutationDao.upsert(mutation("m1", id, conflict = true))
 
         resolver().sweepLocalTerminal()
@@ -123,7 +127,7 @@ class TerminalConflictResolverTest {
     @Test
     fun applyReconciled_terminal_serverWin_keepsLaterNonConflictMutation() = runBlocking {
         val id = "d3"
-        deliveryDao.saveAggregate(delivery(id, "filled", conflict = true), emptyList(), listOf(pendingPhoto("p3", id)))
+        deliveryDao.saveAggregate(delivery(id, "filled", conflict = true), emptyList(), emptyList(), photoIntents = listOf(pendingPhoto("p3", id)))
         mutationDao.upsert(mutation("m3-conflict", id, conflict = true))
         mutationDao.upsert(mutation("m3-later", id, conflict = false, op = "mark_deletion")) // поздняя неконфликтная
 

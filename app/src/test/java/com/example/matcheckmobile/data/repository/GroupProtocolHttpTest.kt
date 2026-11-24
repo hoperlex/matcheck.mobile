@@ -7,6 +7,7 @@ import com.example.matcheckmobile.data.local.dao.RemoteDeliveryDao
 import com.example.matcheckmobile.data.local.dao.RemoteShipmentDao
 import com.example.matcheckmobile.data.local.entity.MutationEntity
 import com.example.matcheckmobile.data.local.entity.QuarantinedOperationEntity
+import com.example.matcheckmobile.data.local.entity.RemoteDeliveryPhotoEntity
 import com.example.matcheckmobile.data.remote.api.DeliveriesApi
 import com.example.matcheckmobile.data.remote.api.ShipmentsApi
 import com.example.matcheckmobile.data.remote.api.dto.DeliveryUpsertItem
@@ -54,6 +55,8 @@ class GroupProtocolHttpTest {
     private val mutations = mutableMapOf<String, MutationEntity>()
     private val unfrozen = mutableListOf<String>()
     private val quarantined = mutableListOf<QuarantinedOperationEntity>()
+    /** Сбой записи карантина (null — запись проходит). */
+    private var commitError: Throwable? = null
 
     @Before
     fun setUp() {
@@ -102,7 +105,8 @@ class GroupProtocolHttpTest {
             port = object : GroupQuarantinePort {
                 override fun observeAll(): Flow<List<QuarantinedOperationEntity>> = flowOf(quarantined)
                 override suspend fun deliveryAggregate(deliveryId: String): DeliveryAggregate? = null
-                override suspend fun commit(row: QuarantinedOperationEntity) {
+                override suspend fun commit(row: QuarantinedOperationEntity, expectedPhotos: List<RemoteDeliveryPhotoEntity>) {
+                    commitError?.let { throw it }
                     quarantined += row
                     // как RoomGroupQuarantinePort: очередь сущности снимается в той же транзакции
                     mutations.values.removeAll { it.entityId == row.entityId }
@@ -188,6 +192,47 @@ class GroupProtocolHttpTest {
         assertEquals("group_claimed", row.reason)
         assertEquals("2026-11-20T09:15:00.000Z", row.claimedAt)
         assertTrue(mutations.isEmpty())
+    }
+
+    private fun enqueueGroupClaimed() {
+        server.enqueue(
+            MockResponse().setResponseCode(409).setBody(
+                """{"error":"group_claimed","groupId":"11111111-1111-1111-1111-111111111111",""" +
+                    """"groupRevision":4,"claimedByOperationId":"22222222-2222-2222-2222-222222222222",""" +
+                    """"claimedAt":"2026-11-20T09:15:00.000Z"}""",
+            ),
+        )
+    }
+
+    @Test
+    fun `карантин отложен — мутация остаётся в очереди по backoff, не заморожена`() = runBlocking {
+        val m = queue(fresh)
+        enqueueGroupClaimed()
+        commitError = GroupQuarantine.RetryLaterException("фото изменились")
+
+        processor().processAll()
+
+        val after = mutations[m.id]!!
+        assertEquals(false, after.conflictPending)
+        assertEquals(1, after.attempts)
+        assertNotNull(after.nextAttemptAt)
+        assertTrue(after.lastError!!.startsWith("http 409 · group_claimed"))
+        assertTrue(quarantined.isEmpty())
+    }
+
+    @Test
+    fun `карантин не записан по другой причине — мутация заморожена с целыми данными`() = runBlocking {
+        val m = queue(fresh)
+        enqueueGroupClaimed()
+        commitError = IllegalStateException("disk full")
+
+        processor().processAll()
+
+        val after = mutations[m.id]!!
+        assertEquals(true, after.conflictPending)
+        assertEquals("http 409 · group_claimed", after.lastError)
+        assertEquals(m.payloadJson, after.payloadJson)
+        assertTrue(quarantined.isEmpty())
     }
 
     @Test

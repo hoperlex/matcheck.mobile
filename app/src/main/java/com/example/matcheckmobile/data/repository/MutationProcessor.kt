@@ -178,12 +178,16 @@ class MutationProcessor(
                     // 409 группового протокола: сервер ничего не записал, повтор
                     // бесполезен. Операция переезжает в карантин целиком — снимок
                     // и копии фото, — а очередь сущности снимается (FIFO не
-                    // блокируется). Не вышло записать снимок — данные не трогаем,
-                    // мутацию держим замороженной с причиной.
+                    // блокируется). Не вышло записать снимок — данные не трогаем:
+                    //  - RetryLaterException (кадр не скопировался, фото изменились
+                    //    за время копирования) — мутация остаётся в очереди по
+                    //    backoff, следующий проход получит тот же 409 и повторит;
+                    //  - прочее — мутацию держим замороженной с причиной.
                     val result = runCatching {
                         groupQuarantine?.quarantineDelivery(m, outcome.conflict)
                             ?: error("карантин группы недоступен")
                     }
+                    val deferred = result.exceptionOrNull() is GroupQuarantine.RetryLaterException
                     blockedEntities += key
                     Sentry.withScope { scope ->
                         scope.setTag("entityType", m.entityType)
@@ -191,20 +195,37 @@ class MutationProcessor(
                         scope.setTag("reason", outcome.conflict.code)
                         scope.setLevel(SentryLevel.WARNING)
                         Sentry.captureMessage(
-                            if (result.isSuccess) "mutation quarantined: ${outcome.conflict.code}"
-                            else "mutation quarantine failed: ${outcome.conflict.code}",
+                            when {
+                                result.isSuccess -> "mutation quarantined: ${outcome.conflict.code}"
+                                deferred -> "mutation quarantine deferred: ${outcome.conflict.code}"
+                                else -> "mutation quarantine failed: ${outcome.conflict.code}"
+                            },
                         )
                     }
-                    if (result.isFailure) {
-                        mutationDao.upsert(
-                            m.copy(
-                                conflictPending = true,
-                                attempts = m.attempts + 1,
-                                lastError = "http 409 · ${outcome.conflict.code}",
-                            ),
-                        )
+                    when {
+                        deferred -> {
+                            val attempts = m.attempts + 1
+                            mutationDao.upsert(
+                                m.copy(
+                                    attempts = attempts,
+                                    nextAttemptAt = System.currentTimeMillis() + backoffDelayMs(attempts),
+                                    lastError = "http 409 · ${outcome.conflict.code} · карантин отложен",
+                                ),
+                            )
+                            transientErrors++
+                        }
+                        result.isFailure -> {
+                            mutationDao.upsert(
+                                m.copy(
+                                    conflictPending = true,
+                                    attempts = m.attempts + 1,
+                                    lastError = "http 409 · ${outcome.conflict.code}",
+                                ),
+                            )
+                            dropped++
+                        }
+                        else -> dropped++
                     }
-                    dropped++
                 }
                 is Outcome.Drop -> {
                     // Drop = «мутация отброшена» (главный симптом «инспектор отправил,

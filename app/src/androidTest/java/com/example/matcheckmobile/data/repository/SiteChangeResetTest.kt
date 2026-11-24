@@ -49,7 +49,11 @@ class SiteChangeResetTest {
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
         db = Room.inMemoryDatabaseBuilder(ctx, MatcheckDatabase::class.java).allowMainThreadQueries().build()
         settings = DeviceSettings(ctx)
-        // DataStore общий на процесс — начинаем с чистого состояния.
+        // DataStore общий на процесс — и это процесс живого приложения «.dev»:
+        // запоминаем его объект и курсор, чтобы вернуть их в teardown.
+        savedSite = settings.currentSiteIdFlow.first()
+        savedCursor = settings.readSyncCursor()
+        // Начинаем с чистого состояния.
         settings.clearPendingSiteReset()
         settings.clearSyncCursor()
         quarantine = ForeignSiteQuarantine(
@@ -60,9 +64,13 @@ class SiteChangeResetTest {
     @After
     fun teardown() = runBlocking {
         settings.clearPendingSiteReset()
-        settings.clearSyncCursor()
+        settings.setCurrentSite(savedSite)
+        savedCursor?.let { settings.setSyncCursor(it) } ?: settings.clearSyncCursor()
         db.close()
     }
+
+    private var savedSite: String = ""
+    private var savedCursor: String? = null
 
     /** siteId «в токене» — эмулируем TokenStorage простым полем. */
     private var tokenSite: String? = "site-old"
@@ -104,6 +112,10 @@ class SiteChangeResetTest {
         createdAt = TS, updatedAt = TS,
     )
 
+    // Фото кладём через photoIntents — тем же путём, что DeliveryRepository при
+    // финализации. Третий аргумент saveAggregate — серверный merge: новую строку
+    // без uploadedAt он не заводит (RemoteDeliveryDao.upsertServerPhoto, с
+    // 04.09.2026), и неотправленное фото в базу просто не попадало.
     private fun photo(id: String, deliveryId: String, status: String) = RemoteDeliveryPhotoEntity(
         id = id, deliveryId = deliveryId, kind = "cargo", stage = "before",
         s3Key = null, thumbS3Key = null, contentHash = "hash-$id", takenAt = TS,
@@ -144,8 +156,8 @@ class SiteChangeResetTest {
     fun keepIds_single_protectsRecordWithUnsentPhoto() = runBlocking {
         seedPlain("d-plain")
         db.remoteDeliveryDao().saveAggregate(
-            delivery("d-photo"), emptyList(),
-            listOf(photo("p1", "d-photo", RemotePhotoStatus.PENDING_UPLOAD)),
+            delivery("d-photo"), emptyList(), emptyList(),
+            photoIntents = listOf(photo("p1", "d-photo", RemotePhotoStatus.PENDING_UPLOAD)),
         )
 
         val reset = newReset()
@@ -162,14 +174,14 @@ class SiteChangeResetTest {
         seedPlain("d-plain")
         // 1) карантин чужого объекта
         db.remoteDeliveryDao().saveAggregate(
-            delivery("d-quarantine"), emptyList(),
-            listOf(photo("pq", "d-quarantine", RemotePhotoStatus.PENDING_UPLOAD)),
+            delivery("d-quarantine"), emptyList(), emptyList(),
+            photoIntents = listOf(photo("pq", "d-quarantine", RemotePhotoStatus.PENDING_UPLOAD)),
         )
         quarantine.quarantineDelivery("d-quarantine")
         // 2) незалитое фото
         db.remoteDeliveryDao().saveAggregate(
-            delivery("d-photo"), emptyList(),
-            listOf(photo("pp", "d-photo", RemotePhotoStatus.UPLOAD_ERROR)),
+            delivery("d-photo"), emptyList(), emptyList(),
+            photoIntents = listOf(photo("pp", "d-photo", RemotePhotoStatus.UPLOAD_ERROR)),
         )
         // 3) непустая очередь мутаций
         db.remoteDeliveryDao().saveAggregate(delivery("d-queued"), emptyList(), emptyList())

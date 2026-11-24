@@ -178,6 +178,56 @@ class GroupQuarantineTest {
     }
 
     @Test
+    fun `файл кадра есть, но не скопировался — карантин не пишется, оригинал цел`() = runBlocking {
+        val blob = file("remote_photos/p1.jpg", "blob-1")
+        port.aggregate = aggregate(listOf(photo("p1", "cargo", "before", blob = blob.path)))
+        // Место копии занято непустым каталогом: copyTo не может его заменить —
+        // так же, как при нехватке места или ошибке чтения.
+        file("group_quarantine/id-1/p1.jpg/occupied", "x")
+
+        try {
+            quarantine().quarantineDelivery(mutation(), MutationFailure.GroupConflict("group_claimed"))
+            fail("ожидали RetryLaterException")
+        } catch (e: GroupQuarantine.RetryLaterException) {
+            // ожидаемо: раньше кадр молча считался потерянным, а оригинал удалялся
+        }
+
+        assertTrue(port.rows.isEmpty())
+        assertEquals("blob-1", blob.readText())
+        assertFalse(File(root, "group_quarantine/id-1").exists())
+    }
+
+    @Test
+    fun `кадр снят или подготовлен после снимка — повтор позже, ничего не удалено`() = runBlocking {
+        val blob = file("remote_photos/p1.jpg", "blob-1")
+        val p1 = photo("p1", "cargo", "before", blob = blob.path)
+        port.aggregate = aggregate(listOf(p1))
+        // Пока копировали, инспектор снял кадр 2 Этапа — его копии в снимке нет.
+        port.photosAtCommit = listOf(p1, photo("p2", "cargo", "after", source = file("operation_photos/p2.jpg", "p2").path))
+
+        try {
+            quarantine().quarantineDelivery(mutation(), MutationFailure.GroupConflict("group_changed"))
+            fail("ожидали RetryLaterException")
+        } catch (e: GroupQuarantine.RetryLaterException) {
+            // ожидаемо
+        }
+
+        assertTrue(port.rows.isEmpty())
+        assertTrue(blob.exists())
+        assertTrue(File(root, "operation_photos/p2.jpg").exists())
+        assertFalse(File(root, "group_quarantine/id-1").exists())
+    }
+
+    @Test
+    fun `сверка снимка — по id и путям файлов, статус загрузки не важен`() {
+        val p = photo("p1", "cargo", "before", blob = "/b/p1.jpg", source = "/s/p1.jpg")
+        assertTrue(GroupQuarantine.samePhotoFiles(listOf(p.copy(uploadStatus = "UPLOADED")), listOf(p)))
+        // Подготовка закончилась: JPEG появился, исходник удалён.
+        assertFalse(GroupQuarantine.samePhotoFiles(listOf(p.copy(sourcePath = null)), listOf(p)))
+        assertFalse(GroupQuarantine.samePhotoFiles(emptyList(), listOf(p)))
+    }
+
+    @Test
     fun `исходник, нужный другой строке, не удаляется`() = runBlocking {
         val source = file("operation_photos/op_shared.jpg", "shared")
         port.aggregate = aggregate(listOf(photo("p1", "cargo", "before", source = source.path)))
@@ -273,12 +323,19 @@ class GroupQuarantineTest {
     private class FakePort : GroupQuarantinePort {
         var aggregate: DeliveryAggregate? = null
         var failCommit = false
+        /** Фото приёмки в момент записи; null — как в снимке. */
+        var photosAtCommit: List<RemoteDeliveryPhotoEntity>? = null
         val rows = mutableListOf<QuarantinedOperationEntity>()
         val stillUsed = mutableSetOf<String>()
 
         override fun observeAll(): Flow<List<QuarantinedOperationEntity>> = flowOf(rows.toList())
         override suspend fun deliveryAggregate(deliveryId: String) = aggregate
-        override suspend fun commit(row: QuarantinedOperationEntity) {
+        override suspend fun commit(row: QuarantinedOperationEntity, expectedPhotos: List<RemoteDeliveryPhotoEntity>) {
+            // Как RoomGroupQuarantinePort: сверка со снимком — до любых изменений.
+            val now = photosAtCommit ?: aggregate?.photos.orEmpty()
+            if (!GroupQuarantine.samePhotoFiles(now, expectedPhotos)) {
+                throw GroupQuarantine.RetryLaterException("фото изменились")
+            }
             if (failCommit) throw IllegalStateException("disk full")
             rows += row
         }

@@ -54,6 +54,7 @@ class PhotoTakenAtPersistenceTest {
 
     @Before
     fun setup() = runBlocking {
+        filesBefore = photoDir.listFiles()?.map { it.name }?.toSet().orEmpty()
         db = Room.inMemoryDatabaseBuilder(ctx, MatcheckDatabase::class.java)
             .allowMainThreadQueries().build()
         prepare = PhotoPrepareProcessor(
@@ -82,8 +83,13 @@ class PhotoTakenAtPersistenceTest {
     @After
     fun tearDown() {
         db.close()
-        File(ctx.filesDir, "remote_photos").listFiles()?.forEach { it.delete() }
+        // Папка общая с живым приложением «.dev» (тот же процесс и filesDir):
+        // удаляем только файлы, появившиеся за время теста.
+        photoDir.listFiles()?.filter { it.name !in filesBefore }?.forEach { it.delete() }
     }
+
+    private val photoDir get() = File(ctx.filesDir, "remote_photos")
+    private var filesBefore: Set<String> = emptySet()
 
     // ── helpers ──────────────────────────────────────────────────────────
 
@@ -148,7 +154,10 @@ class PhotoTakenAtPersistenceTest {
         val sent = api.lastPresign
         assertNotNull("presign не вызывался", sent)
         assertEquals(shotAt, sent!!.takenAt)
-        assertEquals(photoId, api.lastPresignPhotoIdMatchedBy(sent))
+        // Ушёл именно этот кадр: ключ идемпотентности = локальный id строки
+        // (PhotoIntentMapper). Раньше тут сравнивали со случайным id, который
+        // выдаёт подделка presign, — проверка не могла пройти никогда.
+        assertEquals(photoId, sent.idempotencyKey)
     }
 
     @Test
@@ -193,14 +202,10 @@ class PhotoTakenAtPersistenceTest {
     /** Запоминает presign-запрос; PUT в S3 не происходит — URL пустой. */
     private class RecordingPhotosApi : PhotosApi {
         var lastPresign: PhotoPresignRequest? = null
-        private val photoIds = mutableMapOf<PhotoPresignRequest, String>()
-
-        fun lastPresignPhotoIdMatchedBy(req: PhotoPresignRequest): String? = photoIds[req]
 
         override suspend fun presign(body: PhotoPresignRequest): PhotoPresignResponse {
             lastPresign = body
             val id = UUID.randomUUID().toString()
-            photoIds[body] = id
             // alreadyExists=true: PUT в S3 не нужен, тест проверяет payload
             // presign, а не транспорт.
             return PhotoPresignResponse(

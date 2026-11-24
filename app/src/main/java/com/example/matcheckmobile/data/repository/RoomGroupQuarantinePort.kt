@@ -6,6 +6,7 @@ import com.example.matcheckmobile.data.local.dao.QuarantinedOperationDao
 import com.example.matcheckmobile.data.local.dao.RemoteDeliveryDao
 import com.example.matcheckmobile.data.local.dao.RemoteShipmentDao
 import com.example.matcheckmobile.data.local.entity.QuarantinedOperationEntity
+import com.example.matcheckmobile.data.local.entity.RemoteDeliveryPhotoEntity
 import kotlinx.coroutines.flow.Flow
 
 /** [GroupQuarantinePort] поверх Room. */
@@ -30,7 +31,16 @@ class RoomGroupQuarantinePort(
         )
     }
 
-    override suspend fun commit(row: QuarantinedOperationEntity) = tx.run {
+    override suspend fun commit(
+        row: QuarantinedOperationEntity,
+        expectedPhotos: List<RemoteDeliveryPhotoEntity>,
+    ) = tx.run {
+        // Снимок фото читался отдельной транзакцией: за время копирования мог
+        // появиться кадр 2 Этапа или закончиться подготовка (JPEG вместо
+        // исходника). Такой кадр ушёл бы каскадом без копии — не коммитим.
+        if (!GroupQuarantine.samePhotoFiles(deliveryDao.findPhotosByDelivery(row.entityId), expectedPhotos)) {
+            throw GroupQuarantine.RetryLaterException("фото приёмки изменились после снимка")
+        }
         quarantineDao.insert(row)
         mutationDao.deleteFor(row.entityType, row.entityId)
         // Каскадом уходят позиции, строки фото и delivery_local_meta: снимок и

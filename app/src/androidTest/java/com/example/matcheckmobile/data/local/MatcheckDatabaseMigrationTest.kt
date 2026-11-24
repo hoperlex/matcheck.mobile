@@ -1,44 +1,52 @@
 package com.example.matcheckmobile.data.local
 
-import androidx.room.testing.MigrationTestHelper
-import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
+import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.matcheckmobile.domain.model.RemotePhotoStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Rule
+import org.junit.After
 import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Миграции 24 → 25, 25 → 26 и 26 → 27 не должны терять локальные данные инспектора.
+ * Обновление базы не должно терять локальные данные инспектора.
  *
  * Зачем отдельный тест: `MatcheckDatabase.get` собран с
  * `fallbackToDestructiveMigration(dropAllTables = true)`. Любая ошибка в
  * миграции не падает заметно — она молча стирает БД, а вместе с ней
- * неотправленные мутации и черновики форм. То есть ровно те данные, ради
- * сохранности которых вводится PENDING_PREPARE.
+ * неотправленные мутации и черновики форм.
  *
- * Проверяем: мутации, все шесть видов черновиков, существующие PENDING_UPLOAD
- * (у них есть localBlobPath и они обязаны идти прежним путём), и то, что новые
- * колонки sourcePath/preparingSince появились и принимают PENDING_PREPARE.
+ * Как устроен (с 24.11.2026): база старой версии собирается из
+ * экспортированной схемы ([SchemaFixture.createDatabase]), заполняется данными,
+ * а затем открывается путём приложения ([SchemaFixture.openWithRoom]): все
+ * миграции до ТЕКУЩЕЙ версии и штатная проверка схемы Room. Поэтому каждый
+ * тест — это обновление «с версии N до текущей», как у планшета, а не
+ * отдельный шаг. `MigrationTestHelper` на устройстве не работает (см.
+ * [SchemaFixture]) — с августа эти тесты до проверок не доходили.
  */
 @RunWith(AndroidJUnit4::class)
 class MatcheckDatabaseMigrationTest {
 
-    @get:Rule
-    val helper = MigrationTestHelper(
-        InstrumentationRegistry.getInstrumentation(),
-        MatcheckDatabase::class.java,
-        emptyList(),
-        FrameworkSQLiteOpenHelperFactory(),
-    )
+    private val instrumentation = InstrumentationRegistry.getInstrumentation()
+    private val fixture = SchemaFixture(instrumentation.targetContext, instrumentation.context)
+    private var room: MatcheckDatabase? = null
+
+    @After
+    fun tearDown() {
+        room?.close()
+        instrumentation.targetContext.deleteDatabase(TEST_DB)
+    }
+
+    /** Довести базу [TEST_DB] до текущей версии путём приложения. */
+    private fun migrateToLatest(): SupportSQLiteDatabase =
+        fixture.openWithRoom(TEST_DB).also { room = it }.openHelper.writableDatabase
 
     @Test
-    fun migrate24To25_keepsMutationsDraftsAndPendingUploads() {
-        helper.createDatabase(TEST_DB, 24).use { db ->
+    fun migrate24ToLatest_keepsMutationsDraftsAndPendingUploads() {
+        fixture.createDatabase(TEST_DB, 24).use { db ->
             // Мутация в очереди отправки — самое дорогое, что есть локально.
             db.execSQL(
                 """
@@ -133,7 +141,7 @@ class MatcheckDatabaseMigrationTest {
             )
         }
 
-        val db = helper.runMigrationsAndValidate(TEST_DB, 25, true, *MIGRATIONS)
+        val db = migrateToLatest()
 
         assertEquals(1, db.count("SELECT COUNT(*) FROM mutations WHERE id = 'mut-1'"))
 
@@ -183,8 +191,8 @@ class MatcheckDatabaseMigrationTest {
      * иначе серверные фото (у них sourcePath пуст) перестали бы вставляться.
      */
     @Test
-    fun migrate24To25_uniqueIndexBlocksDuplicateSourcePathButAllowsNulls() {
-        helper.createDatabase(TEST_DB, 24).use { db ->
+    fun migrate24ToLatest_uniqueIndexBlocksDuplicateSourcePathButAllowsNulls() {
+        fixture.createDatabase(TEST_DB, 24).use { db ->
             db.execSQL(
                 """
                 INSERT INTO remote_deliveries
@@ -199,7 +207,7 @@ class MatcheckDatabaseMigrationTest {
                 """.trimIndent(),
             )
         }
-        val db = helper.runMigrationsAndValidate(TEST_DB, 25, true, *MIGRATIONS)
+        val db = migrateToLatest()
 
         fun insert(id: String, sourcePath: String?) {
             val value = sourcePath?.let { "'$it'" } ?: "NULL"
@@ -234,8 +242,8 @@ class MatcheckDatabaseMigrationTest {
      * остался бы NULL навсегда, и склейка машин не заработала бы вообще.
      */
     @Test
-    fun migrate25To26_keepsDraftsAndForcesSourceDocReconcile() {
-        helper.createDatabase(TEST_DB, 25).use { db ->
+    fun migrate25ToLatest_keepsDraftsAndForcesSourceDocReconcile() {
+        fixture.createDatabase(TEST_DB, 25).use { db ->
             db.execSQL(
                 """
                 INSERT INTO stage1_drafts
@@ -259,7 +267,7 @@ class MatcheckDatabaseMigrationTest {
             db.execSQL(sourceDoc("sd-old", "strftime('%Y-%m-%dT%H:%M:%SZ','now','-200 days')"))
         }
 
-        val db = helper.runMigrationsAndValidate(TEST_DB, 26, true, *MIGRATIONS)
+        val db = migrateToLatest()
 
         // Черновики целы, groupId пуст — подхват по updId делает форма.
         assertEquals(1, db.count("SELECT COUNT(*) FROM stage1_drafts WHERE localDraftId = 'draft-s1'"))
@@ -288,18 +296,17 @@ class MatcheckDatabaseMigrationTest {
     }
 
     /**
-     * Сквозной путь ВСЕХ боевых планшетов: 23 → 26 одним обновлением.
-     *
-     * Отдельно от пошаговых тестов, потому что проверяет другое: те 23 → 24
-     * никто не проходил по частям. В проде стоит схема 23, и при установке
-     * релиза Room прогонит три миграции подряд — если хоть одна упадёт,
+     * Планшет со схемой 23: данные источников, мутации и
+     * черновики после всех миграций до текущей подряд. Писался как «23 → 26»;
+     * с 24.11.2026 идёт до текущей версии — как у такого планшета при
+     * установке релиза. Если хоть одна миграция упадёт,
      * `fallbackToDestructiveMigration(dropAllTables = true)` молча снесёт и
      * неотправленные мутации, и черновики. Это единственная копия данных
      * инспектора: 1 Этап живёт локально до финализации.
      */
     @Test
-    fun migrate23To26_keepsMutationsAndDraftsAcrossAllSteps() {
-        helper.createDatabase(TEST_DB, 23).use { db ->
+    fun migrate23ToLatest_keepsSourceDocsMutationsAndDrafts() {
+        fixture.createDatabase(TEST_DB, 23).use { db ->
             db.execSQL(
                 """
                 INSERT INTO mutations
@@ -322,7 +329,7 @@ class MatcheckDatabaseMigrationTest {
             db.execSQL(sourceDoc("sd-23", "strftime('%Y-%m-%dT%H:%M:%SZ','now','-3 days')"))
         }
 
-        val db = helper.runMigrationsAndValidate(TEST_DB, 26, true, *MIGRATIONS)
+        val db = migrateToLatest()
 
         assertEquals(1, db.count("SELECT COUNT(*) FROM mutations WHERE id = 'mut-23'"))
         assertEquals(1, db.count("SELECT COUNT(*) FROM stage1_drafts WHERE localDraftId = 'draft-23'"))
@@ -348,43 +355,6 @@ class MatcheckDatabaseMigrationTest {
     }
 
     /**
-     * UNIQUE по groupId — одна машина, один черновик. NULL при этом
-     * конфликтовать не должен: у приёмок без документа и у старых черновиков
-     * groupId пуст, и их может быть сколько угодно.
-     *
-     * Только для схемы 26: с 27 индекс неуникальный (см.
-     * [migrate26To27_secondDraftOfSameMachineAndQuarantineRow]).
-     */
-    @Test
-    fun migrate25To26_uniqueGroupIdAllowsManyNulls() {
-        helper.createDatabase(TEST_DB, 25).use { }
-        val db = helper.runMigrationsAndValidate(TEST_DB, 26, true, *MIGRATIONS)
-
-        fun insert(id: String, groupId: String?) {
-            val value = groupId?.let { "'$it'" } ?: "NULL"
-            db.execSQL(
-                """
-                INSERT INTO stage1_drafts
-                    (localDraftId, updId, documentPhotoPathsJson, cargoPhotoPathsJson,
-                     vehicleTypeCode, materialsJson, commentText, licensePlate, manualUpdText,
-                     inTransit, isAssets, groupId, loadedDocIdsJson, loadedGroupRevision,
-                     createdAt, updatedAt)
-                VALUES ('$id', NULL, '[]', '[]', NULL, '[]', '', '', '', 0, 0,
-                        $value, '[]', NULL, 1, 1)
-                """.trimIndent(),
-            )
-        }
-
-        insert("d1", "bundle-1")
-        val duplicate = runCatching { insert("d2", "bundle-1") }
-        assertTrue("дубль groupId должен отбиваться индексом", duplicate.isFailure)
-
-        insert("d3", null)
-        insert("d4", null)
-        assertEquals(3, db.count("SELECT COUNT(*) FROM stage1_drafts"))
-    }
-
-    /**
      * Миграция 26 → 27 (выпуск 2, «одна машина — одна приёмка») — путь всех
      * боевых планшетов 1.0.40. Отката у планшета нет: меньший versionCode
      * поверх не ставится, а старая сборка базу версии 27 не откроет. Поэтому
@@ -392,7 +362,7 @@ class MatcheckDatabaseMigrationTest {
      */
     @Test
     fun migrate26To27_keepsQueueDraftsAndPhotos() {
-        helper.createDatabase(TEST_DB, 26).use { db ->
+        fixture.createDatabase(TEST_DB, 26).use { db ->
             db.execSQL(
                 """
                 INSERT INTO mutations
@@ -465,7 +435,7 @@ class MatcheckDatabaseMigrationTest {
             )
         }
 
-        val db = helper.runMigrationsAndValidate(TEST_DB, 27, true, *MIGRATIONS)
+        val db = migrateToLatest()
 
         // Очередь: мутация с телом и счётчиком попыток как была.
         db.query(
@@ -534,10 +504,10 @@ class MatcheckDatabaseMigrationTest {
      */
     @Test
     fun migrate26To27_secondDraftOfSameMachineAndQuarantineRow() {
-        helper.createDatabase(TEST_DB, 26).use { db ->
+        fixture.createDatabase(TEST_DB, 26).use { db ->
             db.execSQL(stage1Draft("d1", updId = "sd-1", groupId = "bundle-1", extraColumns = false))
         }
-        val db = helper.runMigrationsAndValidate(TEST_DB, 27, true, *MIGRATIONS)
+        val db = migrateToLatest()
 
         db.execSQL(stage1Draft("d2", updId = "sd-1", groupId = "bundle-1", extraColumns = true))
         assertEquals(2, db.count("SELECT COUNT(*) FROM stage1_drafts WHERE groupId = 'bundle-1'"))
@@ -571,7 +541,7 @@ class MatcheckDatabaseMigrationTest {
      */
     @Test
     fun migrate23To27_keepsMutationsAndDraftsAcrossAllSteps() {
-        helper.createDatabase(TEST_DB, 23).use { db ->
+        fixture.createDatabase(TEST_DB, 23).use { db ->
             db.execSQL(
                 """
                 INSERT INTO mutations
@@ -593,7 +563,7 @@ class MatcheckDatabaseMigrationTest {
             )
         }
 
-        val db = helper.runMigrationsAndValidate(TEST_DB, 27, true, *MIGRATIONS)
+        val db = migrateToLatest()
 
         assertEquals(1, db.count("SELECT COUNT(*) FROM mutations WHERE id = 'mut-23'"))
         db.query(
@@ -659,18 +629,6 @@ class MatcheckDatabaseMigrationTest {
                 "{\"name\":\"Цемент\",\"qty\":\"3\",\"unit\":\"т\"," +
                 "\"sourceDocumentId\":\"sd-2\",\"sourceDocumentItemId\":\"it-2\"}]"
 
-        /**
-         * Миграции обязаны передаваться явно: helper создан с `emptyList()`
-         * (автомиграций у нас нет), и без этого списка Room не найдёт пути и
-         * упадёт с «A migration from N to M was required but not found» —
-         * то есть тест не проверял бы вообще ничего.
-         */
-        val MIGRATIONS = arrayOf(
-            MatcheckDatabase.MIGRATION_23_24,
-            MatcheckDatabase.MIGRATION_24_25,
-            MatcheckDatabase.MIGRATION_25_26,
-            MatcheckDatabase.MIGRATION_26_27,
-        )
         val DRAFT_TABLES = listOf(
             "stage1_drafts",
             "stage2_drafts",

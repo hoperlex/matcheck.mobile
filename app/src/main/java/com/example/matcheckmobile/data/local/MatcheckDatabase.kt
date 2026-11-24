@@ -155,12 +155,27 @@ abstract class MatcheckDatabase : RoomDatabase() {
                     MatcheckDatabase::class.java,
                     DB_NAME,
                 )
-                    .addMigrations(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27)
+                    .addMigrations(*ALL_MIGRATIONS)
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
                     .also { INSTANCE = it }
             }
         }
+
+        /**
+         * Все миграции приложения. Отдельным списком, чтобы instrumented-тест
+         * (MatcheckDatabaseMigrationTest) открывал базу ровно тем же путём, что
+         * [get] у инспектора, — пропущенный шаг уронит тест, а не сотрёт базу.
+         * Геттер, а не значение: сами миграции объявлены ниже и при
+         * инициализации companion ещё не готовы.
+         */
+        internal val ALL_MIGRATIONS: Array<Migration>
+            get() = arrayOf(
+                MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12,
+                MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17,
+                MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22,
+                MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27,
+            )
 
         // Добавлена таблица delivery_local_meta — локальный vehicleTypeCode,
         // который не приходит из server-snapshot и не должен теряться при /sync.
