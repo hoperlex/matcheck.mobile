@@ -9,6 +9,7 @@ import com.example.matcheckmobile.data.local.entity.MutationEntity
 import com.example.matcheckmobile.data.local.entity.QuarantinedOperationEntity
 import com.example.matcheckmobile.data.remote.api.DeliveriesApi
 import com.example.matcheckmobile.data.remote.api.ShipmentsApi
+import com.example.matcheckmobile.data.remote.api.dto.DeliveryUpsertItem
 import com.example.matcheckmobile.data.remote.api.dto.DeliveryUpsertRequest
 import com.example.matcheckmobile.data.remote.net.AuthHeaderInterceptor
 import com.example.matcheckmobile.data.remote.net.ClientCapabilities
@@ -245,6 +246,100 @@ class GroupProtocolHttpTest {
         assertTrue(mutations.isEmpty())
     }
 
+    /**
+     * Тело «Завершить 1 Этап» сборки 1.0.41 так, как его собирает
+     * DeliveryRepository.upsert из формы машины из двух УПД: позиции с
+     * происхождением и финансами, госномер, комментарий, машина и версия состава.
+     */
+    private val stage1 = DeliveryUpsertRequest(
+        id = "0b0b0b0b-0000-4000-8000-000000000001",
+        statusCode = "filled",
+        siteId = "5e5e5e5e-0000-4000-8000-000000000001",
+        supplierId = "50505050-0000-4000-8000-000000000001",
+        vehiclePlate = "А111АА77",
+        arrivedAt = "2026-11-24T08:15:30.123456Z",
+        comment = "1 Этап: \"без замечаний\"",
+        sourceDocumentIds = listOf(
+            "d0c00000-0000-4000-8000-000000000001",
+            "d0c00000-0000-4000-8000-000000000002",
+        ),
+        items = listOf(
+            DeliveryUpsertItem(
+                id = "17e70000-0000-4000-8000-000000000001",
+                sourceDocumentId = "d0c00000-0000-4000-8000-000000000001",
+                sourceDocumentItemId = "5d170000-0000-4000-8000-000000000001",
+                nameRaw = "Арматура А500С d12",
+                qtyActual = "10.5",
+                unit = "т",
+                lineNo = 1,
+                price = "65000.00",
+                vatRate = "20",
+                vatSum = "136500.00",
+            ),
+            DeliveryUpsertItem(
+                id = "17e70000-0000-4000-8000-000000000002",
+                sourceDocumentId = "d0c00000-0000-4000-8000-000000000002",
+                sourceDocumentItemId = "5d170000-0000-4000-8000-000000000002",
+                nameRaw = "Цемент М500",
+                qtyActual = "40",
+                unit = "шт",
+                lineNo = 2,
+                price = "450",
+                vatRate = "20",
+                vatSum = "3600",
+            ),
+        ),
+        baseVersion = 0,
+        capabilities = ClientCapabilities.ALL,
+        groupId = "9a9a9a9a-0000-4000-8000-000000000001",
+        groupRevision = 1,
+    )
+
+    /**
+     * Формат запроса планшета — договор с сервером. Сверяется то, что реально
+     * уходит по сети: мутация лежит в очереди в формате DeliveryRepository
+     * (encodeDefaults = true), MutationProcessor её разбирает, Retrofit
+     * сериализует Json-ом как в NetworkFactory (null и значения по умолчанию не
+     * пишутся — поэтому нет inTransit, isAssets и unit "шт").
+     *
+     * ТА ЖЕ строка — эталон серверного теста matcheck
+     * `apps/api/test/integration/mobile-delivery-body.int.test.ts`: он шлёт её
+     * в POST /api/v1/deliveries. Поменялся формат — падает этот тест, и эталон
+     * обновляется в ОБОИХ местах, иначе серверный тест проверяет не то, что
+     * шлёт планшет.
+     */
+    @Test
+    fun `тело 1 Этапа по сети совпадает с эталоном серверного теста`() = runBlocking {
+        val m = MutationEntity(
+            id = "m-stage1",
+            entityType = "delivery",
+            operation = "upsert",
+            entityId = stage1.id!!,
+            baseVersion = 0,
+            payloadJson = Json { encodeDefaults = true; ignoreUnknownKeys = true }
+                .encodeToString(DeliveryUpsertRequest.serializer(), stage1),
+            attempts = 0,
+            nextAttemptAt = null,
+            lastError = null,
+            conflictPending = false,
+            createdAt = 0,
+        )
+        mutations[m.id] = m
+        server.enqueue(MockResponse().setResponseCode(503).setBody("""{"error":"busy_retry"}"""))
+
+        processor().processAll()
+
+        val request = server.takeRequest()
+        assertEquals("POST", request.method)
+        assertEquals("/api/v1/deliveries", request.path)
+        assertEquals("mobile", request.getHeader("X-Client-Type"))
+        assertEquals(ClientCapabilities.ALL, request.getHeader(ClientCapabilities.HEADER))
+        assertEquals(
+            json.parseToJsonElement(STAGE1_BODY_1_0_41),
+            json.parseToJsonElement(request.body.readUtf8()),
+        )
+    }
+
     private object StubTokens : SessionTokens {
         override val accessToken: String = "access"
         override fun isAccessTokenValid(marginMillis: Long) = true
@@ -278,4 +373,47 @@ class GroupProtocolHttpTest {
                 else -> handler(method.name, args.orEmpty().filterNot { it is Continuation<*> })
             }
         } as T
+
+    companion object {
+        /** Эталон тела 1 Этапа 1.0.41 — см. тест «тело 1 Этапа по сети…». */
+        const val STAGE1_BODY_1_0_41 = """{
+  "id": "0b0b0b0b-0000-4000-8000-000000000001",
+  "statusCode": "filled",
+  "siteId": "5e5e5e5e-0000-4000-8000-000000000001",
+  "supplierId": "50505050-0000-4000-8000-000000000001",
+  "vehiclePlate": "А111АА77",
+  "arrivedAt": "2026-11-24T08:15:30.123456Z",
+  "comment": "1 Этап: \"без замечаний\"",
+  "sourceDocumentIds": ["d0c00000-0000-4000-8000-000000000001", "d0c00000-0000-4000-8000-000000000002"],
+  "items": [
+    {
+      "id": "17e70000-0000-4000-8000-000000000001",
+      "sourceDocumentId": "d0c00000-0000-4000-8000-000000000001",
+      "sourceDocumentItemId": "5d170000-0000-4000-8000-000000000001",
+      "nameRaw": "Арматура А500С d12",
+      "qtyActual": "10.5",
+      "unit": "т",
+      "lineNo": 1,
+      "price": "65000.00",
+      "vatRate": "20",
+      "vatSum": "136500.00"
+    },
+    {
+      "id": "17e70000-0000-4000-8000-000000000002",
+      "sourceDocumentId": "d0c00000-0000-4000-8000-000000000002",
+      "sourceDocumentItemId": "5d170000-0000-4000-8000-000000000002",
+      "nameRaw": "Цемент М500",
+      "qtyActual": "40",
+      "lineNo": 2,
+      "price": "450",
+      "vatRate": "20",
+      "vatSum": "3600"
+    }
+  ],
+  "baseVersion": 0,
+  "capabilities": "source_groups_v1,group_claim_v1",
+  "groupId": "9a9a9a9a-0000-4000-8000-000000000001",
+  "groupRevision": 1
+}"""
+    }
 }

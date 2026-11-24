@@ -26,6 +26,7 @@ import com.example.matcheckmobile.presentation.components.VehicleLoadInfo
 import com.example.matcheckmobile.presentation.navigation.Routes
 import com.example.matcheckmobile.sync.MatcheckSyncScheduler
 import com.example.matcheckmobile.sync.PhotoPrepareScheduler
+import io.sentry.Sentry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.async
@@ -121,8 +122,12 @@ class Stage1FormViewModel(
             resolveGroupDocs(groupId = initialGroupId, anchorUpdId = updId ?: opened?.updId)
         }
 
+        // Сбой сведения — не повод не открыть карточку: форма работает с
+        // найденным черновиком как есть (поведение 1.0.40), см. reconcileOrFallback.
         val restored = if (docs.isNotEmpty()) {
-            reconcileMachineDrafts(docs, preferredId = opened?.localDraftId, current = null)
+            reconcileOrFallback(fallback = opened, onFailure = { reportReconcileFailure("open", it) }) {
+                reconcileMachineDrafts(docs, preferredId = opened?.localDraftId, current = null)
+            }
         } else {
             opened
         }
@@ -212,6 +217,19 @@ class Stage1FormViewModel(
         )
         if (!plan.isNoop) repo.applyPlan(plan)
         return plan.result
+    }
+
+    /**
+     * В журнал — только место и класс исключения, без сообщения: в тексте
+     * ошибки Room или JSON могут оказаться данные формы (госномер, комментарий).
+     */
+    private fun reportReconcileFailure(where: String, error: Exception) {
+        container.incidentJournal.record(
+            "draft_reconcile_failed",
+            "where" to where,
+            "error" to error::class.simpleName,
+        )
+        Sentry.captureException(error)
     }
 
     /**
@@ -691,11 +709,18 @@ class Stage1FormViewModel(
         // черновиков переносит их в черновик новой машины документа или
         // откладывает до его возвращения. Текущее состояние формы пишется
         // перед сведением — правки последних секунд тоже переедут.
-        val reconciled = reconcileMachineDrafts(
-            docs,
-            preferredId = draftLocalId,
-            current = before.toDraftState(),
-        )
+        // Сбой сведения — форма приводится к составу машины прежним способом
+        // (mergeGroupMaterials ниже), черновики в базе остаются как были.
+        val reconciled = reconcileOrFallback(
+            fallback = null,
+            onFailure = { reportReconcileFailure("composition", it) },
+        ) {
+            reconcileMachineDrafts(
+                docs,
+                preferredId = draftLocalId,
+                current = before.toDraftState(),
+            )
+        }
         reconciled?.let { r ->
             draftLocalId = r.localDraftId
             _state.update {

@@ -6,6 +6,7 @@ import com.example.matcheckmobile.domain.model.draftGroupKey
 import com.example.matcheckmobile.domain.model.groupKeyOf
 import com.example.matcheckmobile.domain.model.sortGroupDocs
 import com.example.matcheckmobile.presentation.components.MaterialDraft
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 
 /**
@@ -365,4 +366,29 @@ private fun newMachineDraft(
         createdAt = now,
         updatedAt = now,
     )
+}
+
+/**
+ * Сведение черновиков со страховкой. Сбой [block] (битый JSON старого
+ * черновика, ошибка Room, ошибка в [planMachineDrafts]) не должен ронять
+ * форму при открытии карточки: исключение в корутине ViewModel закрыло бы
+ * приложение, и инспектор не смог бы открыть машину вовсе.
+ *
+ * При сбое возвращается [fallback] — прежнее поведение (форма работает с
+ * найденным черновиком как есть, остальные черновики машины лежат
+ * нетронутыми). Ничего не теряется: план пишется одной транзакцией Room
+ * (`Stage1DraftRepository.applyPlan`), так что упавшее сведение не оставляет
+ * в базе половины изменений. Отмена корутины пробрасывается как есть.
+ */
+internal suspend fun reconcileOrFallback(
+    fallback: Stage1DraftState?,
+    onFailure: (Exception) -> Unit,
+    block: suspend () -> Stage1DraftState?,
+): Stage1DraftState? = try {
+    block()
+} catch (e: CancellationException) {
+    throw e
+} catch (e: Exception) {
+    onFailure(e)
+    fallback
 }

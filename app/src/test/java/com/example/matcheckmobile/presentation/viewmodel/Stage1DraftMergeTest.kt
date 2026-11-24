@@ -4,6 +4,8 @@ import com.example.matcheckmobile.data.repository.Stage1DraftState
 import com.example.matcheckmobile.domain.model.draftGroupKey
 import com.example.matcheckmobile.domain.model.testDoc
 import com.example.matcheckmobile.presentation.components.MaterialDraft
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -301,5 +303,48 @@ class Stage1DraftMergeTest {
         assertTrue(draft("d", "a1", "A").isStructurallyEmpty())
         assertFalse(draft("d", "a1", "A", parked = listOf(row("x", "y", "Z", "1"))).isStructurallyEmpty())
         assertNull(plan("A", listOf("a1"), emptyList(), listOf(testDoc("a1", groupId = "A"))).result)
+    }
+
+    // ── Страховка открытия формы ────────────────────────────────────────────
+
+    @Test
+    fun `сбой сведения — форма получает найденный черновик, сбой отмечен`() = runTest {
+        val opened = draft("d", "a1", "A", plate = "А111АА")
+        val failures = mutableListOf<Exception>()
+
+        val result = reconcileOrFallback(fallback = opened, onFailure = { failures += it }) {
+            error("битый черновик")
+        }
+
+        assertEquals(opened, result)
+        assertEquals(1, failures.size)
+        assertTrue(failures.single() is IllegalStateException)
+    }
+
+    @Test
+    fun `успешное сведение возвращает итог плана, сбоя нет`() = runTest {
+        val merged = draft("m", "a1", "A")
+        var failed = false
+
+        val result = reconcileOrFallback(fallback = draft("d", "a1", "A"), onFailure = { failed = true }) {
+            merged
+        }
+
+        assertEquals(merged, result)
+        assertFalse(failed)
+    }
+
+    @Test
+    fun `отмена корутины не глотается и сбоем не считается`() = runTest {
+        var failed = false
+
+        val thrown = runCatching {
+            reconcileOrFallback(fallback = draft("d", "a1", "A"), onFailure = { failed = true }) {
+                throw CancellationException("экран закрыт")
+            }
+        }.exceptionOrNull()
+
+        assertTrue(thrown is CancellationException)
+        assertFalse(failed)
     }
 }
