@@ -25,7 +25,11 @@ android {
         // отставшие — Build 38 (2) и Build 37 (1). Счёт по sessions.last_seen_ua
         // занижает старые сборки: UA перезаписывается при обновлении, и записи
         // старой версии числятся за новой — точнее смотреть auth_events.
-        // 1.0.41 (42) — групповой протокол «одна машина — одна приёмка».
+        // 1.0.41 (42) — групповой протокол «одна машина — одна приёмка». Google
+        // Play Защита пометила этот APK «вредоносным» (26.11.2026; 1.0.40 ставится
+        // чисто). 1.0.42 (43) — то же, но встроенное обновление дословно как в
+        // 1.0.40: без обязательного режима (диалог без «Не сейчас» с текстом
+        // «версия больше не поддерживается»), самого вероятного повода метки.
         // Номер обязан строго расти:
         // in-app updater сравнивает manifest.versionCode с BuildConfig.VERSION_CODE
         // и предлагает обновление только когда первый больше. Непрерывность не
@@ -35,8 +39,8 @@ android {
         // существующем теге уходит в `gh release upload --clobber` и молча
         // перезаписывает ассеты уже выпущенной версии, а планшеты, которые на неё
         // обновились, новый код не получат никогда.
-        versionCode = 42
-        versionName = "1.0.41"
+        versionCode = 43
+        versionName = "1.0.42"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -229,6 +233,17 @@ dependencies {
 //   4. Дёргает `gh release create v<versionName> ...` — GitHub CLI должен
 //      быть аутентифицирован заранее одноразовым `gh auth login`.
 //
+// Черновик: ./gradlew publishGithubRelease -PdraftRelease=true создаёт релиз
+// черновиком (`gh release create --draft`). Черновик не становится Latest, его
+// файлы не отдаются по публичным ссылкам — планшеты его не видят. Скачать и
+// проверить именно выложенный файл, затем выдать тот же черновик:
+//   gh release download v<versionName> --repo hoperlex/matcheck.mobile-releases \
+//     -p app-release.apk -p manifest.json
+//   gh release edit v<versionName> --repo hoperlex/matcheck.mobile-releases \
+//     --draft=false --latest
+// Черновик — только для новой версии: если тег уже есть, задача отказывает,
+// а не перезаливает ассеты.
+//
 // versionCode и versionName поднимаются разработчиком вручную в блоке
 // android.defaultConfig перед запуском таски — иначе клиенты на старой
 // версии не увидят обновление (manifest.versionCode не превысит
@@ -269,20 +284,7 @@ val publishGithubRelease by tasks.registering {
             digest.digest().joinToString("") { "%02x".format(it) }
         }
 
-        // Минимальная поддерживаемая сборка: ниже неё диалог обновления
-        // показывается без «Не сейчас» (AppUpdateRepository.isMandatoryUpdate).
-        // По умолчанию 1 — никого не принуждаем. Поднимать — параметром:
-        //   ./gradlew publishGithubRelease -PminSupportedVersionCode=42
-        // Нужна для группового протокола: на объекте с защитой «одна машина —
-        // одна приёмка» старые сборки работать не могут.
-        val minSupportedVersionCode = (project.findProperty("minSupportedVersionCode") as String?)
-            ?.toIntOrNull() ?: 1
-        if (minSupportedVersionCode > versionCode) {
-            throw GradleException(
-                "minSupportedVersionCode=$minSupportedVersionCode больше versionCode=$versionCode: " +
-                    "обновиться было бы не на что",
-            )
-        }
+        val draft = (project.findProperty("draftRelease") as String?)?.toBoolean() == true
 
         val tag = "v$versionName"
         val apkUrl = "https://github.com/hoperlex/matcheck.mobile-releases/" +
@@ -300,7 +302,7 @@ val publishGithubRelease by tasks.registering {
               "apkSizeBytes": ${apkFile.length()},
               "apkSha256": "$sha256",
               "changelog": "",
-              "minSupportedVersionCode": $minSupportedVersionCode,
+              "minSupportedVersionCode": 1,
               "releasedAt": "${OffsetDateTime.now(ZoneOffset.UTC)}"
             }
         """.trimIndent()
@@ -335,6 +337,12 @@ val publishGithubRelease by tasks.registering {
         // already exists». Если релиз с этим тегом уже есть — перезаписываем
         // ассеты через `gh release upload --clobber`, иначе создаём заново.
         val releaseExists = runGh("gh", "release", "view", tag, "--repo", repo).first == 0
+        if (draft && releaseExists) {
+            throw GradleException(
+                "Релиз $tag уже существует — черновик создаётся только для новой версии. " +
+                    "Перезаливать ассеты существующего релиза этим путём нельзя: поднимите versionCode/versionName.",
+            )
+        }
 
         val action = if (releaseExists) "upload" else "create"
         val (exitCode, output) = if (releaseExists) {
@@ -347,7 +355,7 @@ val publishGithubRelease by tasks.registering {
                 "--clobber",
             )
         } else {
-            println("Создаю GitHub release $tag...")
+            println(if (draft) "Создаю ЧЕРНОВИК GitHub release $tag..." else "Создаю GitHub release $tag...")
             runGh(
                 "gh", "release", "create", tag,
                 apkFile.absolutePath,
@@ -355,6 +363,7 @@ val publishGithubRelease by tasks.registering {
                 "--repo", repo,
                 "--title", "su10 $versionName",
                 "--notes", "Release $versionName (versionCode=$versionCode)",
+                *(if (draft) arrayOf("--draft") else emptyArray()),
             )
         }
         if (output.isNotBlank()) println(output)
@@ -365,7 +374,14 @@ val publishGithubRelease by tasks.registering {
             )
         }
 
-        println("Релиз $tag опубликован.")
-        println("  https://github.com/hoperlex/matcheck.mobile-releases/releases/tag/$tag")
+        if (draft) {
+            println("Черновик $tag создан — планшеты его НЕ видят.")
+            println("Проверить: gh release view $tag --repo $repo --json isDraft,assets")
+            println("Скачать выложенное: gh release download $tag --repo $repo -p app-release.apk -p manifest.json")
+            println("Выдать: gh release edit $tag --repo $repo --draft=false --latest")
+        } else {
+            println("Релиз $tag опубликован.")
+            println("  https://github.com/hoperlex/matcheck.mobile-releases/releases/tag/$tag")
+        }
     }
 }

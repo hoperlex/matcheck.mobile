@@ -42,18 +42,10 @@ fun AppUpdateDialogHost() {
 
     when (val s = state) {
         is AppUpdateState.Available -> if (s.dialogShown) AlertDialog(
-            // Обязательное обновление не закрывается тапом мимо — см. afterDismiss.
             onDismissRequest = { repo.dismiss() },
-            title = { Text(if (s.mandatory) "Нужно обновить приложение" else "Доступно обновление") },
+            title = { Text("Доступно обновление") },
             text = {
                 Column {
-                    if (s.mandatory) {
-                        Text(
-                            "Эта версия больше не поддерживается. Обновите приложение, " +
-                                "чтобы продолжить работу. Начатые приёмки и фото сохранятся.",
-                            modifier = Modifier.padding(bottom = 8.dp),
-                        )
-                    }
                     Text("Версия ${s.manifest.versionName}", style = MaterialTheme.typography.titleMedium)
                     if (s.manifest.changelog.isNotBlank()) {
                         Text(
@@ -75,12 +67,9 @@ fun AppUpdateDialogHost() {
                     Text("Установить")
                 }
             },
-            // Без «Не сейчас» у обязательного обновления.
-            dismissButton = if (s.mandatory) null else {
-                {
-                    TextButton(onClick = { repo.dismiss() }) {
-                        Text("Не сейчас")
-                    }
+            dismissButton = {
+                TextButton(onClick = { repo.dismiss() }) {
+                    Text("Не сейчас")
                 }
             },
         )

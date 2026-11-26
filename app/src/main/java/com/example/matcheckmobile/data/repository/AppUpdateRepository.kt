@@ -43,13 +43,6 @@ sealed class AppUpdateState {
     data class Available(
         val manifest: AppUpdateManifest,
         val dialogShown: Boolean = true,
-        /**
-         * Эта сборка ниже minSupportedVersionCode манифеста: обновление
-         * обязательно, «Не сейчас» нет и диалог не закрывается. Нужна, когда
-         * старые сборки работать уже не могут (групповой протокол «одна машина
-         * — одна приёмка»: сервер не пустит их на включённый объект).
-         */
-        val mandatory: Boolean = false,
     ) : AppUpdateState()
     data class Downloading(val manifest: AppUpdateManifest, val percent: Int) : AppUpdateState()
     data class ReadyToInstall(val manifest: AppUpdateManifest, val apkFile: File) : AppUpdateState()
@@ -102,10 +95,7 @@ class AppUpdateRepository(
             _state.value = result.fold(
                 onSuccess = { manifest ->
                     if (manifest.versionCode > BuildConfig.VERSION_CODE) {
-                        AppUpdateState.Available(
-                            manifest,
-                            mandatory = isMandatoryUpdate(BuildConfig.VERSION_CODE, manifest),
-                        )
+                        AppUpdateState.Available(manifest)
                     } else {
                         AppUpdateState.UpToDate
                     }
@@ -187,7 +177,12 @@ class AppUpdateRepository(
      * в Idle, чтобы chip пропал.
      */
     fun dismiss() {
-        _state.update { current -> afterDismiss(current, BuildConfig.VERSION_CODE) }
+        _state.update { current ->
+            when (current) {
+                is AppUpdateState.Available -> current.copy(dialogShown = false)
+                else -> AppUpdateState.Idle
+            }
+        }
     }
 
     /**
@@ -201,39 +196,4 @@ class AppUpdateRepository(
             else current
         }
     }
-}
-
-/**
- * Обязательно ли обновление: эта сборка ниже minSupportedVersionCode, и в
- * манифесте есть что ставить. Второе условие — страховка от манифеста, где
- * минимальная версия поднята выше опубликованной: запирать инспектора в
- * диалоге без выхода и без APK нельзя.
- */
-internal fun isMandatoryUpdate(currentVersionCode: Int, manifest: AppUpdateManifest): Boolean =
-    currentVersionCode < manifest.minSupportedVersionCode && manifest.versionCode > currentVersionCode
-
-/**
- * Состояние после «Не сейчас» / закрытия диалога.
- *
- * Обязательное обновление не откладывается: диалог остаётся открытым, а из
- * ошибки скачивания или установки состояние возвращается к диалогу
- * «Установить» — иначе одно нажатие «Закрыть» после сбоя сети вернуло бы
- * инспектора в старую сборку до следующей фоновой проверки.
- */
-internal fun afterDismiss(current: AppUpdateState, currentVersionCode: Int): AppUpdateState = when (current) {
-    is AppUpdateState.Available ->
-        if (current.mandatory) current.copy(dialogShown = true) else current.copy(dialogShown = false)
-    is AppUpdateState.DownloadFailed ->
-        if (isMandatoryUpdate(currentVersionCode, current.manifest)) {
-            AppUpdateState.Available(current.manifest, mandatory = true)
-        } else {
-            AppUpdateState.Idle
-        }
-    is AppUpdateState.InstallBlocked ->
-        if (isMandatoryUpdate(currentVersionCode, current.manifest)) {
-            AppUpdateState.Available(current.manifest, mandatory = true)
-        } else {
-            AppUpdateState.Idle
-        }
-    else -> AppUpdateState.Idle
 }
